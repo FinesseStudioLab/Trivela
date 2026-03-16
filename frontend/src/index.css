@@ -1,8 +1,19 @@
 :root {
-  font-family: system-ui, -apple-system, sans-serif;
+  --bg: #06090f;
+  --bg-elevated: #0d1117;
+  --bg-card: #161b22;
+  --text: #e6edf3;
+  --text-muted: #8b949e;
+  --accent: #58a6ff;
+  --accent-hover: #79b8ff;
+  --accent-soft: rgba(88, 166, 255, 0.15);
+  --border: #21262d;
+  --success: #3fb950;
+  --font-heading: "Outfit", system-ui, sans-serif;
+  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
   line-height: 1.6;
-  color: #0f172a;
-  background: #f8fafc;
+  color: var(--text);
+  background: var(--bg);
 }
 
 * {
@@ -16,4 +27,13 @@ body {
 
 #root {
   min-height: 100vh;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  color: var(--accent-hover);
 }
