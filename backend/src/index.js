@@ -124,8 +124,14 @@ function nextCampaignId(campaigns) {
 
 export function createApp(options = {}) {
   const apiKey = options.apiKey ?? process.env.TRIVELA_API_KEY ?? '';
-  const corsAllowedOrigins =
+  const corsOriginConfig =
     options.corsAllowedOrigins ?? process.env.CORS_ALLOWED_ORIGINS ?? process.env.CORS_ORIGIN;
+  const corsAllowedOrigins =
+    typeof corsOriginConfig === 'string' && corsOriginConfig.trim().length > 0
+      ? corsOriginConfig
+      : process.env.NODE_ENV === 'production'
+      ? ''
+      : 'http://localhost:5173';
   const stellarNetwork = options.stellarNetwork ?? process.env.STELLAR_NETWORK ?? 'testnet';
   const sorobanRpcUrl = options.sorobanRpcUrl ?? process.env.SOROBAN_RPC_URL ?? DEFAULT_RPC_URL;
   const rewardsContractId = readOptionalConfigValue(options, 'REWARDS_CONTRACT_ID');

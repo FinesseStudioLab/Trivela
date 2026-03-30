@@ -13,8 +13,8 @@ npm run dev
 ## Environment
 
 - `PORT`: Server port (default `3001`)
-- `CORS_ALLOWED_ORIGINS`: Comma-separated allowed origins for CORS (example: `https://app.example.com,https://admin.example.com`)
-- `CORS_ORIGIN`: Legacy single-origin CORS setting (fallback when `CORS_ALLOWED_ORIGINS` is not set)
+- `CORS_ALLOWED_ORIGINS`: Comma-separated allowed origins for CORS (example: `https://app.example.com,https://admin.example.com`). If this is not set in production, CORS defaults to a safe deny-all for cross-origin requests.
+- `CORS_ORIGIN`: Legacy single-origin CORS setting (fallback when `CORS_ALLOWED_ORIGINS` is not set). In development, if neither is set, defaults to `http://localhost:5173`.
 - `STELLAR_NETWORK`: `testnet` or `mainnet`
 - `SOROBAN_RPC_URL`: Soroban RPC URL exposed in API metadata
 - `REWARDS_CONTRACT_ID`: Optional rewards contract ID exposed by `/api/v1/config`

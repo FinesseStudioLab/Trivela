@@ -140,6 +140,45 @@ test('/health/rpc returns 503 when the Soroban RPC health check fails', async ()
   }
 });
 
+test('CORS allows configured origins and rejects others', async () => {
+  const { server, baseUrl } = await startTestServer({
+    corsAllowedOrigins: 'https://app.example.com, https://admin.example.com',
+  });
+
+  try {
+    const allowedRes = await fetch(`${baseUrl}/api/v1`, {
+      headers: { origin: 'https://app.example.com' },
+    });
+    assert.equal(allowedRes.status, 200);
+    assert.equal(allowedRes.headers.get('access-control-allow-origin'), 'https://app.example.com');
+
+    const deniedRes = await fetch(`${baseUrl}/api/v1`, {
+      headers: { origin: 'https://evil.example' },
+    });
+    assert.equal(deniedRes.status, 200);
+    assert.equal(deniedRes.headers.get('access-control-allow-origin'), null);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('CORS production default is safe (no open origins)', async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  const { server, baseUrl } = await startTestServer({});
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1`, {
+      headers: { origin: 'http://localhost:5173' },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('access-control-allow-origin'), null);
+  } finally {
+    await stopTestServer(server);
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+});
+
 test('POST /api/campaigns creates a new campaign and returns it', async () => {
   const { server, baseUrl } = await startTestServer();
 
