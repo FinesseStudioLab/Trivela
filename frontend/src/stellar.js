@@ -18,20 +18,13 @@ import {
 
 /* ---------- environment configuration ---------- */
 
-export const SOROBAN_RPC_URL =
-  import.meta.env.VITE_SOROBAN_RPC_URL || "https://soroban-testnet.stellar.org";
-
-export const REWARDS_CONTRACT_ID =
-  import.meta.env.VITE_REWARDS_CONTRACT_ID || "";
-
-export const CAMPAIGN_CONTRACT_ID =
-  import.meta.env.VITE_CAMPAIGN_CONTRACT_ID || "";
-
-export const NETWORK_PASSPHRASE =
-  import.meta.env.VITE_STELLAR_NETWORK_PASSPHRASE || Networks.TESTNET;
-
-export const HORIZON_URL =
-  import.meta.env.VITE_HORIZON_URL || "https://horizon-testnet.stellar.org";
+import {
+  SOROBAN_RPC_URL,
+  REWARDS_CONTRACT_ID,
+  CAMPAIGN_CONTRACT_ID,
+  NETWORK_PASSPHRASE,
+  HORIZON_URL,
+} from "./config";
 
 /* ---------- Freighter helpers ---------- */
 
