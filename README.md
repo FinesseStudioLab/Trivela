@@ -135,6 +135,27 @@ npm run dev:backend
 
 API: http://localhost:3001 (health: http://localhost:3001/health, v1: http://localhost:3001/api/v1).
 
+#### Run backend with Docker
+
+```bash
+# from repository root
+docker build -f backend/Dockerfile -t trivela-backend .
+
+docker run --rm -p 3001:3001 \
+  -e PORT=3001 \
+  -e STELLAR_NETWORK=testnet \
+  -e SOROBAN_RPC_URL=https://soroban-testnet.stellar.org \
+  -e CORS_ALLOWED_ORIGINS=http://localhost:5173 \
+  -e TRIVELA_API_KEY=dev-secret \
+  trivela-backend
+```
+
+or using an env file:
+
+```bash
+docker run --rm -p 3001:3001 --env-file backend/.env trivela-backend
+```
+
 ### 4. Run frontend
 
 ```bash

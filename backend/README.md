@@ -130,6 +130,12 @@ Build image from repo root:
 docker build -f backend/Dockerfile -t trivela-backend .
 ```
 
+Or build using backend as context (recommended for isolation):
+
+```bash
+docker build -f backend/Dockerfile -t trivela-backend backend/
+```
+
 Run container (example):
 
 ```bash
@@ -141,3 +147,11 @@ docker run --rm -p 3001:3001 \
   -e TRIVELA_API_KEY=dev-secret \
   trivela-backend
 ```
+
+You can also use an env file:
+
+```bash
+docker run --rm -p 3001:3001 --env-file backend/.env \
+  trivela-backend
+```
+
