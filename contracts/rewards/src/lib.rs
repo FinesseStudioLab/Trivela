@@ -10,7 +10,7 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, symbol_short, Address, Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, symbol_short, Address, BytesN, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -216,6 +216,22 @@ impl RewardsContract {
     /// Check if contract is paused.
     pub fn is_paused(env: Env) -> bool {
         env.storage().instance().get(&PAUSED).unwrap_or(false)
+    }
+
+    /// Upgrade the contract WASM to a new version (admin only).
+    ///
+    /// The new WASM must have been uploaded to the network first using
+    /// `stellar contract install`. The `new_wasm_hash` is obtained from that
+    /// installation step.
+    ///
+    /// **State preservation**: Soroban upgrades preserve all instance and
+    /// persistent storage. Only the logic (WASM bytecode) changes. New code
+    /// MUST read the existing storage layout — adding new storage keys is safe,
+    /// but reordering, removing, or repurposing existing keys will corrupt data.
+    pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 }
 
