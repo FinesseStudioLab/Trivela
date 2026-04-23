@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   apiUrl,
   CAMPAIGN_CONTRACT_ID,
@@ -55,6 +56,7 @@ export default function Landing({
   isRewardsPointsLoading,
   onRefreshPoints,
 }) {
+  const navigate = useNavigate();
   const [campaigns, setCampaigns] = useState([]);
   const [campaignsError, setCampaignsError] = useState('');
   const [isCampaignsLoading, setIsCampaignsLoading] = useState(true);
@@ -351,7 +353,12 @@ export default function Landing({
           )}
 
           <CreateCampaign
-            onCampaignCreated={() => setCampaignRefreshKey((value) => value + 1)}
+            onCampaignCreated={(campaign) => {
+              setCampaignRefreshKey((value) => value + 1);
+              if (campaign?.id) {
+                navigate(`/campaign/${campaign.id}`);
+              }
+            }}
           />
         </section>
 
