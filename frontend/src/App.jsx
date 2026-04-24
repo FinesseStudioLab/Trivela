@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Landing from './Landing';
 import CampaignDetail from './CampaignDetail';
+import AdminCampaigns from './AdminCampaigns';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import {
   getWalletAddress,
@@ -11,6 +12,7 @@ import {
   formatPoints,
   normalizeError,
 } from './stellar';
+import { logSafeEvent } from './lib/safeAnalytics';
 
 export default function App() {
   const [theme, setTheme] = useState(() => getPreferredTheme());
@@ -75,6 +77,7 @@ export default function App() {
     try {
       const address = await getWalletAddress();
       setWalletAddress(address);
+      logSafeEvent('wallet_connected');
       await loadWalletBalance(address);
     } catch (error) {
       setWalletAddress('');
@@ -86,6 +89,7 @@ export default function App() {
   };
 
   const disconnectWallet = () => {
+    logSafeEvent('wallet_disconnected');
     setWalletAddress('');
     setWalletBalance('');
     setRewardsPoints('');
@@ -128,6 +132,21 @@ export default function App() {
             onConnectWallet={connectWallet}
             onDisconnectWallet={disconnectWallet}
             onRefreshPoints={() => loadWalletBalance(walletAddress)}
+          />
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <AdminCampaigns
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
           />
         }
       />

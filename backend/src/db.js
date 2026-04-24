@@ -67,8 +67,29 @@ export function createDb(dbPath = ':memory:', seed = []) {
   }
 
   return {
-    /** Return all campaigns, optionally filtered by active status. */
-    getAll({ active } = {}) {
+    /** Return all campaigns, optionally filtered by active status and text query. */
+    getAll({ active, q } = {}) {
+      const hasQuery = typeof q === 'string' && q.length > 0;
+      const queryTerm = hasQuery ? `%${q.toLowerCase()}%` : null;
+
+      if (active !== undefined && hasQuery) {
+        const rows = db
+          .prepare(
+            'SELECT * FROM campaigns WHERE active = ? AND (LOWER(name) LIKE ? OR LOWER(description) LIKE ?) ORDER BY id ASC',
+          )
+          .all(active ? 1 : 0, queryTerm, queryTerm);
+        return rows.map(rowToCampaign);
+      }
+
+      if (hasQuery) {
+        return db
+          .prepare(
+            'SELECT * FROM campaigns WHERE LOWER(name) LIKE ? OR LOWER(description) LIKE ? ORDER BY id ASC',
+          )
+          .all(queryTerm, queryTerm)
+          .map(rowToCampaign);
+      }
+
       if (active !== undefined) {
         const rows = db
           .prepare('SELECT * FROM campaigns WHERE active = ? ORDER BY id ASC')

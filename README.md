@@ -32,6 +32,12 @@ Trivela/
 
 ---
 
+## Architecture
+
+For a quick system map (diagram, trust boundaries, and end-to-end data flows), see [`docs/ARCHITECTURE_OVERVIEW.md`](docs/ARCHITECTURE_OVERVIEW.md).
+
+---
+
 ## Prerequisites
 
 - **Rust** (for Soroban): [rustup](https://rustup.rs/)
@@ -134,6 +140,19 @@ npm run dev:backend
 ```
 
 API: http://localhost:3001 (health: http://localhost:3001/health, v1: http://localhost:3001/api/v1).
+
+Campaign endpoints are available under the versioned prefix:
+
+```bash
+GET    /api/v1/campaigns
+GET    /api/v1/campaigns/:id
+POST   /api/v1/campaigns
+PUT    /api/v1/campaigns/:id
+DELETE /api/v1/campaigns/:id
+```
+
+Migration note:
+Legacy `/api/*` campaign routes are still available for backward compatibility, but new integrations should target `/api/v1/*`.
 
 ### 4. Run frontend
 

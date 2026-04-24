@@ -20,6 +20,9 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+                  "u64": "0"
+                },
+                {
                   "u64": "100"
                 },
                 {
@@ -103,6 +106,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "anonce"
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "count"
                       },
                       "val": {
@@ -115,6 +126,14 @@
                       },
                       "val": {
                         "u64": "200"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "schema_v"
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {

@@ -22,6 +22,8 @@ pub enum Error {
     Unauthorized = 3,
     ContractPaused = 4,
     CreditLimitExceeded = 5,
+    UnsupportedMigration = 6,
+    InvalidMultiplier = 7,
 }
 
 contractmeta!(
@@ -37,6 +39,10 @@ const PAUSED: Symbol = symbol_short!("paused");
 const CREDIT_EVENT: Symbol = symbol_short!("credit");
 const CLAIM_EVENT: Symbol = symbol_short!("claim");
 const MAX_CREDIT_PER_CALL: Symbol = symbol_short!("mxcredit");
+const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
+const CURRENT_SCHEMA_VERSION: u32 = 1;
+const CAMPAIGN_MULTIPLIER: Symbol = symbol_short!("mult");
+const BPS_DENOMINATOR: u128 = 10_000;
 
 #[contract]
 pub struct RewardsContract;
@@ -70,7 +76,34 @@ impl RewardsContract {
         env.storage().instance().set(&METADATA, &(name, symbol));
         env.storage().instance().set(&PAUSED, &false);
         env.storage().instance().set(&MAX_CREDIT_PER_CALL, &0u64);
+        env.storage()
+            .instance()
+            .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
         Ok(())
+    }
+
+    /// Returns the active storage schema version for this contract.
+    pub fn schema_version(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&SCHEMA_VERSION)
+            .unwrap_or(CURRENT_SCHEMA_VERSION)
+    }
+
+    /// Migration entrypoint for future schema changes.
+    ///
+    /// Current behavior is intentionally idempotent for version `1`, so operational
+    /// scripts can call this safely during deployments/upgrades.
+    pub fn migrate(env: Env, admin: Address, target_version: u32) -> Result<u32, Error> {
+        require_admin(&env, &admin)?;
+        if target_version != CURRENT_SCHEMA_VERSION {
+            return Err(Error::UnsupportedMigration);
+        }
+        env.storage()
+            .instance()
+            .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
+        env.storage().instance().extend_ttl(50, 100);
+        Ok(CURRENT_SCHEMA_VERSION)
     }
 
     /// Set maximum amount allowed per single credit call (admin only).
@@ -90,6 +123,33 @@ impl RewardsContract {
             .instance()
             .get(&MAX_CREDIT_PER_CALL)
             .unwrap_or(0)
+    }
+
+    /// Set campaign-specific reward multiplier in basis points (admin only).
+    /// Example: 10_000 = 1.0x, 12_500 = 1.25x, 5_000 = 0.5x.
+    pub fn set_campaign_multiplier(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        multiplier_bps: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        env.storage()
+            .instance()
+            .set(&(CAMPAIGN_MULTIPLIER, campaign_id), &multiplier_bps);
+        env.storage().instance().extend_ttl(50, 100);
+        Ok(())
+    }
+
+    /// Returns multiplier in basis points for campaign, defaults to 10_000.
+    pub fn campaign_multiplier(env: Env, campaign_id: u64) -> u32 {
+        env.storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000)
     }
 
     /// Get contract metadata (name and symbol).
@@ -126,6 +186,34 @@ impl RewardsContract {
         env.events().publish((CREDIT_EVENT, user), amount);
         env.storage().instance().extend_ttl(50, 100);
         Ok(new_balance)
+    }
+
+    /// Credit points using campaign multiplier. Rounding uses floor division:
+    /// `adjusted = base_amount * multiplier_bps / 10_000`.
+    pub fn credit_for_campaign(
+        env: Env,
+        from: Address,
+        user: Address,
+        campaign_id: u64,
+        base_amount: u64,
+    ) -> Result<u64, Error> {
+        let multiplier_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000);
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        let adjusted_u128 = (base_amount as u128)
+            .checked_mul(multiplier_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if adjusted_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let adjusted = adjusted_u128 as u64;
+        Self::credit(env, from, user, adjusted)
     }
 
     /// Credit points to multiple users in one call.

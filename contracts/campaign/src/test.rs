@@ -80,7 +80,7 @@ fn test_time_window_validation() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_window(&admin, &100, &200);
+    client.set_window(&admin, &0, &100, &200);
 
     let (leaf, proof) = no_proof_args(&env);
 
@@ -119,7 +119,7 @@ fn test_set_active_only_by_admin() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    let result = client.try_set_active(&other, &false);
+    let result = client.try_set_active(&other, &0, &false);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -131,7 +131,7 @@ fn test_register_when_inactive() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_active(&admin, &false);
+    client.set_active(&admin, &0, &false);
 
     let (leaf, proof) = no_proof_args(&env);
     let result = client.try_register(&participant, &leaf, &proof);
@@ -154,7 +154,7 @@ fn test_capacity_reached() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_max_cap(&admin, &1);
+    client.set_max_cap(&admin, &0, &1);
 
     let p1 = Address::generate(&env);
     let p2 = Address::generate(&env);
@@ -183,7 +183,7 @@ fn test_set_merkle_root_only_by_admin() {
 
     env.mock_all_auths();
     let dummy: BytesN<32> = BytesN::from_array(&env, &[1u8; 32]);
-    let result = client.try_set_merkle_root(&other, &dummy);
+    let result = client.try_set_merkle_root(&other, &0, &dummy);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -201,7 +201,7 @@ fn test_register_with_valid_merkle_proof() {
     let (root, proof1, proof2) = build_two_leaf_tree(&env, leaf1.clone(), leaf2.clone());
 
     env.mock_all_auths();
-    client.set_merkle_root(&admin, &root);
+    client.set_merkle_root(&admin, &0, &root);
     assert_eq!(client.get_merkle_root(), Some(root));
 
     // Both allowlisted participants can register with their correct leaf + proof.
@@ -224,7 +224,7 @@ fn test_register_rejected_with_invalid_proof() {
     let (root, _proof1, _proof2) = build_two_leaf_tree(&env, leaf1.clone(), leaf2.clone());
 
     env.mock_all_auths();
-    client.set_merkle_root(&admin, &root);
+    client.set_merkle_root(&admin, &0, &root);
 
     // p2 supplies leaf2 but with a totally wrong proof sibling.
     let wrong_sibling: BytesN<32> = BytesN::from_array(&env, &[0xFFu8; 32]);
@@ -245,7 +245,7 @@ fn test_register_rejected_with_leaf_not_in_tree() {
     let (root, _proof1, proof2) = build_two_leaf_tree(&env, leaf1.clone(), leaf2.clone());
 
     env.mock_all_auths();
-    client.set_merkle_root(&admin, &root);
+    client.set_merkle_root(&admin, &0, &root);
 
     // p3 supplies a leaf that is not in the tree at all.
     let unknown_leaf: BytesN<32> = BytesN::from_array(&env, &[0xCCu8; 32]);
@@ -265,7 +265,7 @@ fn test_register_rejected_with_empty_proof_when_root_set() {
     let (root, _proof1, _proof2) = build_two_leaf_tree(&env, leaf1.clone(), leaf2.clone());
 
     env.mock_all_auths();
-    client.set_merkle_root(&admin, &root);
+    client.set_merkle_root(&admin, &0, &root);
 
     // Empty proof should fail when root is set – a leaf alone does not equal the root.
     let result = client.try_register(&p1, &leaf1, &Vec::new(&env));
@@ -283,4 +283,58 @@ fn test_open_registration_when_no_root() {
     env.mock_all_auths();
     let (leaf, proof) = no_proof_args(&env);
     assert!(client.register(&participant, &leaf, &proof));
+}
+
+#[test]
+fn test_schema_version_and_migrate_entrypoint() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let other = Address::generate(&env);
+    client.initialize(&admin);
+    assert_eq!(client.schema_version(), 1);
+
+    env.mock_all_auths();
+    let migrated = client.migrate(&admin, &1);
+    assert_eq!(migrated, 1);
+    assert_eq!(client.schema_version(), 1);
+
+    let unsupported = client.try_migrate(&admin, &2);
+    assert_eq!(unsupported, Err(Ok(Error::UnsupportedMigration)));
+
+    let unauthorized = client.try_migrate(&other, &1);
+    assert_eq!(unauthorized, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_participant_count_increments_on_new_register_only() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    let p1 = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let (leaf, proof) = no_proof_args(&env);
+    assert_eq!(client.get_participant_count(), 0);
+    assert!(client.register(&p1, &leaf, &proof));
+    assert_eq!(client.get_participant_count(), 1);
+    assert!(!client.register(&p1, &leaf, &proof));
+    assert_eq!(client.get_participant_count(), 1);
+}
+
+#[test]
+fn test_admin_nonce_replay_protection() {
+    let (env, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    assert_eq!(client.admin_nonce(), 0);
+    client.set_active(&admin, &0, &false);
+    assert_eq!(client.admin_nonce(), 1);
+
+    let replay = client.try_set_active(&admin, &0, &true);
+    assert_eq!(replay, Err(Ok(Error::InvalidAdminNonce)));
+
+    client.set_active(&admin, &1, &true);
+    assert_eq!(client.admin_nonce(), 2);
 }

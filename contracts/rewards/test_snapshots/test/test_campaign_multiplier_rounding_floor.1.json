@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 3,
     "nonce": 0,
     "mux_id": 0
   },
@@ -14,16 +14,16 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_max_cap",
+              "function_name": "set_campaign_multiplier",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "0"
+                  "u64": "7"
                 },
                 {
-                  "u64": "1"
+                  "u32": 9999
                 }
               ]
             }
@@ -34,21 +34,24 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "register",
+              "function_name": "credit_for_campaign",
               "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                  "u64": "7"
                 },
                 {
-                  "vec": []
+                  "u64": "3"
                 }
               ]
             }
@@ -56,8 +59,7 @@
           "sub_invocations": []
         }
       ]
-    ],
-    []
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -86,14 +88,6 @@
                   "storage": [
                     {
                       "key": {
-                        "symbol": "active"
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "admin"
                       },
                       "val": {
@@ -102,34 +96,41 @@
                     },
                     {
                       "key": {
-                        "symbol": "anonce"
+                        "symbol": "claimed"
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "count"
+                        "symbol": "metadata"
                       },
                       "val": {
-                        "u64": "1"
+                        "vec": [
+                          {
+                            "symbol": "Trivela"
+                          },
+                          {
+                            "symbol": "TVL"
+                          }
+                        ]
                       }
                     },
                     {
                       "key": {
-                        "symbol": "end"
+                        "symbol": "mxcredit"
                       },
                       "val": {
-                        "u64": "18446744073709551615"
+                        "u64": "0"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "maxcap"
+                        "symbol": "paused"
                       },
                       "val": {
-                        "u64": "1"
+                        "bool": false
                       }
                     },
                     {
@@ -142,17 +143,9 @@
                     },
                     {
                       "key": {
-                        "symbol": "start"
-                      },
-                      "val": {
-                        "u64": "0"
-                      }
-                    },
-                    {
-                      "key": {
                         "vec": [
                           {
-                            "symbol": "partic"
+                            "symbol": "balance"
                           },
                           {
                             "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -160,7 +153,22 @@
                         ]
                       },
                       "val": {
-                        "bool": true
+                        "u64": "2"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "mult"
+                          },
+                          {
+                            "u64": "7"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 9999
                       }
                     }
                   ]
@@ -198,7 +206,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "5541220902715666415"
@@ -228,5 +236,29 @@
       }
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "credit"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+              }
+            ],
+            "data": {
+              "u64": "2"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }

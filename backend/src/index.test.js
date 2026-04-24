@@ -28,19 +28,91 @@ async function stopTestServer(server) {
   });
 }
 
-test('DELETE /api/campaigns/:id removes a campaign and returns 404 when missing', async () => {
+function campaignShapeAssertions(campaign) {
+  assert.equal(typeof campaign.id, 'string');
+  assert.equal(typeof campaign.name, 'string');
+  assert.equal(typeof campaign.description, 'string');
+  assert.equal(typeof campaign.active, 'boolean');
+  assert.equal(typeof campaign.rewardPerAction, 'number');
+  assert.equal(typeof campaign.createdAt, 'string');
+}
+
+test('GET /api/v1 exposes versioning details and legacy compatibility guidance', async () => {
   const { server, baseUrl } = await startTestServer();
 
   try {
-    let response = await fetch(`${baseUrl}/api/campaigns/1`, {
+    const response = await fetch(`${baseUrl}/api/v1`);
+    assert.equal(response.status, 200);
+
+    const payload = await response.json();
+    assert.equal(payload.prefix, '/api/v1');
+    assert.equal(payload.compatibility.legacyPrefix, '/api');
+    assert.equal(payload.compatibility.legacyRoutesSupported, true);
+    assert.match(payload.compatibility.migrationNote, /Prefer \/api\/v1/);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/campaigns returns paginated campaign data with the expected shape', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`);
+    assert.equal(response.status, 200);
+
+    const payload = await response.json();
+    assert.ok(Array.isArray(payload.data));
+    assert.ok(payload.pagination);
+    assert.ok(payload.data.length >= 1);
+    campaignShapeAssertions(payload.data[0]);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/campaigns/:id returns 404 for a missing campaign', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns/999`);
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: 'Campaign not found' });
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/campaigns and /api/v1/campaigns stay backward compatible', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const [legacyResponse, versionedResponse] = await Promise.all([
+      fetch(`${baseUrl}/api/campaigns`),
+      fetch(`${baseUrl}/api/v1/campaigns`),
+    ]);
+
+    assert.equal(legacyResponse.status, 200);
+    assert.equal(versionedResponse.status, 200);
+    assert.deepEqual(await legacyResponse.json(), await versionedResponse.json());
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('DELETE /api/v1/campaigns/:id removes a campaign and returns 404 when missing', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    let response = await fetch(`${baseUrl}/api/v1/campaigns/1`, {
       method: 'DELETE',
     });
     assert.equal(response.status, 204);
 
-    response = await fetch(`${baseUrl}/api/campaigns/1`);
+    response = await fetch(`${baseUrl}/api/v1/campaigns/1`);
     assert.equal(response.status, 404);
 
-    response = await fetch(`${baseUrl}/api/campaigns/999`, {
+    response = await fetch(`${baseUrl}/api/v1/campaigns/999`, {
       method: 'DELETE',
     });
     assert.equal(response.status, 404);
@@ -61,6 +133,11 @@ test('rate limiting applies to API routes', async () => {
   try {
     const firstResponse = await fetch(`${baseUrl}/api/v1/campaigns`);
     assert.equal(firstResponse.status, 200);
+    assert.equal(firstResponse.headers.get('x-ratelimit-limit'), '1');
+    assert.equal(firstResponse.headers.get('x-ratelimit-remaining'), '0');
+    assert.ok(firstResponse.headers.get('x-ratelimit-reset'));
+    assert.ok(firstResponse.headers.get('ratelimit-policy'));
+    assert.ok(firstResponse.headers.get('ratelimit'));
 
     const secondResponse = await fetch(`${baseUrl}/api/v1/campaigns`);
     assert.equal(secondResponse.status, 429);
@@ -72,6 +149,49 @@ test('rate limiting applies to API routes', async () => {
       windowMs: 60_000,
       retryAfterSeconds: 60,
     });
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('createApp rejects invalid contract IDs in configuration', () => {
+  assert.throws(
+    () => createApp({ REWARDS_CONTRACT_ID: 'invalid-id' }),
+    /REWARDS_CONTRACT_ID must be a valid Stellar contract ID/,
+  );
+
+  assert.throws(
+    () => createApp({ CAMPAIGN_CONTRACT_ID: 'GABC' }),
+    /CAMPAIGN_CONTRACT_ID must be a valid Stellar contract ID/,
+  );
+});
+
+test('GET /api/v1/campaigns supports text search with q parameter', async () => {
+  const seed = [
+    {
+      id: '1',
+      name: 'Stellar Quest',
+      description: 'Rewards for onboarding',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Builder Sprint',
+      description: 'Campaign for dev tooling',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  const { server, baseUrl } = await startTestServer({ campaigns: seed });
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?q=stellar`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.data.length, 1);
+    assert.equal(body.data[0].name, 'Stellar Quest');
   } finally {
     await stopTestServer(server);
   }
@@ -140,7 +260,26 @@ test('/health/rpc returns 503 when the Soroban RPC health check fails', async ()
   }
 });
 
-test('POST /api/campaigns creates a new campaign and returns it', async () => {
+test('GET /metrics exposes minimal Prometheus metrics', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    await fetch(`${baseUrl}/api/v1/campaigns`);
+    const response = await fetch(`${baseUrl}/metrics`);
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/plain/);
+
+    const body = await response.text();
+    assert.match(body, /trivela_requests_total \d+/);
+    assert.match(body, /trivela_request_errors_total \d+/);
+    assert.match(body, /trivela_process_uptime_seconds [0-9.]+/);
+    assert.match(body, /trivela_route_hits_total\{route="GET \/api\/v1\/campaigns"\} \d+/);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('POST /api/v1/campaigns creates a new campaign and returns it', async () => {
   const { server, baseUrl } = await startTestServer();
 
   try {
@@ -150,7 +289,7 @@ test('POST /api/campaigns creates a new campaign and returns it', async () => {
       rewardPerAction: 50,
     };
 
-    const response = await fetch(`${baseUrl}/api/campaigns`, {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -163,11 +302,10 @@ test('POST /api/campaigns creates a new campaign and returns it', async () => {
     assert.equal(created.name, newCampaign.name);
     assert.equal(created.description, newCampaign.description);
     assert.equal(created.rewardPerAction, newCampaign.rewardPerAction);
-    assert.ok(created.id);
-    assert.ok(created.createdAt);
+    campaignShapeAssertions(created);
 
     // Verify it's in the list
-    const listResponse = await fetch(`${baseUrl}/api/campaigns`);
+    const listResponse = await fetch(`${baseUrl}/api/v1/campaigns`);
     const list = await listResponse.json();
     const found = list.data.find((c) => c.id === created.id);
     assert.ok(found);
@@ -176,7 +314,7 @@ test('POST /api/campaigns creates a new campaign and returns it', async () => {
   }
 });
 
-test('PUT /api/campaigns/:id updates an existing campaign', async () => {
+test('PUT /api/v1/campaigns/:id updates an existing campaign and returns 404 when missing', async () => {
   const { server, baseUrl } = await startTestServer();
 
   try {
@@ -185,7 +323,7 @@ test('PUT /api/campaigns/:id updates an existing campaign', async () => {
       active: false,
     };
 
-    const response = await fetch(`${baseUrl}/api/campaigns/1`, {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns/1`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -198,9 +336,10 @@ test('PUT /api/campaigns/:id updates an existing campaign', async () => {
     assert.equal(updated.id, '1');
     assert.equal(updated.name, updateData.name);
     assert.equal(updated.active, updateData.active);
+    campaignShapeAssertions(updated);
 
     // Verify 404 for missing
-    const missingResponse = await fetch(`${baseUrl}/api/campaigns/999`, {
+    const missingResponse = await fetch(`${baseUrl}/api/v1/campaigns/999`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
@@ -208,12 +347,13 @@ test('PUT /api/campaigns/:id updates an existing campaign', async () => {
       body: JSON.stringify(updateData),
     });
     assert.equal(missingResponse.status, 404);
+    assert.deepEqual(await missingResponse.json(), { error: 'Campaign not found' });
   } finally {
     await stopTestServer(server);
   }
 });
 
-test('GET /api/campaigns?active=true returns only active campaigns', async () => {
+test('GET /api/v1/campaigns?active=true returns only active campaigns', async () => {
   const seed = [
     { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
     { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
@@ -222,7 +362,7 @@ test('GET /api/campaigns?active=true returns only active campaigns', async () =>
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
   try {
-    const response = await fetch(`${baseUrl}/api/campaigns?active=true`);
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?active=true`);
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.data.length, 2);
@@ -232,7 +372,7 @@ test('GET /api/campaigns?active=true returns only active campaigns', async () =>
   }
 });
 
-test('GET /api/campaigns?active=false returns only inactive campaigns', async () => {
+test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async () => {
   const seed = [
     { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
     { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
@@ -240,7 +380,7 @@ test('GET /api/campaigns?active=false returns only inactive campaigns', async ()
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
   try {
-    const response = await fetch(`${baseUrl}/api/campaigns?active=false`);
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?active=false`);
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.data.length, 1);
@@ -250,7 +390,7 @@ test('GET /api/campaigns?active=false returns only inactive campaigns', async ()
   }
 });
 
-test('GET /api/campaigns without active param returns all campaigns', async () => {
+test('GET /api/v1/campaigns without active param returns all campaigns', async () => {
   const seed = [
     { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
     { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
@@ -258,10 +398,44 @@ test('GET /api/campaigns without active param returns all campaigns', async () =
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
   try {
-    const response = await fetch(`${baseUrl}/api/campaigns`);
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`);
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.data.length, 2);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/indexer/cursor exposes cursor state for indexers', async () => {
+  const { server, baseUrl } = await startTestServer({
+    initialIndexerCursor: 'ledger:123:event:8',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/indexer/cursor`);
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(payload.cursor, 'ledger:123:event:8');
+    assert.equal(typeof payload.updatedAt, 'string');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('campaign list endpoint returns cache headers with short TTL cache', async () => {
+  const { server, baseUrl } = await startTestServer({
+    shortCacheTtlMs: 10_000,
+  });
+
+  try {
+    const first = await fetch(`${baseUrl}/api/v1/campaigns`);
+    assert.equal(first.status, 200);
+    assert.equal(first.headers.get('x-cache'), 'MISS');
+
+    const second = await fetch(`${baseUrl}/api/v1/campaigns`);
+    assert.equal(second.status, 200);
+    assert.equal(second.headers.get('x-cache'), 'HIT');
   } finally {
     await stopTestServer(server);
   }

@@ -600,6 +600,32 @@
   gap: 1.5rem;
 }
 
+.campaign-search {
+  width: min(720px, 100%);
+  margin: 0 auto;
+  display: grid;
+  gap: 0.5rem;
+}
+
+.campaign-search-label {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+}
+
+.campaign-search-input {
+  min-height: 44px;
+  padding: 0.72rem 0.95rem;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--bg-card-solid);
+  color: var(--text);
+}
+
+.campaign-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 .campaigns-panel {
   min-height: 220px;
 }

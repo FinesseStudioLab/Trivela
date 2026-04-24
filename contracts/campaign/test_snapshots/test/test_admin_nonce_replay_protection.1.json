@@ -1,10 +1,11 @@
 {
   "generators": {
-    "address": 4,
+    "address": 2,
     "nonce": 0,
     "mux_id": 0
   },
   "auth": [
+    [],
     [],
     [],
     [
@@ -14,7 +15,7 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_max_cap",
+              "function_name": "set_active",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
@@ -23,7 +24,7 @@
                   "u64": "0"
                 },
                 {
-                  "u64": "1"
+                  "bool": false
                 }
               ]
             }
@@ -32,23 +33,25 @@
         }
       ]
     ],
+    [],
+    [],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "register",
+              "function_name": "set_active",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                  "u64": "1"
                 },
                 {
-                  "vec": []
+                  "bool": true
                 }
               ]
             }
@@ -105,7 +108,7 @@
                         "symbol": "anonce"
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "2"
                       }
                     },
                     {
@@ -113,7 +116,7 @@
                         "symbol": "count"
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
@@ -122,14 +125,6 @@
                       },
                       "val": {
                         "u64": "18446744073709551615"
-                      }
-                    },
-                    {
-                      "key": {
-                        "symbol": "maxcap"
-                      },
-                      "val": {
-                        "u64": "1"
                       }
                     },
                     {
@@ -146,21 +141,6 @@
                       },
                       "val": {
                         "u64": "0"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "partic"
-                          },
-                          {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
                       }
                     }
                   ]
@@ -198,10 +178,10 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "5541220902715666415"
+                  "nonce": "1033654523790656264"
                 }
               },
               "durability": "temporary",

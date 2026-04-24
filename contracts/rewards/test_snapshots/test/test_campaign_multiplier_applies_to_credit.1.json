@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 4,
+    "address": 3,
     "nonce": 0,
     "mux_id": 0
   },
@@ -14,16 +14,16 @@
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "set_max_cap",
+              "function_name": "set_campaign_multiplier",
               "args": [
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "0"
+                  "u64": "42"
                 },
                 {
-                  "u64": "1"
+                  "u32": 12500
                 }
               ]
             }
@@ -34,21 +34,24 @@
     ],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "register",
+              "function_name": "credit_for_campaign",
               "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
                 {
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                  "u64": "42"
                 },
                 {
-                  "vec": []
+                  "u64": "100"
                 }
               ]
             }
@@ -86,14 +89,6 @@
                   "storage": [
                     {
                       "key": {
-                        "symbol": "active"
-                      },
-                      "val": {
-                        "bool": true
-                      }
-                    },
-                    {
-                      "key": {
                         "symbol": "admin"
                       },
                       "val": {
@@ -102,34 +97,41 @@
                     },
                     {
                       "key": {
-                        "symbol": "anonce"
+                        "symbol": "claimed"
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "count"
+                        "symbol": "metadata"
                       },
                       "val": {
-                        "u64": "1"
+                        "vec": [
+                          {
+                            "symbol": "Trivela"
+                          },
+                          {
+                            "symbol": "TVL"
+                          }
+                        ]
                       }
                     },
                     {
                       "key": {
-                        "symbol": "end"
+                        "symbol": "mxcredit"
                       },
                       "val": {
-                        "u64": "18446744073709551615"
+                        "u64": "0"
                       }
                     },
                     {
                       "key": {
-                        "symbol": "maxcap"
+                        "symbol": "paused"
                       },
                       "val": {
-                        "u64": "1"
+                        "bool": false
                       }
                     },
                     {
@@ -142,17 +144,9 @@
                     },
                     {
                       "key": {
-                        "symbol": "start"
-                      },
-                      "val": {
-                        "u64": "0"
-                      }
-                    },
-                    {
-                      "key": {
                         "vec": [
                           {
-                            "symbol": "partic"
+                            "symbol": "balance"
                           },
                           {
                             "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
@@ -160,7 +154,22 @@
                         ]
                       },
                       "val": {
-                        "bool": true
+                        "u64": "125"
+                      }
+                    },
+                    {
+                      "key": {
+                        "vec": [
+                          {
+                            "symbol": "mult"
+                          },
+                          {
+                            "u64": "42"
+                          }
+                        ]
+                      },
+                      "val": {
+                        "u32": 12500
                       }
                     }
                   ]
@@ -198,7 +207,7 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "5541220902715666415"

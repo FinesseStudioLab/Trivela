@@ -49,4 +49,64 @@ test.describe('Campaigns page', () => {
       await expect(page.getByRole('main')).toBeVisible();
     }
   });
+
+  test('shows a loading state before campaigns resolve', async ({ page }) => {
+    await page.route('**/api/v1/campaigns**', async (route) => {
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: [],
+          pagination: {
+            total: 0,
+            count: 0,
+            page: 1,
+            limit: 6,
+            offset: 0,
+            totalPages: 0,
+            hasPreviousPage: false,
+            hasNextPage: false,
+            previousPage: null,
+            nextPage: null,
+          },
+        }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.locator('.campaigns-loading')).toBeVisible();
+    await expect(page.locator('.empty-state')).toBeVisible();
+  });
+
+  test('shows an error state when the campaigns request fails', async ({ page }) => {
+    await page.route('**/api/v1/campaigns**', async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Internal server error' }),
+      });
+    });
+
+    await page.goto('/');
+    await expect(page.getByRole('heading', { name: /load campaigns/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
+    await expect(page.locator('.campaigns-grid')).toHaveCount(0);
+  });
+
+  test('persists the selected theme across reloads', async ({ page }) => {
+    await page.goto('/');
+
+    const root = page.locator('html');
+    const initialTheme = await root.getAttribute('data-theme');
+    expect(['light', 'dark']).toContain(initialTheme);
+    const nextTheme = initialTheme === 'dark' ? 'light' : 'dark';
+    const toggleLabel = initialTheme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme';
+
+    await page.getByRole('button', { name: toggleLabel }).click();
+    await expect(root).toHaveAttribute('data-theme', nextTheme);
+
+    await page.reload();
+    await expect(root).toHaveAttribute('data-theme', nextTheme);
+  });
 });

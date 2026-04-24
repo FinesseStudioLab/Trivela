@@ -16,10 +16,10 @@ import {
 import ClaimRewards from './ClaimRewards';
 import './Landing.css';
 import RegisterCampaign from './RegisterCampaign';
-import CreateCampaign from './CreateCampaign';
 import Header from './components/Header';
 import CampaignCard from './components/CampaignCard';
 import EmptyState from './components/EmptyState';
+import { logSafeEvent } from './lib/safeAnalytics';
 
 const STELLAR_DOCS = 'https://developers.stellar.org/docs';
 const DRIP_WAVE = 'https://www.drips.network/wave/stellar';
@@ -61,16 +61,26 @@ export default function Landing({
   const [campaignsError, setCampaignsError] = useState('');
   const [isCampaignsLoading, setIsCampaignsLoading] = useState(true);
   const [campaignPage, setCampaignPage] = useState(1);
+  const [campaignQuery, setCampaignQuery] = useState('');
   const [campaignRefreshKey, setCampaignRefreshKey] = useState(0);
   const [pagination, setPagination] = useState(() => getFallbackPagination([], 1));
   const campaignContract = getCampaignContract();
+  const rewardsContract = getRewardsContract();
 
   useEffect(() => {
     const controller = new AbortController();
     setIsCampaignsLoading(true);
     setCampaignsError('');
 
-    fetch(apiUrl(`/api/v1/campaigns?page=${campaignPage}&limit=${CAMPAIGNS_PER_PAGE}`), {
+    const params = new URLSearchParams({
+      page: String(campaignPage),
+      limit: String(CAMPAIGNS_PER_PAGE),
+    });
+    if (campaignQuery.trim().length > 0) {
+      params.set('q', campaignQuery.trim());
+    }
+
+    fetch(apiUrl(`/api/v1/campaigns?${params.toString()}`), {
       signal: controller.signal,
     })
       .then(async (response) => {
@@ -82,6 +92,7 @@ export default function Landing({
       })
       .then((payload) => {
         const items = Array.isArray(payload) ? payload : payload.data ?? payload.campaigns ?? [];
+        logSafeEvent('campaigns_list_loaded', { count: items.length });
         const nextPagination = Array.isArray(payload)
           ? getFallbackPagination(items, campaignPage)
           : {
@@ -102,6 +113,7 @@ export default function Landing({
         setCampaigns([]);
         setPagination(getFallbackPagination([], campaignPage));
         setCampaignsError('Unable to load campaigns right now.');
+        logSafeEvent('campaigns_list_failed');
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -110,7 +122,7 @@ export default function Landing({
       });
 
     return () => controller.abort();
-  }, [campaignPage, campaignRefreshKey]);
+  }, [campaignPage, campaignRefreshKey, campaignQuery]);
 
   // Removed local loadPoints effect as it is now handled in App.jsx
 
@@ -287,6 +299,22 @@ export default function Landing({
           <p className="section-subtitle">
             Paginated from the backend API with keyboard-friendly previous and next controls.
           </p>
+          <div className="campaign-search">
+            <label htmlFor="campaign-search-input" className="campaign-search-label">
+              Search campaigns
+            </label>
+            <input
+              id="campaign-search-input"
+              type="search"
+              value={campaignQuery}
+              onChange={(event) => {
+                setCampaignPage(1);
+                setCampaignQuery(event.target.value);
+              }}
+              className="campaign-search-input"
+              placeholder="Search by campaign name or description"
+            />
+          </div>
 
           <div className="campaigns-panel" aria-busy={isCampaignsLoading}>
             {isCampaignsLoading ? (
@@ -352,14 +380,6 @@ export default function Landing({
             <RegisterCampaign walletAddress={walletAddress} />
           )}
 
-          <CreateCampaign
-            onCampaignCreated={(campaign) => {
-              setCampaignRefreshKey((value) => value + 1);
-              if (campaign?.id) {
-                navigate(`/campaign/${campaign.id}`);
-              }
-            }}
-          />
         </section>
 
         <section className="cta-band" aria-labelledby="cta-title">

@@ -1,31 +1,63 @@
-# Soroban Contract Upgradeability
+# Soroban Contract Upgradeability & Migration
 
-Trivela contracts are designed with a standard Soroban upgradeability pattern, allowing for logic updates while preserving contract address and state.
+Trivela contracts keep state at stable contract IDs and evolve logic through Soroban Wasm upgrades.  
+To make storage evolution explicit and reviewable, each contract now exposes:
 
-## Upgrade Pattern
+- `schema_version() -> u32`
+- `migrate(admin, target_version) -> Result<u32, Error>`
 
-Soroban provides a built-in mechanism for upgrading contract code. This is achieved by updating the Wasm byte-code associated with a contract ID.
+Both `campaign` and `rewards` contracts currently use **schema version `1`**.
 
-### 1. Requirements
-- The contract must implement an admin-only function that calls `env.deployer().update_current_contract_wasm(new_wasm_hash)`.
-- The new WASM file must already be uploaded to the network (obtaining a `wasm_hash`).
+## Migration Entry Point Strategy
 
-### 2. Implementation Example
+1. **Schema is explicit**  
+   `initialize` persists `schema_v = 1`.
+2. **Admin-gated migration**  
+   `migrate` requires admin auth and validates supported target versions.
+3. **Idempotent current migration**  
+   Calling `migrate(..., 1)` is safe and returns `1`.
+4. **Forward-safe failure mode**  
+   Unsupported versions return `UnsupportedMigration` instead of mutating state.
 
-In a future iteration, we can add this to `RewardsContract`:
+This makes migration behavior deterministic for CI and rollout scripts.
 
-```rust
-pub fn upgrade(env: Env, admin: Address, new_wasm_hash: BytesN<32>) {
-    admin.require_auth();
-    // Verify admin matches stored admin
-    env.deployer().update_current_contract_wasm(new_wasm_hash);
-}
+## Operational Upgrade Runbook
+
+1. Build and upload new Wasm:
+
+```bash
+stellar contract build
+stellar contract install --wasm <updated_contract.wasm> --source <admin> --network testnet
 ```
 
-### 3. Migration Steps
-- **State Compatibility**: Ensure the new contract version can correctly interpret the existing instance and persistent storage.
-- **WASM Upload**: Use `stellar contract install --wasm <file>` to upload the new code and get the hash.
-- **Invoke Upgrade**: Call the `upgrade` function with the admin identity.
+2. Upgrade contract code (admin path):
 
-## Future: Managed Upgradeability
-For more complex scenarios, a **Proxy Pattern** or a **Factory pattern** can be used to manage multiple contract instances and their upgrades centrally.
+```bash
+stellar contract invoke --id <CONTRACT_ID> --source <admin> --network testnet -- \
+  upgrade --new_wasm_hash <WASM_HASH>
+```
+
+3. Run migration hook:
+
+```bash
+stellar contract invoke --id <CONTRACT_ID> --source <admin> --network testnet -- \
+  migrate --target_version <VERSION>
+```
+
+4. Verify:
+
+```bash
+stellar contract invoke --id <CONTRACT_ID> --source <admin> --network testnet -- \
+  schema_version
+```
+
+## Storage Consistency Guardrails
+
+- Never repurpose a key with incompatible value type.
+- Introduce new keys for new fields; preserve old keys until migrated.
+- Keep `migrate` pure/idempotent per target version.
+- Add test coverage for:
+  - initial schema version
+  - successful migrate at current version
+  - unsupported version rejection
+  - unauthorized caller rejection

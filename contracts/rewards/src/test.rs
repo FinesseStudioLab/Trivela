@@ -237,3 +237,57 @@ fn test_campaign_rewards_integration_flow() {
     assert_eq!(rewards.balance(&user), 50);
     assert_eq!(rewards.total_claimed(), 70);
 }
+
+#[test]
+fn test_schema_version_and_migrate_entrypoint() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let other = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    assert_eq!(client.schema_version(), 1);
+
+    env.mock_all_auths();
+    let migrated = client.migrate(&admin, &1);
+    assert_eq!(migrated, 1);
+    assert_eq!(client.schema_version(), 1);
+
+    let unsupported = client.try_migrate(&admin, &2);
+    assert_eq!(unsupported, Err(Ok(Error::UnsupportedMigration)));
+
+    let unauthorized = client.try_migrate(&other, &1);
+    assert_eq!(unauthorized, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_campaign_multiplier_applies_to_credit() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.set_campaign_multiplier(&admin, &42u64, &12_500u32); // 1.25x
+    let balance = client.credit_for_campaign(&admin, &user, &42u64, &100u64);
+    assert_eq!(balance, 125);
+    assert_eq!(client.balance(&user), 125);
+}
+
+#[test]
+fn test_campaign_multiplier_rounding_floor() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.set_campaign_multiplier(&admin, &7u64, &9_999u32);
+    let balance = client.credit_for_campaign(&admin, &user, &7u64, &3u64);
+    assert_eq!(balance, 2);
+}

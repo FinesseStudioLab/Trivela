@@ -31,11 +31,19 @@ export function createRateLimiter({
     buckets.set(key, bucket);
 
     const remaining = Math.max(maxRequests - bucket.count, 0);
+    const resetSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    const windowSeconds = Math.max(1, Math.ceil(windowMs / 1000));
     res.setHeader('X-RateLimit-Limit', String(maxRequests));
     res.setHeader('X-RateLimit-Remaining', String(remaining));
+    res.setHeader('X-RateLimit-Reset', String(resetSeconds));
+    res.setHeader('RateLimit-Policy', `${maxRequests};w=${windowSeconds}`);
+    res.setHeader(
+      'RateLimit',
+      `limit=${maxRequests}, remaining=${remaining}, reset=${resetSeconds}`,
+    );
 
     if (bucket.count > maxRequests) {
-      const retryAfterSeconds = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+      const retryAfterSeconds = resetSeconds;
       res.setHeader('Retry-After', String(retryAfterSeconds));
       return res.status(429).json({
         error: 'Rate limit exceeded',

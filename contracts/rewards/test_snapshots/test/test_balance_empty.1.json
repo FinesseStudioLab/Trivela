@@ -80,6 +80,14 @@
                       "val": {
                         "bool": false
                       }
+                    },
+                    {
+                      "key": {
+                        "symbol": "schema_v"
+                      },
+                      "val": {
+                        "u32": 1
+                      }
                     }
                   ]
                 }

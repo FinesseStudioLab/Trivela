@@ -20,6 +20,9 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+                  "u64": "0"
+                },
+                {
                   "bytes": "e2d80f78d79027556d6619a1400605abbdca6bb6eb24e0831e33ecd5466fa5f6"
                 }
               ]
@@ -134,6 +137,14 @@
                     },
                     {
                       "key": {
+                        "symbol": "anonce"
+                      },
+                      "val": {
+                        "u64": "1"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "count"
                       },
                       "val": {
@@ -154,6 +165,14 @@
                       },
                       "val": {
                         "bytes": "e2d80f78d79027556d6619a1400605abbdca6bb6eb24e0831e33ecd5466fa5f6"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "schema_v"
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     },
                     {
