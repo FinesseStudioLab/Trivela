@@ -1,16 +1,24 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { BrowserRouter } from 'react-router-dom';
+import { BrowserRouter, useLocation } from 'react-router-dom';
 import App from './App';
 import ErrorBoundary from './ErrorBoundary';
 import './index.css';
 
+function RoutedApp() {
+  const location = useLocation();
+
+  return (
+    <ErrorBoundary resetKey={location.pathname}>
+      <App />
+    </ErrorBoundary>
+  );
+}
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <ErrorBoundary>
-      <BrowserRouter>
-        <App />
-      </BrowserRouter>
-    </ErrorBoundary>
+    <BrowserRouter>
+      <RoutedApp />
+    </BrowserRouter>
   </React.StrictMode>
 );

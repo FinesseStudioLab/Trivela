@@ -144,6 +144,13 @@ button:disabled {
   color: var(--text-muted);
 }
 
+.error-boundary-meta {
+  margin: 0.65rem 0 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  word-break: break-word;
+}
+
 .error-boundary-actions {
   display: flex;
   flex-wrap: wrap;
@@ -178,4 +185,23 @@ button:disabled {
 .error-boundary-button-secondary:hover {
   border-color: var(--accent);
   color: var(--accent);
+}
+
+@media (max-width: 540px) {
+  .error-boundary {
+    padding: 16px;
+  }
+
+  .error-boundary-card {
+    padding: 20px;
+  }
+
+  .error-boundary-actions {
+    flex-direction: column;
+  }
+
+  .error-boundary-button {
+    width: 100%;
+    min-height: 46px;
+  }
 }

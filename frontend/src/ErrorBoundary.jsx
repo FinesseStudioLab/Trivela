@@ -1,6 +1,7 @@
 import { Component } from 'react';
 
 const DEFAULT_MESSAGE = 'Something went wrong while rendering this page.';
+const FRIENDLY_MESSAGE = 'We could not render this screen. Try again or return to the home page.';
 
 export default class ErrorBoundary extends Component {
   constructor(props) {
@@ -19,16 +20,27 @@ export default class ErrorBoundary extends Component {
     };
   }
 
+  componentDidUpdate(prevProps) {
+    const resetKeyChanged = prevProps.resetKey !== this.props.resetKey;
+    if (this.state.hasError && resetKeyChanged) {
+      this.resetBoundary();
+    }
+  }
+
   componentDidCatch(error, errorInfo) {
     console.error('Uncaught UI error:', error, errorInfo);
   }
 
-  handleRetry = () => {
+  resetBoundary = () => {
     this.setState((prevState) => ({
       hasError: false,
       errorMessage: '',
       retryKey: prevState.retryKey + 1,
     }));
+  };
+
+  handleRetry = () => {
+    this.resetBoundary();
   };
 
   handleGoHome = () => {
@@ -45,7 +57,10 @@ export default class ErrorBoundary extends Component {
           <div className="error-boundary-card">
             <p className="error-boundary-eyebrow">Oops</p>
             <h1 className="error-boundary-title">We hit an unexpected error</h1>
-            <p className="error-boundary-message">{errorMessage || DEFAULT_MESSAGE}</p>
+            <p className="error-boundary-message">{FRIENDLY_MESSAGE}</p>
+            {errorMessage && errorMessage !== DEFAULT_MESSAGE ? (
+              <p className="error-boundary-meta">Details: {errorMessage}</p>
+            ) : null}
             <div className="error-boundary-actions">
               <button
                 type="button"

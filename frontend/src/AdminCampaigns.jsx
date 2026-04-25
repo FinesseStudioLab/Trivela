@@ -59,20 +59,29 @@ export default function AdminCampaigns({
         onDisconnectWallet={onDisconnectWallet}
       />
       <main id="main-content" className="landing-main" tabIndex="-1">
-        <section className="section">
-          <h2 className="section-title">Protected admin campaigns UI</h2>
-          <p className="section-subtitle">
-            Uses session-only API key storage and never exposes admin credentials on public pages.
-          </p>
-          {loading ? <p>Loading campaigns…</p> : null}
+        <section className="section admin-section">
+          <div className="admin-intro">
+            <h2 className="section-title">Protected admin campaigns UI</h2>
+            <p className="section-subtitle">
+              Uses session-only API key storage and never exposes admin credentials on public pages.
+            </p>
+          </div>
+
+          {loading ? (
+            <p className="campaigns-status admin-loading" role="status">
+              Loading campaigns...
+            </p>
+          ) : null}
+
           {!loading && error ? (
-            <div className="detail-error" role="alert" style={{ marginBottom: '1rem' }}>
+            <div className="detail-error admin-error" role="alert">
               <p>{error}</p>
               <button type="button" className="btn btn-primary" onClick={loadCampaigns}>
                 Retry request
               </button>
             </div>
           ) : null}
+
           <CreateCampaign campaigns={campaigns} onCampaignCreated={loadCampaigns} />
         </section>
       </main>
