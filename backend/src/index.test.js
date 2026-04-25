@@ -684,6 +684,30 @@ test('POST /api/v1/campaigns rejects duplicate slugs with 409', async () => {
   }
 });
 
+test('CORS preflight OPTIONS request returns correct headers for allowed origin', async () => {
+  const { server, baseUrl } = await startTestServer({
+    corsAllowedOrigins: 'https://example.com,https://other.com',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: 'https://example.com',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'Content-Type',
+      },
+    });
+    assert.equal(response.status, 204);
+    assert.equal(response.headers.get('access-control-allow-origin'), 'https://example.com');
+    assert.ok(response.headers.get('access-control-allow-methods'));
+    assert.ok(response.headers.get('access-control-allow-headers'));
+    assert.equal(response.headers.get('access-control-max-age'), '86400');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
 test('CORS preflight caching headers are set', async () => {
   const { server, baseUrl } = await startTestServer({
     corsAllowedOrigins: 'https://example.com',
@@ -697,7 +721,33 @@ test('CORS preflight caching headers are set', async () => {
       },
     });
     assert.equal(response.status, 204);
-    assert.ok(response.headers.get('access-control-max-age'));
+    assert.equal(response.headers.get('access-control-max-age'), '86400');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('CORS allows requests from allowed origins', async () => {
+  const { server, baseUrl } = await startTestServer({
+    corsAllowedOrigins: 'https://allowed.com,http://localhost:3000',
+  });
+
+  try {
+    const allowedResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      headers: {
+        Origin: 'https://allowed.com',
+      },
+    });
+    assert.equal(allowedResp.status, 200);
+    assert.equal(allowedResp.headers.get('access-control-allow-origin'), 'https://allowed.com');
+
+    const localhostResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      headers: {
+        Origin: 'http://localhost:3000',
+      },
+    });
+    assert.equal(localhostResp.status, 200);
+    assert.equal(localhostResp.headers.get('access-control-allow-origin'), 'http://localhost:3000');
   } finally {
     await stopTestServer(server);
   }
@@ -709,15 +759,15 @@ test('CORS rejects requests from non-allowed origins', async () => {
   });
 
   try {
-    // CORS rejection happens at preflight, but we can verify the origin validation works
-    // by checking that allowed origins work and non-allowed origins are rejected
-    const allowedResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
+    // Request from disallowed origin
+    const deniedResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
       headers: {
-        Origin: 'https://allowed.com',
+        Origin: 'https://denied.com',
       },
     });
-    assert.equal(allowedResp.status, 200);
-    assert.ok(allowedResp.headers.get('access-control-allow-origin'));
+    assert.equal(deniedResp.status, 200);
+    // CORS middleware doesn't block the request but omits the allow-origin header
+    assert.strictEqual(deniedResp.headers.get('access-control-allow-origin'), null);
   } finally {
     await stopTestServer(server);
   }

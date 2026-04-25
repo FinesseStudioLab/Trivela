@@ -149,12 +149,6 @@ export function createSqliteCampaignRepository({
         'INSERT INTO campaigns (name, slug, description, active, reward_per_action, start_date, end_date, created_at) VALUES (?, ?, ?, 1, ?, ?, ?, ?)',
       )
       .run(name, finalSlug, description, rewardPerAction, startDate, endDate, createdAt);
-    const updatedAt = createdAt;
-    const info = db
-      .prepare(
-        'INSERT INTO campaigns (name, description, active, reward_per_action, start_date, end_date, created_at, updated_at) VALUES (?, ?, 1, ?, ?, ?, ?, ?)',
-      )
-      .run(name, description, rewardPerAction, startDate, endDate, createdAt, updatedAt);
 
     return getById(info.lastInsertRowid);
   }
