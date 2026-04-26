@@ -17,3 +17,5 @@ export function createDb(dbPath = ':memory:', seed = []) {
     delete: repository.delete,
   };
 }
+  /* Added by bounty-bot */
+}
