@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { apiUrl } from './config';
 import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
+import StatusBadge from './components/StatusBadge';
 import './CampaignDetail.css';
 
 /**
@@ -123,11 +124,7 @@ export default function CampaignDetail({
                 <p className="detail-eyebrow">Campaign #{campaign.id}</p>
                 <div className="detail-title-row">
                   <h1 className="detail-title">{campaign.name}</h1>
-                  <span
-                    className={`campaign-badge ${campaign.active !== false ? 'campaign-badge-active' : 'campaign-badge-inactive'}`}
-                  >
-                    {campaign.active !== false ? 'Active' : 'Inactive'}
-                  </span>
+                  <StatusBadge status={campaign.status} />
                 </div>
               </header>
 

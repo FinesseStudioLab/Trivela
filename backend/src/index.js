@@ -136,6 +136,10 @@ function validateCampaignPayload(payload, { partial = false } = {}) {
     errors.push('active must be a boolean when provided');
   }
 
+  if (Object.hasOwn(payload, 'featured') && typeof payload.featured !== 'boolean') {
+    errors.push('featured must be a boolean when provided');
+  }
+
   for (const field of ['startDate', 'endDate']) {
     if (Object.hasOwn(payload, field)) {
       const val = payload[field];
@@ -481,16 +485,25 @@ export function createApp(options = {}) {
       });
     }
 
-    const { name, slug, description, rewardPerAction, startDate, endDate } = req.body;
+    const { name, slug, description, featured, rewardPerAction, startDate, endDate } = req.body;
     try {
       const campaign = campaignRepository.create({
         name,
         slug: slug || undefined,
         description: description || '',
+        featured: featured ?? false,
         rewardPerAction: rewardPerAction ?? 0,
         startDate: startDate ?? null,
         endDate: endDate ?? null,
       });
+
+      recordAuditEntry(req, {
+        action: 'create',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { after: campaign },
+      });
+
       shortCache.clear();
       return res.status(201).json(campaign);
     } catch (error) {
@@ -502,22 +515,6 @@ export function createApp(options = {}) {
       }
       throw error;
     }
-    const { name, description, rewardPerAction, startDate, endDate } = req.body;
-    const campaign = campaignRepository.create({
-      name,
-      description: description || '',
-      rewardPerAction: rewardPerAction ?? 0,
-      startDate: startDate ?? null,
-      endDate: endDate ?? null,
-    });
-    recordAuditEntry(req, {
-      action: 'create',
-      entity: 'campaign',
-      entityId: campaign.id,
-      diff: { after: campaign },
-    });
-    shortCache.clear();
-    return res.status(201).json(campaign);
   }
 
   function updateCampaign(req, res) {
@@ -529,11 +526,12 @@ export function createApp(options = {}) {
       });
     }
 
-    const { name, description, active, rewardPerAction, startDate, endDate } = req.body;
+    const { name, description, active, featured, rewardPerAction, startDate, endDate } = req.body;
     const updateFields = {};
     if (name !== undefined) updateFields.name = name;
     if (description !== undefined) updateFields.description = description;
     if (active !== undefined) updateFields.active = active;
+    if (featured !== undefined) updateFields.featured = featured;
     if (rewardPerAction !== undefined) updateFields.rewardPerAction = rewardPerAction;
     if (startDate !== undefined) updateFields.startDate = startDate;
     if (endDate !== undefined) updateFields.endDate = endDate;

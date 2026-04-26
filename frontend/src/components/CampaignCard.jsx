@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
+import StatusBadge from './StatusBadge';
 
 function formatDate(value) {
   if (!value) return '';
@@ -19,7 +20,7 @@ export default function CampaignCard({ campaign }) {
   const formattedDate = formatDate(campaign?.createdAt);
   const rewardPerAction = campaign?.rewardPerAction ?? 0;
   const description = campaign?.description || 'No campaign description has been added yet.';
-  const isActive = campaign?.active !== false;
+  const status = campaign?.status || (campaign?.active ? 'active' : 'ended');
 
   return (
     <article className="campaign-card" aria-labelledby={titleId}>
@@ -32,13 +33,7 @@ export default function CampaignCard({ campaign }) {
             </h3>
           </div>
 
-          <span
-            className={`campaign-badge ${
-              isActive ? 'campaign-badge-active' : 'campaign-badge-inactive'
-            }`}
-          >
-            {isActive ? 'Active' : 'Inactive'}
-          </span>
+          <StatusBadge status={status} />
         </div>
 
         <p className="campaign-card-description">{description}</p>

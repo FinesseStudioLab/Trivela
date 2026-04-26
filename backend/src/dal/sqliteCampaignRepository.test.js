@@ -8,6 +8,7 @@ function seedCampaigns() {
       name: 'Welcome Campaign',
       description: 'Rewards for onboarding',
       active: true,
+      featured: true,
       rewardPerAction: 10,
       createdAt: '2026-01-01T00:00:00.000Z',
     },
@@ -115,6 +116,22 @@ test('sqlite campaign repository creates, updates, and deletes campaigns', () =>
   assert.equal(repository.delete(created.id), true);
   assert.equal(repository.getById(created.id), undefined);
   assert.equal(repository.delete(created.id), false);
+});
+
+test('sqlite campaign repository handles featured flag', () => {
+  const repository = createSqliteCampaignRepository();
+
+  const created = repository.create({
+    name: 'Featured Quest',
+    description: 'Hot rewards',
+    featured: true,
+    rewardPerAction: 100,
+  });
+
+  assert.equal(created.featured, true);
+
+  const updated = repository.update(created.id, { featured: false });
+  assert.equal(updated.featured, false);
 });
 
 test('computeCampaignStatus returns active when no dates are set', () => {

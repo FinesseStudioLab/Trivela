@@ -124,6 +124,9 @@ export default function Landing({
 
   // Removed local loadPoints effect as it is now handled in App.jsx
 
+  const featuredCampaigns = campaigns.filter(c => c.featured);
+  const otherCampaigns = campaigns.filter(c => !c.featured);
+
   return (
     <div className="landing">
       <a className="skip-link" href="#main-content">Skip to main content</a>
@@ -341,13 +344,31 @@ export default function Landing({
                 description="Create a campaign through the API and it will appear here once saved."
               />
             ) : (
-              <ul className="campaigns-grid">
-                {campaigns.map((campaign) => (
-                  <li key={campaign.id} className="campaigns-grid-item">
-                    <CampaignCard campaign={campaign} />
-                  </li>
-                ))}
-              </ul>
+              <>
+                {featuredCampaigns.length > 0 && (
+                  <div className="featured-section">
+                    <h3 className="featured-title">Featured Campaigns</h3>
+                    <ul className="featured-grid">
+                      {featuredCampaigns.map((campaign) => (
+                        <li key={campaign.id} className="featured-grid-item">
+                          <CampaignCard campaign={campaign} />
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <h3 className={featuredCampaigns.length > 0 ? 'all-campaigns-title' : 'sr-only'}>
+                  All Campaigns
+                </h3>
+                <ul className="campaigns-grid">
+                  {otherCampaigns.map((campaign) => (
+                    <li key={campaign.id} className="campaigns-grid-item">
+                      <CampaignCard campaign={campaign} />
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
           </div>
 
