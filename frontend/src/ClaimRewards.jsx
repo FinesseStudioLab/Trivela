@@ -36,10 +36,7 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
     setTxHash('');
 
     try {
-      const { hash, newBalance } = await submitClaimTransaction(
-        walletAddress,
-        parsedAmount,
-      );
+      const { hash, newBalance } = await submitClaimTransaction(walletAddress, parsedAmount);
 
       setTxHash(hash);
       setAmount('');
@@ -56,7 +53,9 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
 
   return (
     <section className="claim-section" aria-labelledby={headingId}>
-      <h3 id={headingId} className="claim-heading">Claim rewards</h3>
+      <h3 id={headingId} className="claim-heading">
+        Claim rewards
+      </h3>
 
       <form className="claim-form" onSubmit={handleClaim}>
         <label htmlFor={amountId} className="claim-label">
@@ -86,14 +85,13 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
         </div>
       </form>
 
-      {txHash && (
-        <TransactionStatus
-          hash={txHash}
-          network={stellarNetwork}
-        />
-      )}
+      {txHash && <TransactionStatus hash={txHash} network={stellarNetwork} />}
 
-      {claimError && <p id={feedbackId} className="claim-error" role="alert">{claimError}</p>}
+      {claimError && (
+        <p id={feedbackId} className="claim-error" role="alert">
+          {claimError}
+        </p>
+      )}
     </section>
   );
 }

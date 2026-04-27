@@ -34,7 +34,8 @@
   color: var(--accent);
 }
 
-.detail-status, .detail-error {
+.detail-status,
+.detail-error {
   text-align: center;
   padding: 4rem 2rem;
   background: var(--bg-card-solid);
@@ -181,23 +182,23 @@
   .detail-title {
     font-size: 2.2rem;
   }
-  
+
   .detail-title-row {
     flex-direction: column;
     align-items: flex-start;
     gap: 1rem;
   }
-  
+
   .detail-grid {
     grid-template-columns: 1fr;
     gap: 2rem;
     padding: 1.5rem;
   }
-  
+
   .detail-body {
     padding: 1.5rem;
   }
-  
+
   .detail-cta {
     padding: 1.5rem;
   }

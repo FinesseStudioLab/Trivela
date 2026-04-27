@@ -7,7 +7,8 @@ const meta = {
     campaign: {
       id: '12',
       name: 'Builder Sprint',
-      description: 'Complete onboarding tasks, submit feedback, and earn points for each milestone.',
+      description:
+        'Complete onboarding tasks, submit feedback, and earn points for each milestone.',
       active: true,
       rewardPerAction: 25,
       createdAt: '2026-03-20T09:30:00.000Z',
@@ -34,4 +35,3 @@ export const Inactive = {
     },
   },
 };
-

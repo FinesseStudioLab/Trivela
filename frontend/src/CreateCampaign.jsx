@@ -28,7 +28,9 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
   const editSelectId = useId();
   const isEditMode = selectedId !== '';
   const isBrowser = typeof window !== 'undefined';
-  const storedApiKey = isBrowser ? window.sessionStorage.getItem('trivela_admin_api_key') || '' : '';
+  const storedApiKey = isBrowser
+    ? window.sessionStorage.getItem('trivela_admin_api_key') || ''
+    : '';
   const effectiveApiKey = apiKeyInput || storedApiKey;
 
   const isValid = name.trim().length > 0;
@@ -63,7 +65,9 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
       if (isBrowser && apiKeyInput) {
         window.sessionStorage.setItem('trivela_admin_api_key', apiKeyInput);
       }
-      const endpoint = isEditMode ? apiUrl(`/api/v1/campaigns/${selectedId}`) : apiUrl('/api/v1/campaigns');
+      const endpoint = isEditMode
+        ? apiUrl(`/api/v1/campaigns/${selectedId}`)
+        : apiUrl('/api/v1/campaigns');
       const method = isEditMode ? 'PUT' : 'POST';
       const response = await fetch(endpoint, {
         method,
@@ -109,14 +113,18 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
 
   return (
     <section className="create-campaign-section" aria-labelledby={headingId}>
-      <h3 id={headingId} className="create-campaign-heading">Admin campaign manager</h3>
+      <h3 id={headingId} className="create-campaign-heading">
+        Admin campaign manager
+      </h3>
       <p className="create-campaign-description">
         Protected admin form for creating and updating campaigns.
       </p>
 
       <form className="create-campaign-form" onSubmit={handleSubmit}>
         <div className="create-campaign-field">
-          <label htmlFor={apiKeyId} className="create-campaign-label">Admin API key</label>
+          <label htmlFor={apiKeyId} className="create-campaign-label">
+            Admin API key
+          </label>
           <input
             id={apiKeyId}
             type="password"
@@ -129,7 +137,9 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
         </div>
 
         <div className="create-campaign-field">
-          <label htmlFor={editSelectId} className="create-campaign-label">Edit existing campaign (optional)</label>
+          <label htmlFor={editSelectId} className="create-campaign-label">
+            Edit existing campaign (optional)
+          </label>
           <select
             id={editSelectId}
             className="create-campaign-input"
@@ -199,12 +209,26 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
           className="btn btn-primary btn-button"
           disabled={!isValid || isSubmitting || !effectiveApiKey}
         >
-          {isSubmitting ? (isEditMode ? 'Updating…' : 'Creating…') : (isEditMode ? 'Update campaign' : 'Create campaign')}
+          {isSubmitting
+            ? isEditMode
+              ? 'Updating…'
+              : 'Creating…'
+            : isEditMode
+              ? 'Update campaign'
+              : 'Create campaign'}
         </button>
       </form>
 
-      {success && <p className="create-campaign-success" role="status" aria-live="polite">{success}</p>}
-      {error && <p className="create-campaign-error" role="alert">{error}</p>}
+      {success && (
+        <p className="create-campaign-success" role="status" aria-live="polite">
+          {success}
+        </p>
+      )}
+      {error && (
+        <p className="create-campaign-error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

@@ -6,6 +6,10 @@
 //! Events:
 //! - `credit`: topics `(credit, user)`, data `amount: u64`
 //! - `claim`: topics `(claim, user)`, data `amount: u64`
+//! - `transfer`: topics `(transfer, from, to)`, data `amount: u64`
+//! - `paused`: topics `(paused,)`, data `is_paused: bool`
+//! - `max_credit_per_call`: topics `(mxcredit,)`, data `max_amount: u64`
+//! - `campaign_multiplier`: topics `(multset, campaign_id)`, data `multiplier_bps: u32`
 
 #![no_std]
 
@@ -38,6 +42,10 @@ const METADATA: Symbol = symbol_short!("metadata");
 const PAUSED: Symbol = symbol_short!("paused");
 const CREDIT_EVENT: Symbol = symbol_short!("credit");
 const CLAIM_EVENT: Symbol = symbol_short!("claim");
+const TRANSFER_EVENT: Symbol = symbol_short!("transfer");
+const PAUSED_EVENT: Symbol = symbol_short!("paused");
+const MAX_CREDIT_EVENT: Symbol = symbol_short!("mxcredit");
+const CAMPAIGN_MULTIPLIER_EVENT: Symbol = symbol_short!("multset");
 const MAX_CREDIT_PER_CALL: Symbol = symbol_short!("mxcredit");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
@@ -113,6 +121,7 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&MAX_CREDIT_PER_CALL, &max_amount);
+        env.events().publish((MAX_CREDIT_EVENT,), max_amount);
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -140,6 +149,8 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&(CAMPAIGN_MULTIPLIER, campaign_id), &multiplier_bps);
+        env.events()
+            .publish((CAMPAIGN_MULTIPLIER_EVENT, campaign_id), multiplier_bps);
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -234,7 +245,12 @@ impl RewardsContract {
         }
 
         for (user, new_balance) in staged.iter() {
-            env.storage().instance().set(&(BALANCE, user), &new_balance);
+            env.storage().instance().set(&(BALANCE, user.clone()), &new_balance);
+        }
+
+        // Emit credit event for each recipient
+        for (user, amount) in recipients.iter() {
+            env.events().publish((CREDIT_EVENT, user), amount);
         }
 
         env.storage().instance().extend_ttl(50, 100);
@@ -278,18 +294,19 @@ impl RewardsContract {
     ) -> Result<(), Error> {
         require_admin(&env, &admin)?;
 
-        let from_key = (BALANCE, from);
+        let from_key = (BALANCE, from.clone());
         let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
         let new_from_balance = from_balance
             .checked_sub(amount)
             .ok_or(Error::InsufficientBalance)?;
         env.storage().instance().set(&from_key, &new_from_balance);
 
-        let to_key = (BALANCE, to);
+        let to_key = (BALANCE, to.clone());
         let to_balance: u64 = env.storage().instance().get(&to_key).unwrap_or(0);
         let new_to_balance = to_balance.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage().instance().set(&to_key, &new_to_balance);
 
+        env.events().publish((TRANSFER_EVENT, from, to), amount);
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -298,6 +315,8 @@ impl RewardsContract {
     pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error> {
         require_admin(&env, &admin)?;
         env.storage().instance().set(&PAUSED, &paused);
+        env.events().publish((PAUSED_EVENT,), paused);
+        env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
 

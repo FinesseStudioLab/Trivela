@@ -6,7 +6,8 @@ const meta = {
   args: {
     eyebrow: 'Campaign API',
     title: 'No campaigns yet',
-    description: 'Create a campaign through the backend API and it will show up here once it is saved.',
+    description:
+      'Create a campaign through the backend API and it will show up here once it is saved.',
   },
   argTypes: {
     onAction: { action: 'action clicked' },
@@ -21,8 +22,8 @@ export const Retry = {
   args: {
     eyebrow: 'Campaign API',
     title: 'We could not load campaigns',
-    description: 'The backend did not respond in time. Try the request again once the API is running.',
+    description:
+      'The backend did not respond in time. Try the request again once the API is running.',
     actionLabel: 'Try again',
   },
 };
-

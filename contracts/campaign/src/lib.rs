@@ -3,6 +3,13 @@
 //! On-chain campaign metadata and eligibility for Trivela.
 //! Stores campaign config and allows checking participant status.
 //!
+//! Events:
+//! - `register`: topics `(register, participant)`, data `()`
+//! - `active`: topics `(active,)`, data `active: bool`
+//! - `window`: topics `(window,)`, data `(start: u64, end: u64)`
+//! - `maxcap`: topics `(maxcap,)`, data `max_cap: u64`
+//! - `merkle`: topics `(merkle,)`, data `root: BytesN<32>`
+//!
 //! ## Merkle allowlist
 //!
 //! When a Merkle root is set via `set_merkle_root`, all calls to `register`
@@ -56,6 +63,11 @@ const MERKLE_ROOT: Symbol = symbol_short!("mkroot");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const ADMIN_NONCE: Symbol = symbol_short!("anonce");
+const REGISTER_EVENT: Symbol = symbol_short!("register");
+const SET_ACTIVE_EVENT: Symbol = symbol_short!("active");
+const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
+const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
+const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 
 #[contract]
 pub struct CampaignContract;
@@ -154,6 +166,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
+        env.events().publish((SET_WINDOW_EVENT,), (start, end));
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -162,6 +175,7 @@ impl CampaignContract {
     pub fn set_active(env: Env, admin: Address, nonce: u64, active: bool) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &active);
+        env.events().publish((SET_ACTIVE_EVENT,), active);
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -170,6 +184,7 @@ impl CampaignContract {
     pub fn set_max_cap(env: Env, admin: Address, nonce: u64, max_cap: u64) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MAX_CAP, &max_cap);
+        env.events().publish((SET_MAX_CAP_EVENT,), max_cap);
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -182,6 +197,7 @@ impl CampaignContract {
     pub fn set_merkle_root(env: Env, admin: Address, nonce: u64, root: BytesN<32>) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MERKLE_ROOT, &root);
+        env.events().publish((SET_MERKLE_ROOT_EVENT,), root.clone());
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
     }
@@ -270,6 +286,8 @@ impl CampaignContract {
         env.storage()
             .instance()
             .set(&PARTICIPANT_COUNT, &(count + 1));
+
+        env.events().publish((REGISTER_EVENT, participant), ());
 
         env.storage().instance().extend_ttl(50, 100);
         Ok(true)

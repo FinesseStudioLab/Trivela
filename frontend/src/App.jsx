@@ -4,11 +4,7 @@ import Landing from './Landing';
 import CampaignDetail from './CampaignDetail';
 import AdminCampaigns from './AdminCampaigns';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
-import {
-  getRuntimeConfig,
-  initializeRuntimeConfig,
-  setRuntimeStellarNetwork,
-} from './config';
+import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
   getWalletAddress,
   fetchWalletBalance,

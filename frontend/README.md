@@ -84,6 +84,19 @@ VITE_STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 - `VITE_CAMPAIGN_CONTRACT_ID`: Optional campaign contract ID for frontend Soroban calls.
 - `VITE_STELLAR_NETWORK_PASSPHRASE`: Optional override for the selected network's passphrase.
 
+## Linting and formatting
+
+The frontend uses ESLint and Prettier.
+
+```bash
+npm run lint --workspace=frontend
+npm run format:check --workspace=frontend
+npm run format --workspace=frontend
+```
+
+The repository's frontend CI workflow runs linting and formatting checks when the matching scripts
+are present.
+
 ## API routing
 
 The frontend targets `/api/v1/*` routes by default. Campaign loading uses the paginated response shape from `GET /api/v1/campaigns?page=1&limit=6`. Legacy `/api/*` routes are still supported by the backend for backward compatibility, but new integrations should use the v1 prefix.

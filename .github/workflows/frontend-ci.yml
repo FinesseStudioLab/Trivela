@@ -34,6 +34,7 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync('./frontend/package.json', 'utf8'));
           const out = process.env.GITHUB_OUTPUT;
           fs.appendFileSync(out, 'has_lint=' + (pkg.scripts?.lint ? 'true' : 'false') + '\n');
+          fs.appendFileSync(out, 'has_format_check=' + (pkg.scripts?.['format:check'] ? 'true' : 'false') + '\n');
           fs.appendFileSync(out, 'has_test=' + (pkg.scripts?.test ? 'true' : 'false') + '\n');
           EOF
 
@@ -55,6 +56,10 @@ jobs:
       - name: Lint frontend
         if: steps.scripts.outputs.has_lint == 'true'
         run: npm run lint --workspace=frontend
+
+      - name: Check frontend formatting
+        if: steps.scripts.outputs.has_format_check == 'true'
+        run: npm run format:check --workspace=frontend
 
       - name: Test frontend
         if: steps.scripts.outputs.has_test == 'true'

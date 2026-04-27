@@ -1,0 +1,39 @@
+services:
+  backend:
+    image: node:20-alpine
+    working_dir: /app/backend
+    command: sh -c "npm install && npm run dev"
+    environment:
+      PORT: 3001
+      CORS_ALLOWED_ORIGINS: http://localhost:5173
+      STELLAR_NETWORK: testnet
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./:/app
+      - backend_node_modules:/app/backend/node_modules
+
+  frontend:
+    image: node:20-alpine
+    working_dir: /app/frontend
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    environment:
+      VITE_API_URL: http://backend:3001
+      VITE_STELLAR_NETWORK: testnet
+    depends_on:
+      - backend
+    ports:
+      - '5173:5173'
+    volumes:
+      - ./:/app
+      - frontend_node_modules:/app/frontend/node_modules
+
+  redis:
+    image: redis:7-alpine
+    profiles: ['redis']
+    ports:
+      - '6379:6379'
+
+volumes:
+  backend_node_modules:
+  frontend_node_modules:

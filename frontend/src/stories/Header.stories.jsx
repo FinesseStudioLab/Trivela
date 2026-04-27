@@ -27,4 +27,3 @@ export const ConnectedWallet = {
     walletBalance: '142.50 XLM',
   },
 };
-

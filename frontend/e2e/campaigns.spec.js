@@ -16,9 +16,7 @@ test.describe('Campaigns page', () => {
     await page.goto('/');
 
     await expect(page).toHaveTitle(/Trivela/i);
-    await expect(page.getByRole('heading', { level: 1 })).toContainText(
-      'Campaigns & rewards',
-    );
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Campaigns & rewards');
   });
 
   test('campaigns section shows a list or empty state after loading', async ({ page }) => {

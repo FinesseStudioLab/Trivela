@@ -93,16 +93,9 @@ export function normalizeError(error) {
   if (!error) return 'Unable to load points right now.';
 
   const extractErrorCode = (value) => {
-    const text =
-      typeof value === 'string'
-        ? value
-        : value?.message || value?.toString?.() || '';
+    const text = typeof value === 'string' ? value : value?.message || value?.toString?.() || '';
 
-    const patterns = [
-      /Error\(Contract,\s*#(\d+)\)/i,
-      /contract.*?#(\d+)/i,
-      /code[:\s]+(\d+)/i,
-    ];
+    const patterns = [/Error\(Contract,\s*#(\d+)\)/i, /contract.*?#(\d+)/i, /code[:\s]+(\d+)/i];
 
     for (const pattern of patterns) {
       const match = text.match(pattern);
@@ -139,20 +132,14 @@ export function normalizeError(error) {
  * Fetch the connected account's native XLM balance from Horizon.
  */
 export async function fetchWalletBalance(walletAddress) {
-  const response = await fetch(
-    `${getHorizonUrl()}/accounts/${encodeURIComponent(walletAddress)}`,
-  );
+  const response = await fetch(`${getHorizonUrl()}/accounts/${encodeURIComponent(walletAddress)}`);
 
   if (!response.ok) {
-    throw new Error(
-      `Horizon returned ${response.status} while loading the wallet balance.`,
-    );
+    throw new Error(`Horizon returned ${response.status} while loading the wallet balance.`);
   }
 
   const account = await response.json();
-  const nativeBalance = account.balances?.find(
-    (balance) => balance.asset_type === 'native',
-  );
+  const nativeBalance = account.balances?.find((balance) => balance.asset_type === 'native');
 
   return nativeBalance?.balance || '0';
 }
@@ -173,9 +160,7 @@ export async function fetchRewardsBalance(walletAddress) {
     fee: BASE_FEE,
     networkPassphrase: getNetworkPassphrase(),
   })
-    .addOperation(
-      contract.call('balance', nativeToScVal(Address.fromString(walletAddress))),
-    )
+    .addOperation(contract.call('balance', nativeToScVal(Address.fromString(walletAddress))))
     .setTimeout(30)
     .build();
 
@@ -231,17 +216,12 @@ export async function submitClaimTransaction(walletAddress, amount) {
   if (signResult.error) throw new Error(signResult.error);
 
   /* 4. Re-construct the signed transaction */
-  const signedTx = TransactionBuilder.fromXDR(
-    signResult.signedTxXdr,
-    getNetworkPassphrase(),
-  );
+  const signedTx = TransactionBuilder.fromXDR(signResult.signedTxXdr, getNetworkPassphrase());
 
   /* 5. Submit */
   const sendResult = await server.sendTransaction(signedTx);
   if (sendResult.status === 'ERROR') {
-    throw new Error(
-      sendResult.errorResult?.toString() || 'Transaction submission failed.',
-    );
+    throw new Error(sendResult.errorResult?.toString() || 'Transaction submission failed.');
   }
 
   /* 6. Poll until finalised */
@@ -255,9 +235,7 @@ export async function submitClaimTransaction(walletAddress, amount) {
   }
 
   if (!getResult || getResult.status === 'NOT_FOUND') {
-    throw new Error(
-      'Transaction was submitted but could not be confirmed in time.',
-    );
+    throw new Error('Transaction was submitted but could not be confirmed in time.');
   }
 
   if (getResult.status === 'FAILED') {
@@ -286,12 +264,7 @@ export async function checkParticipantStatus(walletAddress) {
     fee: BASE_FEE,
     networkPassphrase: getNetworkPassphrase(),
   })
-    .addOperation(
-      contract.call(
-        'is_participant',
-        nativeToScVal(Address.fromString(walletAddress)),
-      ),
-    )
+    .addOperation(contract.call('is_participant', nativeToScVal(Address.fromString(walletAddress))))
     .setTimeout(30)
     .build();
 
@@ -353,17 +326,12 @@ export async function submitRegisterTransaction(walletAddress) {
   if (signResult.error) throw new Error(signResult.error);
 
   /* 4. Re-construct signed transaction */
-  const signedTx = TransactionBuilder.fromXDR(
-    signResult.signedTxXdr,
-    getNetworkPassphrase(),
-  );
+  const signedTx = TransactionBuilder.fromXDR(signResult.signedTxXdr, getNetworkPassphrase());
 
   /* 5. Submit */
   const sendResult = await server.sendTransaction(signedTx);
   if (sendResult.status === 'ERROR') {
-    throw new Error(
-      sendResult.errorResult?.toString() || 'Registration transaction failed.',
-    );
+    throw new Error(sendResult.errorResult?.toString() || 'Registration transaction failed.');
   }
 
   /* 6. Poll until finalised */
@@ -377,9 +345,7 @@ export async function submitRegisterTransaction(walletAddress) {
   }
 
   if (!getResult || getResult.status === 'NOT_FOUND') {
-    throw new Error(
-      'Registration transaction was submitted but could not be confirmed in time.',
-    );
+    throw new Error('Registration transaction was submitted but could not be confirmed in time.');
   }
 
   if (getResult.status === 'FAILED') {
@@ -387,9 +353,7 @@ export async function submitRegisterTransaction(walletAddress) {
   }
 
   // Contract returns true for a fresh registration, false if already registered.
-  const wasNew = getResult.returnValue
-    ? scValToNative(getResult.returnValue)
-    : true;
+  const wasNew = getResult.returnValue ? scValToNative(getResult.returnValue) : true;
 
   return { hash: sendResult.hash, alreadyRegistered: !wasNew };
 }

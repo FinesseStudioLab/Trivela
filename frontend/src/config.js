@@ -54,7 +54,9 @@ function validateFrontendEnv(env = import.meta.env) {
   }
 
   if (errors.length > 0) {
-    throw new Error(['Invalid frontend environment configuration:', ...errors.map((e) => `- ${e}`)].join('\n'));
+    throw new Error(
+      ['Invalid frontend environment configuration:', ...errors.map((e) => `- ${e}`)].join('\n'),
+    );
   }
 }
 
@@ -64,7 +66,9 @@ function resolveNetworkConfig({
   sorobanRpcUrl,
   horizonUrl,
 } = {}) {
-  const normalizedNetwork = String(network || 'testnet').trim().toLowerCase();
+  const normalizedNetwork = String(network || 'testnet')
+    .trim()
+    .toLowerCase();
   const preset = STELLAR_NETWORKS[normalizedNetwork] ?? STELLAR_NETWORKS.testnet;
 
   return {

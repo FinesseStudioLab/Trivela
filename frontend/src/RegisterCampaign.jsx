@@ -92,8 +92,14 @@ export default function RegisterCampaign({ walletAddress }) {
         : '—';
 
   return (
-    <section className="register-section" aria-labelledby={headingId} aria-busy={isChecking || isRegistering}>
-      <h3 id={headingId} className="register-heading">Campaign registration</h3>
+    <section
+      className="register-section"
+      aria-labelledby={headingId}
+      aria-busy={isChecking || isRegistering}
+    >
+      <h3 id={headingId} className="register-heading">
+        Campaign registration
+      </h3>
 
       <div className="register-status">
         <span className="register-status-label">Participant status</span>
@@ -114,15 +120,18 @@ export default function RegisterCampaign({ walletAddress }) {
         </button>
       )}
 
-      {txHash && (
-        <TransactionStatus
-          hash={txHash}
-          network={stellarNetwork}
-        />
-      )}
+      {txHash && <TransactionStatus hash={txHash} network={stellarNetwork} />}
 
-      {notice && <p className="register-note" role="status">{notice}</p>}
-      {error && <p className="register-error" role="alert">{error}</p>}
+      {notice && (
+        <p className="register-note" role="status">
+          {notice}
+        </p>
+      )}
+      {error && (
+        <p className="register-error" role="alert">
+          {error}
+        </p>
+      )}
     </section>
   );
 }

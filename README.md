@@ -163,6 +163,23 @@ npm run dev:frontend
 
 App: http://localhost:5173 (proxies `/api` and `/api/v1` to the backend).
 
+### 5. Run both services with Docker Compose
+
+```bash
+docker compose up --build
+```
+
+This starts the backend on `http://localhost:3001` and the frontend on `http://localhost:5173`.
+The backend container uses `CORS_ALLOWED_ORIGINS=http://localhost:5173` and the frontend container
+uses `VITE_API_URL=http://backend:3001` so the two services can talk to each other on the Compose
+network.
+
+To add the optional Redis service for local experimentation, include the `redis` profile:
+
+```bash
+docker compose --profile redis up --build
+```
+
 ---
 
 ## Testing

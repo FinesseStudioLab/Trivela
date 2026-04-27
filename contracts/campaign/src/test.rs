@@ -6,11 +6,11 @@ use soroban_sdk::{vec, Address, Bytes, BytesN, Vec};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-fn setup() -> (Env, CampaignContractClient<'static>) {
+fn setup() -> (Env, Address, CampaignContractClient<'static>) {
     let env = Env::default();
     let contract_id = env.register_contract(None, CampaignContract);
     let client = CampaignContractClient::new(&env, &contract_id);
-    (env, client)
+    (env, contract_id, client)
 }
 
 /// Empty proof + dummy leaf – used when no Merkle root is configured.
@@ -53,7 +53,7 @@ fn build_two_leaf_tree(
 
 #[test]
 fn test_initialize_and_active() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     client.initialize(&admin);
     assert!(client.is_active());
@@ -61,7 +61,7 @@ fn test_initialize_and_active() {
 
 #[test]
 fn test_register_participant() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let participant = Address::generate(&env);
     client.initialize(&admin);
@@ -74,7 +74,7 @@ fn test_register_participant() {
 
 #[test]
 fn test_time_window_validation() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let participant = Address::generate(&env);
     client.initialize(&admin);
@@ -100,7 +100,7 @@ fn test_time_window_validation() {
 
 #[test]
 fn test_register_participant_twice_returns_false() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let participant = Address::generate(&env);
     client.initialize(&admin);
@@ -113,7 +113,7 @@ fn test_register_participant_twice_returns_false() {
 
 #[test]
 fn test_set_active_only_by_admin() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let other = Address::generate(&env);
     client.initialize(&admin);
@@ -125,7 +125,7 @@ fn test_set_active_only_by_admin() {
 
 #[test]
 fn test_register_when_inactive() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let participant = Address::generate(&env);
     client.initialize(&admin);
@@ -140,7 +140,7 @@ fn test_register_when_inactive() {
 
 #[test]
 fn test_is_participant_for_unknown_address() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let unknown = Address::generate(&env);
     client.initialize(&admin);
@@ -149,7 +149,7 @@ fn test_is_participant_for_unknown_address() {
 
 #[test]
 fn test_capacity_reached() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     client.initialize(&admin);
 
@@ -168,7 +168,7 @@ fn test_capacity_reached() {
 
 #[test]
 fn test_merkle_root_not_set_by_default() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     client.initialize(&admin);
     assert!(client.get_merkle_root().is_none());
@@ -176,7 +176,7 @@ fn test_merkle_root_not_set_by_default() {
 
 #[test]
 fn test_set_merkle_root_only_by_admin() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let other = Address::generate(&env);
     client.initialize(&admin);
@@ -189,7 +189,7 @@ fn test_set_merkle_root_only_by_admin() {
 
 #[test]
 fn test_register_with_valid_merkle_proof() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let p1 = Address::generate(&env);
     let p2 = Address::generate(&env);
@@ -213,7 +213,7 @@ fn test_register_with_valid_merkle_proof() {
 
 #[test]
 fn test_register_rejected_with_invalid_proof() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let p1 = Address::generate(&env);
     let p2 = Address::generate(&env);
@@ -235,7 +235,7 @@ fn test_register_rejected_with_invalid_proof() {
 
 #[test]
 fn test_register_rejected_with_leaf_not_in_tree() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let p3 = Address::generate(&env);
     client.initialize(&admin);
@@ -255,7 +255,7 @@ fn test_register_rejected_with_leaf_not_in_tree() {
 
 #[test]
 fn test_register_rejected_with_empty_proof_when_root_set() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let p1 = Address::generate(&env);
     client.initialize(&admin);
@@ -274,7 +274,7 @@ fn test_register_rejected_with_empty_proof_when_root_set() {
 
 #[test]
 fn test_open_registration_when_no_root() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let participant = Address::generate(&env);
     client.initialize(&admin);
@@ -287,7 +287,7 @@ fn test_open_registration_when_no_root() {
 
 #[test]
 fn test_schema_version_and_migrate_entrypoint() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let other = Address::generate(&env);
     client.initialize(&admin);
@@ -307,7 +307,7 @@ fn test_schema_version_and_migrate_entrypoint() {
 
 #[test]
 fn test_participant_count_increments_on_new_register_only() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     let p1 = Address::generate(&env);
     client.initialize(&admin);
@@ -323,7 +323,7 @@ fn test_participant_count_increments_on_new_register_only() {
 
 #[test]
 fn test_admin_nonce_replay_protection() {
-    let (env, client) = setup();
+    let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     client.initialize(&admin);
     env.mock_all_auths();

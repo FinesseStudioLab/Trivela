@@ -15,8 +15,12 @@
   --success: #33c37f;
   --danger: #ff8e8e;
   --shadow-lg: 0 26px 60px rgba(0, 0, 0, 0.28);
-  --font-heading: "Outfit", system-ui, sans-serif;
-  font-family: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-heading: 'Outfit', system-ui, sans-serif;
+  font-family:
+    'DM Sans',
+    system-ui,
+    -apple-system,
+    sans-serif;
   line-height: 1.6;
   color: var(--text);
   background: var(--bg);
@@ -164,7 +168,10 @@ button:disabled {
   font-weight: 600;
   padding: 0.6rem 1.1rem;
   cursor: pointer;
-  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
 }
 
 .error-boundary-button-primary {

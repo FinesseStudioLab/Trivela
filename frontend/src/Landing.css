@@ -188,7 +188,7 @@
 }
 
 .hero::before {
-  content: "";
+  content: '';
   position: absolute;
   inset: 0;
   background:
@@ -272,7 +272,11 @@
   font-weight: 600;
   border-radius: 999px;
   border: 1px solid transparent;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease, border-color 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background-color 0.18s ease,
+    border-color 0.18s ease;
 }
 
 .btn:hover {
@@ -351,9 +355,7 @@
   padding: 1.8rem;
   border-radius: 28px;
   border: 1px solid var(--border-strong);
-  background:
-    linear-gradient(180deg, var(--accent-soft), transparent 45%),
-    var(--bg-card);
+  background: linear-gradient(180deg, var(--accent-soft), transparent 45%), var(--bg-card);
   box-shadow: var(--shadow-lg);
 }
 
@@ -519,7 +521,9 @@
 
 .feature-card {
   padding: 1.5rem;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .feature-card:hover {
@@ -702,7 +706,7 @@
 }
 
 .featured-title::before {
-  content: "★";
+  content: '★';
   color: #ffab00;
   font-size: 1.2rem;
 }
@@ -732,7 +736,9 @@
   padding: 0;
   /* Padding moved to .campaign-card-link */
   overflow: hidden;
-  transition: border-color 0.2s ease, transform 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .campaign-card:hover {
@@ -938,9 +944,7 @@
   text-align: center;
   border-radius: 28px;
   border: 1px solid var(--border-strong);
-  background:
-    linear-gradient(180deg, var(--accent-soft), transparent 55%),
-    var(--bg-card);
+  background: linear-gradient(180deg, var(--accent-soft), transparent 55%), var(--bg-card);
   box-shadow: var(--shadow-lg);
 }
 

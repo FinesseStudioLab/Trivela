@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useEffect, useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type CampaignStatus = "active" | "paused" | "ended" | "draft";
+type CampaignStatus = 'active' | 'paused' | 'ended' | 'draft';
 
 interface RewardConfig {
   token: string;
@@ -35,25 +35,25 @@ async function fetchCampaign(id: string): Promise<Campaign> {
 
 class NotFoundError extends Error {
   constructor() {
-    super("Campaign not found");
-    this.name = "NotFoundError";
+    super('Campaign not found');
+    this.name = 'NotFoundError';
   }
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const STATUS_LABELS: Record<CampaignStatus, string> = {
-  active: "Active",
-  paused: "Paused",
-  ended: "Ended",
-  draft: "Draft",
+  active: 'Active',
+  paused: 'Paused',
+  ended: 'Ended',
+  draft: 'Draft',
 };
 
 const STATUS_COLORS: Record<CampaignStatus, string> = {
-  active: "status-active",
-  paused: "status-paused",
-  ended: "status-ended",
-  draft: "status-draft",
+  active: 'status-active',
+  paused: 'status-paused',
+  ended: 'status-ended',
+  draft: 'status-draft',
 };
 
 function StatusBadge({ status }: { status: CampaignStatus }) {
@@ -111,17 +111,15 @@ function StatGrid({ campaign }: { campaign: Campaign }) {
         <span className="stat-label">Questions</span>
       </div>
       <div className="stat-card">
-        <span className="stat-value">
-          {campaign.participantCount.toLocaleString()}
-        </span>
+        <span className="stat-value">{campaign.participantCount.toLocaleString()}</span>
         <span className="stat-label">Participants</span>
       </div>
       <div className="stat-card">
         <span className="stat-value">
           {start.toLocaleDateString(undefined, {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
           })}
         </span>
         <span className="stat-label">Started</span>
@@ -130,11 +128,11 @@ function StatGrid({ campaign }: { campaign: Campaign }) {
         <span className="stat-value">
           {end
             ? end.toLocaleDateString(undefined, {
-                month: "short",
-                day: "numeric",
-                year: "numeric",
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric',
               })
-            : "Ongoing"}
+            : 'Ongoing'}
         </span>
         <span className="stat-label">Ends</span>
       </div>
@@ -146,11 +144,7 @@ function StatGrid({ campaign }: { campaign: Campaign }) {
 
 function CampaignSkeleton() {
   return (
-    <div
-      className="campaign-skeleton"
-      aria-busy="true"
-      aria-label="Loading campaign"
-    >
+    <div className="campaign-skeleton" aria-busy="true" aria-label="Loading campaign">
       <div className="skeleton-header">
         <div className="skeleton-title" />
         <div className="skeleton-badge" />
@@ -180,10 +174,9 @@ function CampaignNotFound({ id }: { id: string }) {
       </span>
       <h1>Campaign not found</h1>
       <p>
-        No campaign with ID <code>{id}</code> exists, or it may have been
-        removed.
+        No campaign with ID <code>{id}</code> exists, or it may have been removed.
       </p>
-      <button className="btn-primary" onClick={() => navigate("/campaigns")}>
+      <button className="btn-primary" onClick={() => navigate('/campaigns')}>
         Browse campaigns
       </button>
     </div>
@@ -193,37 +186,37 @@ function CampaignNotFound({ id }: { id: string }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 type PageState =
-  | { phase: "loading" }
-  | { phase: "error"; message: string }
-  | { phase: "not-found" }
-  | { phase: "ready"; campaign: Campaign };
+  | { phase: 'loading' }
+  | { phase: 'error'; message: string }
+  | { phase: 'not-found' }
+  | { phase: 'ready'; campaign: Campaign };
 
 export default function CampaignDetail() {
   const { id } = useParams<{ id: string }>();
-  const [state, setState] = useState<PageState>({ phase: "loading" });
+  const [state, setState] = useState<PageState>({ phase: 'loading' });
 
   useEffect(() => {
     if (!id) {
-      setState({ phase: "not-found" });
+      setState({ phase: 'not-found' });
       return;
     }
 
-    setState({ phase: "loading" });
+    setState({ phase: 'loading' });
 
     fetchCampaign(id)
-      .then((campaign) => setState({ phase: "ready", campaign }))
+      .then((campaign) => setState({ phase: 'ready', campaign }))
       .catch((err) => {
         if (err instanceof NotFoundError) {
-          setState({ phase: "not-found" });
+          setState({ phase: 'not-found' });
         } else {
-          setState({ phase: "error", message: err.message });
+          setState({ phase: 'error', message: err.message });
         }
       });
   }, [id]);
 
-  if (state.phase === "loading") return <CampaignSkeleton />;
-  if (state.phase === "not-found") return <CampaignNotFound id={id ?? ""} />;
-  if (state.phase === "error") {
+  if (state.phase === 'loading') return <CampaignSkeleton />;
+  if (state.phase === 'not-found') return <CampaignNotFound id={id ?? ''} />;
+  if (state.phase === 'error') {
     return (
       <div role="alert" className="error-banner">
         <strong>Something went wrong</strong>

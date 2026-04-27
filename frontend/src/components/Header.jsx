@@ -31,7 +31,9 @@ export default function Header({
     <header className="site-header">
       <nav className="nav" aria-label="Primary">
         <a href="/" className="nav-logo" aria-label="Trivela home">
-          <span className="nav-logo-icon" aria-hidden="true">◇</span>
+          <span className="nav-logo-icon" aria-hidden="true">
+            ◇
+          </span>
           Trivela
         </a>
 
@@ -71,11 +73,7 @@ export default function Header({
                 disabled={isWalletLoading}
                 aria-label={walletAddress ? 'Disconnect wallet' : 'Connect wallet'}
               >
-                {isWalletLoading
-                  ? 'Connecting…'
-                  : walletAddress
-                    ? 'Disconnect'
-                    : 'Connect wallet'}
+                {isWalletLoading ? 'Connecting…' : walletAddress ? 'Disconnect' : 'Connect wallet'}
               </button>
             )}
 

@@ -139,23 +139,19 @@ export default function CampaignDetail({
                 <div className="detail-grid">
                   <div className="detail-stat">
                     <h3>Reward per Action</h3>
-                    <p className="stat-value">
-                      {campaign.rewardPerAction ?? 0} pts
-                    </p>
+                    <p className="stat-value">{campaign.rewardPerAction ?? 0} pts</p>
                   </div>
                   <div className="detail-stat">
                     <h3>Created On</h3>
-                    <p className="stat-value">
-                      {formatDate(campaign.createdAt)}
-                    </p>
+                    <p className="stat-value">{formatDate(campaign.createdAt)}</p>
                   </div>
                 </div>
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
                   <p>
-                    Rewards are issued automatically through the Stellar Soroban
-                    smart contract assigned to this campaign.
+                    Rewards are issued automatically through the Stellar Soroban smart contract
+                    assigned to this campaign.
                   </p>
 
                   {walletAddress ? (
@@ -167,13 +163,10 @@ export default function CampaignDetail({
                         onClick={onConnectWallet}
                         disabled={isWalletLoading}
                       >
-                        {isWalletLoading
-                          ? 'Connecting...'
-                          : 'Connect wallet to register'}
+                        {isWalletLoading ? 'Connecting...' : 'Connect wallet to register'}
                       </button>
                       <p className="cta-note">
-                        Connect your Freighter wallet to register for this
-                        campaign.
+                        Connect your Freighter wallet to register for this campaign.
                       </p>
                     </div>
                   )}

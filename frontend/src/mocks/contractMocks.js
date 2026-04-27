@@ -35,14 +35,16 @@ export function createMockContract(contractId, { name = 'MockContract' } = {}) {
 
 export const MockCampaignContract = {
   mockId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4',
-  createMock: () => createMockContract('CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4', {
-    name: 'MockCampaignContract',
-  }),
+  createMock: () =>
+    createMockContract('CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAABSC4', {
+      name: 'MockCampaignContract',
+    }),
 };
 
 export const MockRewardsContract = {
   mockId: 'CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC5',
-  createMock: () => createMockContract('CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC5', {
-    name: 'MockRewardsContract',
-  }),
+  createMock: () =>
+    createMockContract('CBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBSC5', {
+      name: 'MockRewardsContract',
+    }),
 };

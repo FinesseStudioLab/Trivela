@@ -7,6 +7,15 @@ use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{symbol_short, vec, Address, Env, IntoVal};
 use soroban_sdk::{BytesN, Vec as SdkVec};
 use trivela_campaign_contract::{CampaignContract, CampaignContractClient};
+use std::vec::Vec as StdVec;
+
+fn seed_users(env: &Env, count: usize) -> StdVec<Address> {
+    let mut users = StdVec::new();
+    for _ in 0..count {
+        users.push(Address::generate(env));
+    }
+    users
+}
 
 #[test]
 fn test_balance_empty() {
@@ -153,6 +162,37 @@ fn test_credit_overflow_errors() {
 }
 
 #[test]
+fn test_admin_settings_emit_events() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.set_max_credit_per_call(&admin, &500);
+    assert_eq!(client.max_credit_per_call(), 500);
+    client.set_campaign_multiplier(&admin, &42u64, &12_500u32);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                vec![
+                    &env,
+                    CAMPAIGN_MULTIPLIER_EVENT.into_val(&env),
+                    42u64.into_val(&env)
+                ],
+                12_500u32.into_val(&env)
+            )
+        ]
+    );
+}
+
+#[test]
 fn test_batch_credit_is_atomic_on_overflow() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RewardsContract);
@@ -290,4 +330,60 @@ fn test_campaign_multiplier_rounding_floor() {
     client.set_campaign_multiplier(&admin, &7u64, &9_999u32);
     let balance = client.credit_for_campaign(&admin, &user, &7u64, &3u64);
     assert_eq!(balance, 2);
+}
+
+#[test]
+fn test_randomized_points_accounting_invariants() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let users = seed_users(&env, 3);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+
+    let mut rng = 0xC0FFEE_u64;
+    let mut credited_total = 0u64;
+    let mut expected_balances = [0u64; 3];
+
+    for _ in 0..100 {
+        rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+        let op = (rng % 3) as u8;
+        let index = (rng as usize) % users.len();
+
+        match op {
+            0 => {
+                let amount = (rng % 25) + 1;
+                client.credit(&admin, &users[index], &amount);
+                expected_balances[index] = expected_balances[index].saturating_add(amount);
+                credited_total = credited_total.saturating_add(amount);
+            }
+            1 => {
+                let balance = expected_balances[index];
+                if balance > 0 {
+                    let amount = (rng % balance) + 1;
+                    client.claim(&users[index], &amount);
+                    expected_balances[index] -= amount;
+                }
+            }
+            _ => {
+                let target = (index + 1) % users.len();
+                let balance = expected_balances[index];
+                if balance > 0 {
+                    let amount = (rng % balance) + 1;
+                    client.admin_transfer(&admin, &users[index], &users[target], &amount);
+                    expected_balances[index] -= amount;
+                    expected_balances[target] = expected_balances[target].saturating_add(amount);
+                }
+            }
+        }
+
+        let observed_balance_total: u64 = users.iter().map(|user| client.balance(user)).sum();
+        let expected_balance_total: u64 = expected_balances.iter().copied().sum();
+
+        assert_eq!(observed_balance_total, expected_balance_total);
+        assert_eq!(observed_balance_total + client.total_claimed(), credited_total);
+    }
 }
