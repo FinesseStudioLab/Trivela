@@ -6,8 +6,8 @@ use super::*;
 use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{symbol_short, vec, Address, Env, IntoVal};
 use soroban_sdk::{BytesN, Vec as SdkVec};
-use trivela_campaign_contract::{CampaignContract, CampaignContractClient};
 use std::vec::Vec as StdVec;
+use trivela_campaign_contract::{CampaignContract, CampaignContractClient};
 
 fn seed_users(env: &Env, count: usize) -> StdVec<Address> {
     let mut users = StdVec::new();
@@ -384,6 +384,9 @@ fn test_randomized_points_accounting_invariants() {
         let expected_balance_total: u64 = expected_balances.iter().copied().sum();
 
         assert_eq!(observed_balance_total, expected_balance_total);
-        assert_eq!(observed_balance_total + client.total_claimed(), credited_total);
+        assert_eq!(
+            observed_balance_total + client.total_claimed(),
+            credited_total
+        );
     }
 }

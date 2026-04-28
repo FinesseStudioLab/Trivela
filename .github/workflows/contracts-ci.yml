@@ -1,0 +1,50 @@
+name: Contracts CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Check contract formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint contracts
+        run: cargo clippy --workspace --all-targets -- -D warnings -A deprecated
+
+      - name: Run contract tests
+        run: cargo test --workspace
+
+      - name: Build Soroban WASM artifacts
+        run: |
+          if command -v stellar >/dev/null 2>&1; then
+            stellar contract build
+          else
+            echo "Stellar CLI is not installed in this runner; skipping Soroban WASM build."
+            echo "Install Stellar CLI to produce .wasm artifacts in CI."
+          fi

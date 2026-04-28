@@ -215,7 +215,6 @@ fn test_register_with_valid_merkle_proof() {
 fn test_register_rejected_with_invalid_proof() {
     let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
-    let p1 = Address::generate(&env);
     let p2 = Address::generate(&env);
     client.initialize(&admin);
 

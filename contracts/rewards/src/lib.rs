@@ -245,7 +245,9 @@ impl RewardsContract {
         }
 
         for (user, new_balance) in staged.iter() {
-            env.storage().instance().set(&(BALANCE, user.clone()), &new_balance);
+            env.storage()
+                .instance()
+                .set(&(BALANCE, user.clone()), &new_balance);
         }
 
         // Emit credit event for each recipient

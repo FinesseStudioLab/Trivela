@@ -98,11 +98,7 @@ fn verify_merkle_proof(
     &computed == root
 }
 
-fn require_admin_with_nonce(
-    env: &Env,
-    admin: &Address,
-    nonce: u64,
-) -> Result<(), Error> {
+fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<(), Error> {
     admin.require_auth();
     let stored: Address = env.storage().instance().get(&ADMIN).unwrap();
     if &stored != admin {
@@ -162,7 +158,13 @@ impl CampaignContract {
     }
 
     /// Set registration time window (admin only).
-    pub fn set_window(env: Env, admin: Address, nonce: u64, start: u64, end: u64) -> Result<(), Error> {
+    pub fn set_window(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        start: u64,
+        end: u64,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
@@ -194,7 +196,12 @@ impl CampaignContract {
     /// Once set, every `register` call must supply a valid `(leaf, proof)`.
     /// Remove the root by calling this again with a root of all zeros to
     /// revert to open registration.
-    pub fn set_merkle_root(env: Env, admin: Address, nonce: u64, root: BytesN<32>) -> Result<(), Error> {
+    pub fn set_merkle_root(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        root: BytesN<32>,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MERKLE_ROOT, &root);
         env.events().publish((SET_MERKLE_ROOT_EVENT,), root.clone());
@@ -244,11 +251,7 @@ impl CampaignContract {
         }
 
         // Merkle allowlist check – skipped when no root is stored.
-        if let Some(root) = env
-            .storage()
-            .instance()
-            .get::<_, BytesN<32>>(&MERKLE_ROOT)
-        {
+        if let Some(root) = env.storage().instance().get::<_, BytesN<32>>(&MERKLE_ROOT) {
             if !verify_merkle_proof(&env, leaf, &proof, &root) {
                 return Err(Error::NotInAllowlist);
             }

@@ -84,6 +84,37 @@ cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contrac
 cargo build --target wasm32-unknown-unknown --release -p trivela-campaign-contract
 ```
 
+#### Building and deploying contracts
+
+Required environment for deploy commands:
+
+```bash
+export STELLAR_NETWORK=testnet
+export STELLAR_SOURCE=alice
+```
+
+`STELLAR_NETWORK` is your Stellar CLI network alias (for example `testnet` or `mainnet`), and `STELLAR_SOURCE` is the Stellar CLI identity to sign deploy transactions.
+
+Build commands:
+
+```bash
+stellar contract build
+```
+
+Deploy commands:
+
+```bash
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/trivela_rewards_contract.wasm \
+  --source "$STELLAR_SOURCE" \
+  --network "$STELLAR_NETWORK"
+
+stellar contract deploy \
+  --wasm target/wasm32-unknown-unknown/release/trivela_campaign_contract.wasm \
+  --source "$STELLAR_SOURCE" \
+  --network "$STELLAR_NETWORK"
+```
+
 #### Deploying to Testnet
 
 1. **Configure an Identity**:
