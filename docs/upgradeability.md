@@ -70,3 +70,6 @@ Today, direct admin upgrades are enough for a small contributor project. As Triv
 - **Two-step rollout**: install new Wasm, run `upgrade`, then run `migrate` with explicit target versions and smoke checks between each step.
 - **Migration ledgering**: persist migration checkpoints/events so off-chain monitors can verify exactly which schema version is live.
 - **Rollback readiness**: keep previous Wasm hashes and migration runbooks ready to redeploy quickly if a release introduces regressions.
+
+
+# Document changes you will make 
