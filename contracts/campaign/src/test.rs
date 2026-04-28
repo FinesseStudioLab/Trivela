@@ -1,8 +1,8 @@
 //! Tests for the Trivela campaign contract.
 
 use super::*;
-use soroban_sdk::testutils::{Address as _, Ledger};
-use soroban_sdk::{vec, Address, Bytes, BytesN, Vec};
+use soroban_sdk::testutils::{Address as _, Events as _, Ledger};
+use soroban_sdk::{vec, Address, Bytes, BytesN, IntoVal, Vec};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -84,18 +84,29 @@ fn test_time_window_validation() {
 
     let (leaf, proof) = no_proof_args(&env);
 
-    // Too early
+    // Too early — exact error and no participant recorded.
     env.ledger().with_mut(|li| li.timestamp = 50);
-    assert!(client.try_register(&participant, &leaf, &proof).is_err());
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof),
+        Err(Ok(Error::OutsideTimeWindow))
+    );
+    assert!(!client.is_participant(&participant));
+    assert_eq!(client.get_participant_count(), 0);
 
-    // Within window
+    // Within window — succeeds.
     env.ledger().with_mut(|li| li.timestamp = 150);
     assert!(client.register(&participant, &leaf, &proof));
+    assert_eq!(client.get_participant_count(), 1);
 
-    // Too late
+    // Too late — exact error and count unchanged.
     let p2 = Address::generate(&env);
     env.ledger().with_mut(|li| li.timestamp = 250);
-    assert!(client.try_register(&p2, &leaf, &proof).is_err());
+    assert_eq!(
+        client.try_register(&p2, &leaf, &proof),
+        Err(Ok(Error::OutsideTimeWindow))
+    );
+    assert!(!client.is_participant(&p2));
+    assert_eq!(client.get_participant_count(), 1);
 }
 
 #[test]
@@ -119,8 +130,20 @@ fn test_set_active_only_by_admin() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    let result = client.try_set_active(&other, &0, &false);
-    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+
+    // Non-admin cannot toggle active flag and the flag stays unchanged.
+    assert!(client.is_active());
+    assert_eq!(
+        client.try_set_active(&other, &0, &false),
+        Err(Ok(Error::Unauthorized))
+    );
+    assert!(client.is_active());
+    // Admin nonce is not consumed when the call fails authorization.
+    assert_eq!(client.admin_nonce(), 0);
+
+    // Admin succeeds and flips the flag.
+    client.set_active(&admin, &0, &false);
+    assert!(!client.is_active());
 }
 
 #[test]
@@ -134,17 +157,42 @@ fn test_register_when_inactive() {
     client.set_active(&admin, &0, &false);
 
     let (leaf, proof) = no_proof_args(&env);
-    let result = client.try_register(&participant, &leaf, &proof);
-    assert_eq!(result, Err(Ok(Error::CampaignInactive)));
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof),
+        Err(Ok(Error::CampaignInactive))
+    );
+    // No participant was recorded and counter did not move.
+    assert!(!client.is_participant(&participant));
+    assert_eq!(client.get_participant_count(), 0);
+
+    // Re-activating allows the same participant to register normally.
+    client.set_active(&admin, &1, &true);
+    assert!(client.register(&participant, &leaf, &proof));
+    assert!(client.is_participant(&participant));
+    assert_eq!(client.get_participant_count(), 1);
 }
 
 #[test]
 fn test_is_participant_for_unknown_address() {
     let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
-    let unknown = Address::generate(&env);
+    let unknown_a = Address::generate(&env);
+    let unknown_b = Address::generate(&env);
     client.initialize(&admin);
-    assert!(!client.is_participant(&unknown));
+
+    // Multiple unrelated addresses all return false on a fresh contract.
+    assert!(!client.is_participant(&unknown_a));
+    assert!(!client.is_participant(&unknown_b));
+
+    // Registering one address does not affect the membership of the other.
+    let registered = Address::generate(&env);
+    env.mock_all_auths();
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&registered, &leaf, &proof));
+
+    assert!(client.is_participant(&registered));
+    assert!(!client.is_participant(&unknown_a));
+    assert!(!client.is_participant(&unknown_b));
 }
 
 #[test]
@@ -317,6 +365,188 @@ fn test_participant_count_increments_on_new_register_only() {
     assert!(client.register(&p1, &leaf, &proof));
     assert_eq!(client.get_participant_count(), 1);
     assert!(!client.register(&p1, &leaf, &proof));
+    assert_eq!(client.get_participant_count(), 1);
+}
+
+// ── window: getters, validation, boundaries (issue #89) ─────────────────────
+
+#[test]
+fn test_get_window_default_is_open() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    // After initialize, the window is "open": [0, u64::MAX].
+    assert_eq!(client.get_window(), (0, u64::MAX));
+    assert!(client.is_within_window());
+}
+
+#[test]
+fn test_get_window_after_set() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    client.set_window(&admin, &0, &1_000, &2_000);
+    assert_eq!(client.get_window(), (1_000, 2_000));
+}
+
+#[test]
+fn test_set_window_rejects_start_after_end() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    let nonce_before = client.admin_nonce();
+    assert_eq!(
+        client.try_set_window(&admin, &nonce_before, &500, &100),
+        Err(Ok(Error::InvalidWindow))
+    );
+
+    // Window stays at default. The nonce increment performed inside
+    // `require_admin_with_nonce` is rolled back together with all other
+    // writes when the function returns `Err`, so the same nonce can be
+    // re-used for a corrected call.
+    assert_eq!(client.get_window(), (0, u64::MAX));
+    assert_eq!(client.admin_nonce(), nonce_before);
+
+    // Same nonce now succeeds with a valid window.
+    client.set_window(&admin, &nonce_before, &100, &500);
+    assert_eq!(client.get_window(), (100, 500));
+    assert_eq!(client.admin_nonce(), nonce_before + 1);
+}
+
+#[test]
+fn test_set_window_allows_equal_start_and_end() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let participant = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    client.set_window(&admin, &0, &500, &500);
+    assert_eq!(client.get_window(), (500, 500));
+
+    // Single-instant window: register works exactly at the boundary.
+    let (leaf, proof) = no_proof_args(&env);
+    env.ledger().with_mut(|li| li.timestamp = 500);
+    assert!(client.is_within_window());
+    assert!(client.register(&participant, &leaf, &proof));
+}
+
+#[test]
+fn test_register_at_window_boundaries() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    client.set_window(&admin, &0, &100, &200);
+    let (leaf, proof) = no_proof_args(&env);
+
+    // timestamp == start: inclusive lower bound.
+    let p_start = Address::generate(&env);
+    env.ledger().with_mut(|li| li.timestamp = 100);
+    assert!(client.is_within_window());
+    assert!(client.register(&p_start, &leaf, &proof));
+
+    // timestamp == end: inclusive upper bound.
+    let p_end = Address::generate(&env);
+    env.ledger().with_mut(|li| li.timestamp = 200);
+    assert!(client.is_within_window());
+    assert!(client.register(&p_end, &leaf, &proof));
+
+    // One past end: rejected.
+    let p_after = Address::generate(&env);
+    env.ledger().with_mut(|li| li.timestamp = 201);
+    assert!(!client.is_within_window());
+    assert_eq!(
+        client.try_register(&p_after, &leaf, &proof),
+        Err(Ok(Error::OutsideTimeWindow))
+    );
+}
+
+#[test]
+fn test_set_window_emits_event() {
+    let (env, contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    client.set_window(&admin, &0, &100, &200);
+
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                vec![&env, SET_WINDOW_EVENT.into_val(&env)],
+                (100u64, 200u64).into_val(&env)
+            )
+        ]
+    );
+}
+
+// ── extra coverage for #91 ───────────────────────────────────────────────────
+
+#[test]
+fn test_set_active_emits_event_and_is_idempotent() {
+    let (env, contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+
+    // Toggle off — flag flips and a single event is emitted.
+    // (`env.events().all()` reflects events from the most recent invocation,
+    // so we assert it before any further client calls.)
+    client.set_active(&admin, &0, &false);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id.clone(),
+                vec![&env, SET_ACTIVE_EVENT.into_val(&env)],
+                false.into_val(&env)
+            )
+        ]
+    );
+
+    // Setting to the same value is allowed (idempotent) and still emits.
+    client.set_active(&admin, &1, &false);
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                contract_id,
+                vec![&env, SET_ACTIVE_EVENT.into_val(&env)],
+                false.into_val(&env)
+            )
+        ]
+    );
+    assert!(!client.is_active());
+}
+
+#[test]
+fn test_register_unauthorized_other_address_does_not_persist() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let participant = Address::generate(&env);
+    client.initialize(&admin);
+
+    env.mock_all_auths();
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&participant, &leaf, &proof));
+
+    // Sanity: a brand-new address is not silently registered as a side
+    // effect of someone else's register call.
+    let bystander = Address::generate(&env);
+    assert!(!client.is_participant(&bystander));
     assert_eq!(client.get_participant_count(), 1);
 }
 

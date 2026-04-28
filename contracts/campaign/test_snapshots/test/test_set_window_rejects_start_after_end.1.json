@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 5,
+    "address": 2,
     "nonce": 0,
     "mux_id": 0
   },
@@ -9,23 +9,28 @@
     [],
     [],
     [],
+    [],
+    [],
     [
       [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
         {
           "function": {
             "contract_fn": {
               "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "register",
+              "function_name": "set_window",
               "args": [
                 {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "bytes": "0000000000000000000000000000000000000000000000000000000000000000"
+                  "u64": "0"
                 },
                 {
-                  "vec": []
+                  "u64": "100"
+                },
+                {
+                  "u64": "500"
                 }
               ]
             }
@@ -34,7 +39,6 @@
         }
       ]
     ],
-    [],
     [],
     []
   ],
@@ -84,7 +88,7 @@
                         "symbol": "anonce"
                       },
                       "val": {
-                        "u64": "0"
+                        "u64": "1"
                       }
                     },
                     {
@@ -92,7 +96,7 @@
                         "symbol": "count"
                       },
                       "val": {
-                        "u64": "1"
+                        "u64": "0"
                       }
                     },
                     {
@@ -100,7 +104,7 @@
                         "symbol": "end"
                       },
                       "val": {
-                        "u64": "18446744073709551615"
+                        "u64": "500"
                       }
                     },
                     {
@@ -116,22 +120,7 @@
                         "symbol": "start"
                       },
                       "val": {
-                        "u64": "0"
-                      }
-                    },
-                    {
-                      "key": {
-                        "vec": [
-                          {
-                            "symbol": "partic"
-                          },
-                          {
-                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
-                          }
-                        ]
-                      },
-                      "val": {
-                        "bool": true
+                        "u64": "100"
                       }
                     }
                   ]
@@ -149,10 +138,10 @@
           "data": {
             "contract_data": {
               "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "801925984706572462"
+                  "nonce": "5541220902715666415"
                 }
               },
               "durability": "temporary",

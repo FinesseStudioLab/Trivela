@@ -48,6 +48,7 @@ pub enum Error {
     NotInAllowlist = 104,
     UnsupportedMigration = 105,
     InvalidAdminNonce = 106,
+    InvalidWindow = 107,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -158,6 +159,10 @@ impl CampaignContract {
     }
 
     /// Set registration time window (admin only).
+    ///
+    /// Both bounds are inclusive: `register` succeeds when
+    /// `start <= now <= end`. Use `0` and `u64::MAX` for an effectively
+    /// open window. Rejects `start > end` with `InvalidWindow`.
     pub fn set_window(
         env: Env,
         admin: Address,
@@ -166,11 +171,37 @@ impl CampaignContract {
         end: u64,
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
+        if start > end {
+            return Err(Error::InvalidWindow);
+        }
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
         env.events().publish((SET_WINDOW_EVENT,), (start, end));
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
+    }
+
+    /// Get the configured `(start, end)` registration window.
+    ///
+    /// Defaults to `(0, u64::MAX)` when no window has been set, which
+    /// callers can interpret as "unbounded".
+    pub fn get_window(env: Env) -> (u64, u64) {
+        let start: u64 = env.storage().instance().get(&START_TIME).unwrap_or(0);
+        let end: u64 = env.storage().instance().get(&END_TIME).unwrap_or(u64::MAX);
+        (start, end)
+    }
+
+    /// Returns `true` when the current ledger timestamp is within
+    /// `[start, end]` of the configured window.
+    ///
+    /// Off-chain callers and dependent contracts (e.g. rewards logic)
+    /// can use this view to gate operations on campaign liveness without
+    /// duplicating the window check.
+    pub fn is_within_window(env: Env) -> bool {
+        let now = env.ledger().timestamp();
+        let start: u64 = env.storage().instance().get(&START_TIME).unwrap_or(0);
+        let end: u64 = env.storage().instance().get(&END_TIME).unwrap_or(u64::MAX);
+        now >= start && now <= end
     }
 
     /// Set campaign active flag (admin only).

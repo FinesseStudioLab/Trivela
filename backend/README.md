@@ -543,13 +543,35 @@ Requires API key if `TRIVELA_API_KEY` is set.
 
 ## Docker
 
-Build image from repo root:
+The backend ships as a multi-stage Alpine image. The build stage compiles
+native modules (`better-sqlite3`) against Node 20 headers; the runtime
+stage contains only Node, the production `node_modules` tree, the
+application source, and `dumb-init` for clean signal forwarding. The
+container runs as the unprivileged `node` user (uid/gid `1000`).
+
+### Build
+
+The Dockerfile expects the build context to be the repo root because the
+monorepo's `package-lock.json` lives there:
 
 ```bash
 docker build -f backend/Dockerfile -t trivela-backend .
 ```
 
-Run container (example):
+A `.dockerignore` at the repo root keeps the context small (excludes
+`node_modules`, `target/`, `frontend/`, etc.).
+
+### Run
+
+Minimal example:
+
+```bash
+docker run --rm -p 3001:3001 \
+  -e STELLAR_NETWORK=testnet \
+  trivela-backend
+```
+
+Production-like example with all the common knobs:
 
 ```bash
 docker run --rm -p 3001:3001 \
@@ -559,5 +581,31 @@ docker run --rm -p 3001:3001 \
   -e HORIZON_URL=https://horizon-testnet.stellar.org \
   -e CORS_ALLOWED_ORIGINS=http://localhost:5173 \
   -e TRIVELA_API_KEYS=dev-secret \
+  -e RATE_LIMIT_MAX_REQUESTS=120 \
   trivela-backend
+```
+
+See the [Environment](#environment) section above for the full list of
+supported variables.
+
+### Persistence
+
+The container's filesystem is read-only for the application user except
+for the working directory. SQLite data lives under `backend/src/db/` by
+default; mount a volume there to persist data across container restarts:
+
+```bash
+docker run --rm -p 3001:3001 \
+  -v trivela-db:/app/backend/src/db/data \
+  -e STELLAR_NETWORK=testnet \
+  trivela-backend
+```
+
+### Health
+
+The image declares a `HEALTHCHECK` that polls `GET /health` every 30s.
+Orchestrators (Compose, Kubernetes, ECS) can use the resulting status:
+
+```bash
+docker inspect --format '{{json .State.Health}}' <container-id>
 ```
