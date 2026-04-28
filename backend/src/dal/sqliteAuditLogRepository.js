@@ -1,17 +1,5 @@
 import Database from 'better-sqlite3';
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS audit_logs (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  actor      TEXT    NOT NULL,
-  action     TEXT    NOT NULL,
-  entity     TEXT    NOT NULL,
-  entity_id  TEXT,
-  diff       TEXT,
-  created_at TEXT    NOT NULL
-);
-`;
-
 function rowToAuditLog(row) {
   return {
     id: String(row.id),
@@ -24,10 +12,7 @@ function rowToAuditLog(row) {
   };
 }
 
-export function createSqliteAuditLogRepository({ dbPath = ':memory:' } = {}) {
-  const db = new Database(dbPath);
-  db.exec(SCHEMA);
-
+export function createSqliteAuditLogRepository({ db }) {
   function create({ actor, action, entity, entityId = null, diff = null, timestamp = null }) {
     const createdAt = timestamp ?? new Date().toISOString();
     const diffJson = diff ? JSON.stringify(diff) : null;

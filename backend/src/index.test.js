@@ -4,7 +4,7 @@ import test from 'node:test';
 import { createApp } from './index.js';
 
 async function startTestServer(options = {}) {
-  const app = createApp(options);
+  const app = await createApp(options);
   const server = app.listen(0);
   await once(server, 'listening');
   const address = server.address();
@@ -161,21 +161,67 @@ test('rate limiting applies to API routes', async () => {
   }
 });
 
-test('createApp rejects invalid contract IDs in configuration', () => {
-  assert.throws(
+test('createApp rejects invalid contract IDs in configuration', async () => {
+  await assert.rejects(
     () => createApp({ REWARDS_CONTRACT_ID: 'invalid-id' }),
     /REWARDS_CONTRACT_ID must be a valid Stellar contract ID/,
   );
 
-  assert.throws(
+  await assert.rejects(
     () => createApp({ CAMPAIGN_CONTRACT_ID: 'GABC' }),
     /CAMPAIGN_CONTRACT_ID must be a valid Stellar contract ID/,
   );
 
-  assert.throws(
+  await assert.rejects(
     () => createApp({ stellarNetwork: 'pubnet' }),
     /Unsupported STELLAR_NETWORK "pubnet"/,
   );
+});
+test('POST /api/v1/campaigns returns 400 for invalid slug format', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Invalid Slug',
+        slug: 'Invalid_Slug_Format!',
+        rewardPerAction: 10,
+      }),
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.code, 'VALIDATION_ERROR');
+    assert.ok(body.error.includes('Kebab-case only'));
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('POST /api/v1/campaigns returns 400 for invalid date range', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Invalid Dates',
+        rewardPerAction: 10,
+        startDate: '2026-02-01T00:00:00Z',
+        endDate: '2026-01-01T00:00:00Z',
+      }),
+    });
+
+    assert.equal(response.status, 400);
+    const body = await response.json();
+    assert.equal(body.code, 'VALIDATION_ERROR');
+    assert.ok(body.error.includes('Start date must be before end date'));
+  } finally {
+    await stopTestServer(server);
+  }
 });
 
 test('GET /api/v1/config exposes explicit stellar network metadata', async () => {
@@ -826,7 +872,7 @@ test('createApp defaults to deny-by-default CORS in production when not configur
       await stopTestServer(server);
     }
 
-    assert.throws(
+    await assert.rejects(
       () => createApp({ corsAllowedOrigins: '*' }),
       /Wildcard origins are not permitted/,
     );

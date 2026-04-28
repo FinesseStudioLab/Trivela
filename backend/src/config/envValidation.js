@@ -95,6 +95,10 @@ export function validateBackendEnv(env = process.env) {
   record(() => validateCorsAllowedOrigins(env.CORS_ALLOWED_ORIGINS ?? env.CORS_ORIGIN));
   record(() => validateApiKeys({ apiKey: env.TRIVELA_API_KEY, apiKeys: env.TRIVELA_API_KEYS }));
 
+  if (env.DB_PATH && typeof env.DB_PATH !== 'string') {
+    errors.push('DB_PATH must be a string path');
+  }
+
   if (errors.length > 0) {
     const message = [
       'Invalid environment configuration:',

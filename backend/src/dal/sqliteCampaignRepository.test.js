@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import Database from 'better-sqlite3';
+import { runMigrations } from '../db/migrate.js';
 import { createSqliteCampaignRepository, computeCampaignStatus } from './sqliteCampaignRepository.js';
+
+async function setupTestRepository(seed = []) {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  return createSqliteCampaignRepository({ db, seed });
+}
 
 function seedCampaigns() {
   return [
@@ -22,8 +30,8 @@ function seedCampaigns() {
   ];
 }
 
-test('sqlite campaign repository lists, filters, and searches campaigns', () => {
-  const repository = createSqliteCampaignRepository({ seed: seedCampaigns() });
+test('sqlite campaign repository lists, filters, and searches campaigns', async () => {
+  const repository = await setupTestRepository(seedCampaigns());
 
   assert.equal(repository.list().length, 2);
   assert.equal(repository.list({ active: true }).length, 1);
@@ -31,8 +39,8 @@ test('sqlite campaign repository lists, filters, and searches campaigns', () => 
   assert.equal(repository.list({ q: 'builder' }).length, 1);
 });
 
-test('sqlite campaign repository generates slug from name', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository generates slug from name', async () => {
+  const repository = await setupTestRepository();
 
   const created = repository.create({
     name: 'My Awesome Campaign!',
@@ -43,8 +51,8 @@ test('sqlite campaign repository generates slug from name', () => {
   assert.equal(created.slug, 'my-awesome-campaign');
 });
 
-test('sqlite campaign repository allows explicit slug', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository allows explicit slug', async () => {
+  const repository = await setupTestRepository();
 
   const created = repository.create({
     name: 'Test Campaign',
@@ -56,8 +64,8 @@ test('sqlite campaign repository allows explicit slug', () => {
   assert.equal(created.slug, 'custom-slug');
 });
 
-test('sqlite campaign repository retrieves campaign by slug', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository retrieves campaign by slug', async () => {
+  const repository = await setupTestRepository();
 
   const created = repository.create({
     name: 'Slug Test',
@@ -70,8 +78,8 @@ test('sqlite campaign repository retrieves campaign by slug', () => {
   assert.equal(retrieved.name, 'Slug Test');
 });
 
-test('sqlite campaign repository rejects duplicate slugs', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository rejects duplicate slugs', async () => {
+  const repository = await setupTestRepository();
 
   repository.create({
     name: 'First Campaign',
@@ -93,8 +101,8 @@ test('sqlite campaign repository rejects duplicate slugs', () => {
   );
 });
 
-test('sqlite campaign repository creates, updates, and deletes campaigns', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository creates, updates, and deletes campaigns', async () => {
+  const repository = await setupTestRepository();
 
   const created = repository.create({
     name: 'Launch Quest',
@@ -118,8 +126,8 @@ test('sqlite campaign repository creates, updates, and deletes campaigns', () =>
   assert.equal(repository.delete(created.id), false);
 });
 
-test('sqlite campaign repository handles featured flag', () => {
-  const repository = createSqliteCampaignRepository();
+test('sqlite campaign repository handles featured flag', async () => {
+  const repository = await setupTestRepository();
 
   const created = repository.create({
     name: 'Featured Quest',
@@ -160,11 +168,8 @@ test('computeCampaignStatus prioritises ended over upcoming', () => {
   assert.equal(computeCampaignStatus({ startDate: past, endDate: past }), 'ended');
 });
 
-test('campaign repository attaches computed status to returned campaigns', () => {
-  const future = new Date(Date.now() + 86_400_000).toISOString();
-  const past = new Date(Date.now() - 86_400_000).toISOString();
-
-  const repository = createSqliteCampaignRepository();
+test('campaign repository attaches computed status to returned campaigns', async () => {
+  const repository = await setupTestRepository();
 
   const upcoming = repository.create({
     name: 'Future Campaign',
@@ -191,9 +196,9 @@ test('campaign repository attaches computed status to returned campaigns', () =>
   assert.equal(active.status, 'active');
 });
 
-test('campaign repository update can set and clear startDate/endDate', () => {
+test('campaign repository update can set and clear startDate/endDate', async () => {
   const future = new Date(Date.now() + 86_400_000).toISOString();
-  const repository = createSqliteCampaignRepository();
+  const repository = await setupTestRepository();
 
   const created = repository.create({ name: 'Test', rewardPerAction: 1 });
   assert.equal(created.status, 'active');
@@ -207,8 +212,8 @@ test('campaign repository update can set and clear startDate/endDate', () => {
 });
 
 // #232 — featured flag and ordering
-test('featured campaigns sort before non-featured campaigns', () => {
-  const repository = createSqliteCampaignRepository();
+test('featured campaigns sort before non-featured campaigns', async () => {
+  const repository = await setupTestRepository();
 
   repository.create({ name: 'Regular A', rewardPerAction: 1 });
   const featured = repository.create({ name: 'Featured One', rewardPerAction: 1, featured: true });
@@ -221,8 +226,8 @@ test('featured campaigns sort before non-featured campaigns', () => {
   assert.equal(results[2].featured, false);
 });
 
-test('update can set and unset featured flag', () => {
-  const repository = createSqliteCampaignRepository();
+test('update can set and unset featured flag', async () => {
+  const repository = await setupTestRepository();
 
   const campaign = repository.create({ name: 'Promo', rewardPerAction: 5 });
   assert.equal(campaign.featured, false);
@@ -235,8 +240,8 @@ test('update can set and unset featured flag', () => {
 });
 
 // #234 — hidden flag and moderation
-test('hidden campaigns are excluded from public list', () => {
-  const repository = createSqliteCampaignRepository();
+test('hidden campaigns are excluded from public list', async () => {
+  const repository = await setupTestRepository();
 
   repository.create({ name: 'Visible', rewardPerAction: 1 });
   const hidden = repository.create({ name: 'Hidden Spam', rewardPerAction: 1 });
@@ -247,8 +252,8 @@ test('hidden campaigns are excluded from public list', () => {
   assert.equal(results[0].name, 'Visible');
 });
 
-test('hidden campaigns are still accessible by id', () => {
-  const repository = createSqliteCampaignRepository();
+test('hidden campaigns are still accessible by id', async () => {
+  const repository = await setupTestRepository();
 
   const campaign = repository.create({ name: 'Abusive Campaign', rewardPerAction: 1 });
   repository.update(campaign.id, { hidden: true, hiddenReason: 'abuse' });
@@ -259,8 +264,8 @@ test('hidden campaigns are still accessible by id', () => {
   assert.equal(fetched.hiddenReason, 'abuse');
 });
 
-test('update can set and clear hidden flag and reason', () => {
-  const repository = createSqliteCampaignRepository();
+test('update can set and clear hidden flag and reason', async () => {
+  const repository = await setupTestRepository();
 
   const campaign = repository.create({ name: 'Test Mod', rewardPerAction: 1 });
   assert.equal(campaign.hidden, false);
@@ -275,8 +280,8 @@ test('update can set and clear hidden flag and reason', () => {
   assert.equal(restored.hiddenReason, null);
 });
 
-test('list includeHidden option exposes hidden campaigns', () => {
-  const repository = createSqliteCampaignRepository();
+test('list includeHidden option exposes hidden campaigns', async () => {
+  const repository = await setupTestRepository();
 
   repository.create({ name: 'Visible', rewardPerAction: 1 });
   const hidden = repository.create({ name: 'Hidden', rewardPerAction: 1 });

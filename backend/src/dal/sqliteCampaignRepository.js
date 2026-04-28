@@ -1,33 +1,6 @@
 // @ts-check
 import Database from 'better-sqlite3';
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS campaigns (
-  id                INTEGER PRIMARY KEY AUTOINCREMENT,
-  name              TEXT    NOT NULL,
-  slug              TEXT    NOT NULL UNIQUE,
-  description       TEXT    NOT NULL DEFAULT '',
-  active            INTEGER NOT NULL DEFAULT 1,
-  featured          INTEGER NOT NULL DEFAULT 0,
-  reward_per_action INTEGER NOT NULL DEFAULT 0,
-  start_date        TEXT,
-  end_date          TEXT,
-  hidden            INTEGER NOT NULL DEFAULT 0,
-  hidden_reason     TEXT,
-  created_at        TEXT    NOT NULL,
-  updated_at        TEXT    NOT NULL
-);
-`;
-
-const INDEXES = `
-CREATE INDEX IF NOT EXISTS idx_campaigns_slug       ON campaigns(slug);
-CREATE INDEX IF NOT EXISTS idx_campaigns_active     ON campaigns(active);
-CREATE INDEX IF NOT EXISTS idx_campaigns_hidden     ON campaigns(hidden);
-CREATE INDEX IF NOT EXISTS idx_campaigns_featured   ON campaigns(featured);
-CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns(created_at);
-CREATE INDEX IF NOT EXISTS idx_campaigns_name       ON campaigns(name);
-`;
-
 export function computeCampaignStatus({ startDate, endDate }) {
   const now = new Date();
   if (endDate && new Date(endDate) <= now) return 'ended';
@@ -66,31 +39,9 @@ function rowToCampaign(row) {
 }
 
 export function createSqliteCampaignRepository({
-  dbPath = ':memory:',
+  db,
   seed = [],
-} = {}) {
-  const db = new Database(dbPath);
-  db.exec(SCHEMA);
-
-  const campaignColumns = db.prepare('PRAGMA table_info(campaigns)').all();
-  const columnNames = new Set(campaignColumns.map((c) => c.name));
-
-  if (!columnNames.has('updated_at')) {
-    db.exec('ALTER TABLE campaigns ADD COLUMN updated_at TEXT');
-    db.exec('UPDATE campaigns SET updated_at = created_at WHERE updated_at IS NULL');
-  }
-  if (!columnNames.has('featured')) {
-    db.exec('ALTER TABLE campaigns ADD COLUMN featured INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!columnNames.has('hidden')) {
-    db.exec('ALTER TABLE campaigns ADD COLUMN hidden INTEGER NOT NULL DEFAULT 0');
-  }
-  if (!columnNames.has('hidden_reason')) {
-    db.exec('ALTER TABLE campaigns ADD COLUMN hidden_reason TEXT');
-  }
-
-  db.exec(INDEXES);
-
+}) {
   if (seed.length > 0) {
     const count = db.prepare('SELECT COUNT(*) AS n FROM campaigns').get().n;
     if (count === 0) {

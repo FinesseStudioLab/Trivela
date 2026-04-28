@@ -9,35 +9,71 @@ const isoDateOrNull = z
   .nullable();
 
 /** Schema for creating a new campaign. */
-export const campaignCreateSchema = z.object({
-  name: z.string().trim().min(1, 'name is required and must be a non-empty string'),
-  slug: z.string().optional(),
-  description: z.string().optional(),
-  rewardPerAction: z
-    .number({ required_error: 'rewardPerAction is required and must be a non-negative number' })
-    .finite()
-    .min(0, 'rewardPerAction must be a non-negative number'),
-  active: z.boolean().optional(),
-  featured: z.boolean().optional(),
-  hidden: z.boolean().optional(),
-  hiddenReason: z.string().nullable().optional(),
-  startDate: isoDateOrNull.optional(),
-  endDate: isoDateOrNull.optional(),
-});
+export const campaignCreateSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name is required and must be a non-empty string'),
+    slug: z
+      .string()
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be kebab-case (e.g., my-campaign-123)')
+      .optional(),
+    description: z.string().optional(),
+    rewardPerAction: z
+      .number({ required_error: 'rewardPerAction is required' })
+      .finite()
+      .min(0, 'rewardPerAction must be a non-negative number'),
+    active: z.boolean().optional(),
+    featured: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    hiddenReason: z.string().nullable().optional(),
+    startDate: isoDateOrNull.optional(),
+    endDate: isoDateOrNull.optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    {
+      message: 'startDate must be before endDate',
+      path: ['startDate'],
+    },
+  );
 
 /** Schema for partially updating a campaign (all fields optional). */
-export const campaignUpdateSchema = z.object({
-  name: z.string().trim().min(1, 'name must be a non-empty string').optional(),
-  slug: z.string().optional(),
-  description: z.string().optional(),
-  rewardPerAction: z.number().finite().min(0, 'rewardPerAction must be a non-negative number').optional(),
-  active: z.boolean().optional(),
-  featured: z.boolean().optional(),
-  hidden: z.boolean().optional(),
-  hiddenReason: z.string().nullable().optional(),
-  startDate: isoDateOrNull.optional(),
-  endDate: isoDateOrNull.optional(),
-});
+export const campaignUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1, 'Name must be a non-empty string').optional(),
+    slug: z
+      .string()
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be kebab-case (e.g., my-campaign-123)')
+      .optional(),
+    description: z.string().optional(),
+    rewardPerAction: z.number().finite().min(0, 'rewardPerAction must be a non-negative number').optional(),
+    active: z.boolean().optional(),
+    featured: z.boolean().optional(),
+    hidden: z.boolean().optional(),
+    hiddenReason: z.string().nullable().optional(),
+    startDate: isoDateOrNull.optional(),
+    endDate: isoDateOrNull.optional(),
+  })
+  .refine(
+    (data) => {
+      // In a partial update, we only check if both are provided in the update.
+      // If only one is provided, we can't easily check against the DB value here.
+      // But we can check if both are present in the payload.
+      if (data.startDate && data.endDate) {
+        return new Date(data.startDate) < new Date(data.endDate);
+      }
+      return true;
+    },
+    {
+      message: 'startDate must be before endDate',
+      path: ['startDate'],
+    },
+  );
+
 
 /** Schema for paginated list query parameters. */
 export const listQuerySchema = z

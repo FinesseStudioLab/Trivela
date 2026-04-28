@@ -120,7 +120,7 @@ function validateContractId(value, label) {
 }
 
 /** @param {Record<string, unknown>} options @returns {import('express').Application} */
-export function createApp(options = {}) {
+export async function createApp(options = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
   const jsonBodyLimit =
     /** @type {string} */ (options.jsonBodyLimit) ?? process.env.JSON_BODY_LIMIT ?? DEFAULT_JSON_BODY_LIMIT;
@@ -162,8 +162,8 @@ export function createApp(options = {}) {
   );
 
   const seed = /** @type {any[]} */ (options.campaigns) ?? defaultSeed();
-  const dbPath = /** @type {string} */ (options.dbPath) ?? process.env.DB_PATH ?? ':memory:';
-  const dal = createDal({
+  const dbPath = /** @type {string} */ (options.dbPath) ?? process.env.DB_PATH ?? './trivela.db';
+  const dal = await createDal({
     dbPath,
     campaigns: seed,
     campaignRepository: options.campaignRepository,
@@ -642,13 +642,13 @@ export function createApp(options = {}) {
   return app;
 }
 
-/** @param {Record<string, unknown>} options @returns {import('http').Server} */
-export function startServer(options = {}) {
+/** @param {Record<string, unknown>} options @returns {Promise<import('http').Server>} */
+export async function startServer(options = {}) {
   if (!options.skipEnvValidation) {
     validateBackendEnv(process.env);
   }
 
-  const app = createApp(options);
+  const app = await createApp(options);
   const port = options.port ?? process.env.PORT ?? DEFAULT_PORT;
 
   return app.listen(port, () => {
