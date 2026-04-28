@@ -256,7 +256,10 @@ test('createApp supports injected campaign repositories', async () => {
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.data[0].id, '99');
-    assert.deepEqual(calls[0], ['list', { active: undefined, q: 'injected' }]);
+    assert.deepEqual(calls[0], [
+      'list',
+      { active: undefined, q: 'injected', sort: undefined, order: undefined },
+    ]);
   } finally {
     await stopTestServer(server);
   }
@@ -479,6 +482,37 @@ test('PUT /api/v1/campaigns/:id updates an existing campaign and returns 404 whe
   }
 });
 
+test('PUT /api/v1/campaigns/:id with partial fields preserves untouched fields', async () => {
+  const seed = [
+    {
+      id: '1',
+      name: 'Original Name',
+      description: 'Original description',
+      active: true,
+      rewardPerAction: 25,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  const { server, baseUrl } = await startTestServer({ campaigns: seed });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns/1`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active: false }),
+    });
+
+    assert.equal(response.status, 200);
+    const updated = await response.json();
+    assert.equal(updated.active, false);
+    assert.equal(updated.name, 'Original Name', 'name should be preserved');
+    assert.equal(updated.description, 'Original description', 'description should be preserved');
+    assert.equal(updated.rewardPerAction, 25, 'rewardPerAction should be preserved');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
 test('GET /api/v1/campaigns?active=true returns only active campaigns', async () => {
   const seed = [
     { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
@@ -511,6 +545,23 @@ test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async
     const body = await response.json();
     assert.equal(body.data.length, 1);
     assert.equal(body.data[0].active, false);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/campaigns?active=invalid ignores the filter and returns all campaigns', async () => {
+  const seed = [
+    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+  ];
+  const { server, baseUrl } = await startTestServer({ campaigns: seed });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?active=garbage`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.data.length, 2);
   } finally {
     await stopTestServer(server);
   }

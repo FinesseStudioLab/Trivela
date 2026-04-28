@@ -434,10 +434,10 @@ export function createApp(options = {}) {
       return res.set('x-cache', 'HIT').json(cached.payload);
     }
 
+    const activeRaw =
+      typeof req.query.active === 'string' ? req.query.active.toLowerCase() : undefined;
     const activeFilter =
-      req.query.active !== undefined
-        ? req.query.active === 'true'
-        : undefined;
+      activeRaw === 'true' ? true : activeRaw === 'false' ? false : undefined;
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
     const order = req.query.order === 'asc' ? 'asc' : req.query.order === 'desc' ? 'desc' : undefined;
