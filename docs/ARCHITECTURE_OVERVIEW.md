@@ -1,5 +1,7 @@
 # Trivela Architecture Overview
 
+> 🔤 Unfamiliar with Soroban, XDR, instance storage, or persistent storage? See the **[Glossary](GLOSSARY.md)**.
+
 This document gives contributors a quick map of the Trivela system, the trust boundaries, and how data moves across contracts, backend, and frontend.
 
 ## System Diagram

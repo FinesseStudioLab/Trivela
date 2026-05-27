@@ -1,6 +1,7 @@
 # Trivela
 
 > **New contributor?** Check out the [📖 FAQ](docs/FAQ.md) for common setup, contract, and contribution questions before getting started.
+> 🔤 **[Glossary](docs/GLOSSARY.md)** — definitions for Soroban, XDR, TTL, Freighter, Horizon, and all Trivela-specific terms.
 
 **Trivela** is a Stellar Soroban–based **campaign and rewards platform**. It lets campaign operators create on-chain campaigns, register participants, award points via smart contracts, and let users claim rewards—all on the Stellar network. The project is built for the [Stellar Wave on Drips](https://www.drips.network/wave/stellar) and is designed for open-source contributors.
 

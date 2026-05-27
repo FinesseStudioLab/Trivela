@@ -19,6 +19,7 @@ import { resolveStellarNetworkConfig } from './config/stellarNetwork.js';
 import { validateBackendEnv } from './config/envValidation.js';
 import { createDal } from './dal/index.js';
 import { createJobRunner } from './jobs/jobRunner.js';
+import { WebhookService, WEBHOOK_EVENTS } from './services/webhookService.js';
 import {
   campaignCreateSchema,
   campaignUpdateSchema,
@@ -172,6 +173,11 @@ export async function createApp(options = {}) {
   });
   const campaignRepository = dal.campaigns;
   const auditLogRepository = dal.auditLogs;
+  const webhookRepository = dal.webhooks;
+  const webhookService = new WebhookService(webhookRepository, {
+    fetchImpl,
+    logger: log,
+  });
   const shortCacheTtlMs = normalizePositiveInteger(
     /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
     DEFAULT_SHORT_CACHE_TTL_MS,
@@ -280,6 +286,9 @@ export async function createApp(options = {}) {
         rpcHealthCache.payload = rpc;
         rpcHealthCache.updatedAt = new Date().toISOString();
       },
+      async webhook_retry_failed_deliveries() {
+        await webhookService.retryFailedDeliveries();
+      },
     },
     logger: log,
   });
@@ -287,6 +296,13 @@ export async function createApp(options = {}) {
   if (!options.disableJobs && rpcPollIntervalMs > 0) {
     jobRunner.enqueue('rpc_health_poll', null);
     setInterval(() => jobRunner.enqueue('rpc_health_poll', null), rpcPollIntervalMs).unref?.();
+  }
+
+  // Enqueue webhook retry job every 5 minutes (Issue #352)
+  if (!options.disableJobs) {
+    const webhookRetryIntervalMs = 5 * 60 * 1000; // 5 minutes
+    jobRunner.enqueue('webhook_retry_failed_deliveries', null);
+    setInterval(() => jobRunner.enqueue('webhook_retry_failed_deliveries', null), webhookRetryIntervalMs).unref?.();
   }
 
   async function buildHealthPayload() {
@@ -522,6 +538,16 @@ export async function createApp(options = {}) {
         diff: { after: campaign },
       });
 
+      // Dispatch webhook event (Issue #287)
+      webhookService.dispatchEvent({
+        type: WEBHOOK_EVENTS.CAMPAIGN_CREATED,
+        campaignId: campaign.id,
+        data: campaign,
+        timestamp: new Date().toISOString(),
+      }).catch((err) => {
+        log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
+      });
+
       shortCache.clear();
       return res.status(201).json(campaign);
     } catch (error) {
@@ -576,6 +602,34 @@ export async function createApp(options = {}) {
       entityId: campaign.id,
       diff: { before, after: campaign, changes },
     });
+
+    // Dispatch webhook events (Issue #290, #352)
+    const wasActive = before.active;
+    const isNowActive = campaign.active;
+    
+    if (active !== undefined && wasActive !== isNowActive) {
+      // Dispatch activation/deactivation event
+      const eventType = isNowActive ? WEBHOOK_EVENTS.CAMPAIGN_ACTIVATED : WEBHOOK_EVENTS.CAMPAIGN_DEACTIVATED;
+      webhookService.dispatchEvent({
+        type: eventType,
+        campaignId: campaign.id,
+        data: campaign,
+        timestamp: new Date().toISOString(),
+      }).catch((err) => {
+        log.warn({ err, campaignId: campaign.id, eventType }, 'Failed to dispatch campaign activation/deactivation webhook');
+      });
+    } else {
+      // Dispatch generic update event
+      webhookService.dispatchEvent({
+        type: WEBHOOK_EVENTS.CAMPAIGN_UPDATED,
+        campaignId: campaign.id,
+        data: campaign,
+        timestamp: new Date().toISOString(),
+      }).catch((err) => {
+        log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.updated webhook');
+      });
+    }
+
     shortCache.clear();
     return res.json(campaign);
   }
@@ -593,6 +647,19 @@ export async function createApp(options = {}) {
       entityId: req.params.id,
       diff: before ? { before } : null,
     });
+
+    // Dispatch webhook event (Issue #285)
+    if (before) {
+      webhookService.dispatchEvent({
+        type: WEBHOOK_EVENTS.CAMPAIGN_DELETED,
+        campaignId: req.params.id,
+        data: before,
+        timestamp: new Date().toISOString(),
+      }).catch((err) => {
+        log.warn({ err, campaignId: req.params.id }, 'Failed to dispatch campaign.deleted webhook');
+      });
+    }
+
     shortCache.clear();
     return res.status(204).end();
   }
@@ -653,6 +720,85 @@ export async function createApp(options = {}) {
     app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
     app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+
+    // Webhook routes (Issue #287)
+    app.post(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+      const { url, events, secret } = req.body;
+      if (!url || !Array.isArray(events) || events.length === 0) {
+        return res.status(400).json({
+          error: 'Invalid webhook payload',
+          code: 'VALIDATION_ERROR',
+          details: ['url and events array are required'],
+        });
+      }
+      const webhook = webhookRepository.create({ url, events, secret });
+      recordAuditEntry(req, {
+        action: 'create',
+        entity: 'webhook',
+        entityId: webhook.id,
+        diff: { after: webhook },
+      });
+      return res.status(201).json(webhook);
+    });
+
+    app.get(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+      const webhooks = webhookRepository.list();
+      return res.json(paginateItems(webhooks, req.query));
+    });
+
+    app.get(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      return res.json(webhook);
+    });
+
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+      const { url, events, active } = req.body;
+      const before = webhookRepository.getById(req.params.id);
+      if (!before) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const updates = {};
+      if (url !== undefined) updates.url = url;
+      if (events !== undefined) updates.events = events;
+      if (active !== undefined) updates.active = active;
+      const webhook = webhookRepository.update(req.params.id, updates);
+      recordAuditEntry(req, {
+        action: 'update',
+        entity: 'webhook',
+        entityId: webhook.id,
+        diff: { before, after: webhook },
+      });
+      return res.json(webhook);
+    });
+
+    app.delete(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+      const before = webhookRepository.getById(req.params.id);
+      const deleted = webhookRepository.delete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      recordAuditEntry(req, {
+        action: 'delete',
+        entity: 'webhook',
+        entityId: req.params.id,
+        diff: before ? { before } : null,
+      });
+      return res.status(204).end();
+    });
+
+    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, requireApiKey, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const deliveries = webhookRepository.listDeliveries(req.params.id, {
+        limit: parseInt(req.query.limit) || 100,
+      });
+      return res.json(paginateItems(deliveries, req.query));
+    });
   }
 
   registerApiRoutes(API_V1_PREFIX);
