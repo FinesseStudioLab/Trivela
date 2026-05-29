@@ -1,0 +1,129 @@
+name: CI Performance (Parallelized)
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  backend:
+    name: Backend — lint, typecheck, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore node_modules cache
+        id: nm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            backend/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: nm-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Lint backend
+        run: |
+          if npm --workspace=backend run | grep -q "  lint"; then
+            npm run lint --workspace=backend
+          else
+            echo "No lint script; skipping."
+          fi
+
+      - name: Typecheck backend
+        run: |
+          if npm --workspace=backend run | grep -q "  typecheck"; then
+            npm run typecheck --workspace=backend
+          else
+            echo "No typecheck script; skipping."
+          fi
+
+      - name: Test backend
+        run: npm run test --workspace=backend
+
+  frontend:
+    name: Frontend — build, lint, test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Restore node_modules cache
+        id: nm-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            node_modules
+            frontend/node_modules
+          key: nm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: nm-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+
+      - name: Lint frontend
+        run: |
+          if npm --workspace=frontend run | grep -q "  lint"; then
+            npm run lint --workspace=frontend
+          else
+            echo "No lint script; skipping."
+          fi
+
+      - name: Test frontend
+        run: |
+          if npm --workspace=frontend run | grep -q "  test"; then
+            npm run test --workspace=frontend
+          else
+            echo "No test script; skipping."
+          fi
+
+  contracts:
+    name: Contracts — fmt, clippy, test, build WASM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: wasm32-unknown-unknown
+
+      - name: Restore cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ runner.os }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings -A deprecated
+
+      - name: Test contracts
+        run: cargo test --workspace
+
+      - name: Build WASM artifacts
+        run: cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p trivela-campaign-contract
