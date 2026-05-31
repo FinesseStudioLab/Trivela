@@ -47,7 +47,28 @@ services:
       - '16686:16686' # UI
       - '4318:4318'   # OTLP/HTTP
       - '4317:4317'   # OTLP/gRPC
+  # PostgreSQL service for issue #284. Enable with:
+  #   docker compose --profile postgres up
+  # Then point the backend at it via:
+  #   DATABASE_URL=postgres://trivela:trivela@postgres:5432/trivela
+  postgres:
+    image: postgres:16-alpine
+    profiles: ['postgres']
+    environment:
+      POSTGRES_USER: trivela
+      POSTGRES_PASSWORD: trivela
+      POSTGRES_DB: trivela
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U trivela -d trivela']
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   backend_node_modules:
   frontend_node_modules:
+  postgres_data:

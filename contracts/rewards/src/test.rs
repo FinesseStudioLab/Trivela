@@ -1045,3 +1045,93 @@ fn test_vesting_emits_events() {
         ]
     );
 }
+
+// ── 2-step admin transfer (issue #281) ───────────────────────────────────────
+
+fn setup_admin_rotation() -> (Env, RewardsContractClient<'static>, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    (env, client, admin, new_admin)
+}
+
+#[test]
+fn test_propose_and_accept_admin_happy_path() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation();
+    assert_eq!(client.admin(), admin);
+    assert_eq!(client.pending_admin(), None);
+
+    client.propose_admin(&admin, &new_admin);
+    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
+    // Admin doesn't change until accepted.
+    assert_eq!(client.admin(), admin);
+
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_propose_admin_without_accept_keeps_old_admin() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation();
+    client.propose_admin(&admin, &new_admin);
+    // pending_admin set but admin slot unchanged.
+    assert_eq!(client.admin(), admin);
+    assert_eq!(client.pending_admin(), Some(new_admin));
+}
+
+#[test]
+fn test_non_admin_cannot_propose() {
+    let (env, client, _admin, new_admin) = setup_admin_rotation();
+    let imposter = Address::generate(&env);
+    let result = client.try_propose_admin(&imposter, &new_admin);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_only_pending_can_accept() {
+    let (env, client, admin, new_admin) = setup_admin_rotation();
+    let third_party = Address::generate(&env);
+    client.propose_admin(&admin, &new_admin);
+    let result = client.try_accept_admin(&third_party);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    // Admin slot still untouched.
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+fn test_accept_without_proposal_fails() {
+    let (_env, client, _admin, new_admin) = setup_admin_rotation();
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::NoPendingAdmin)));
+}
+
+#[test]
+fn test_cancel_admin_transfer_clears_pending() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation();
+    client.propose_admin(&admin, &new_admin);
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(client.pending_admin(), None);
+    // Subsequent accept fails because nothing pending.
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::NoPendingAdmin)));
+}
+
+#[test]
+fn test_propose_overwrites_previous_proposal() {
+    let (env, client, admin, new_admin) = setup_admin_rotation();
+    let later_admin = Address::generate(&env);
+    client.propose_admin(&admin, &new_admin);
+    client.propose_admin(&admin, &later_admin);
+    assert_eq!(client.pending_admin(), Some(later_admin.clone()));
+    // Original proposed admin can no longer accept.
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    // The later proposal still works.
+    client.accept_admin(&later_admin);
+    assert_eq!(client.admin(), later_admin);
+}

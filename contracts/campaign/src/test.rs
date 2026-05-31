@@ -794,3 +794,93 @@ fn test_deregister_clears_persistent_and_keeps_aggregate_count_consistent() {
     assert_eq!(client.get_participant_count(), 1);
 }
 
+
+// ── 2-step admin transfer (issue #281) ───────────────────────────────────────
+
+fn setup_admin_rotation_campaign() -> (Env, CampaignContractClient<'static>, Address, Address) {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, CampaignContract);
+    let client = CampaignContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+    (env, client, admin, new_admin)
+}
+
+#[test]
+fn test_campaign_propose_and_accept_admin_happy_path() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    assert_eq!(client.admin(), admin);
+    assert_eq!(client.pending_admin(), None);
+
+    client.propose_admin(&admin, &new_admin);
+    assert_eq!(client.pending_admin(), Some(new_admin.clone()));
+    assert_eq!(client.admin(), admin);
+
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_campaign_propose_without_accept_keeps_old_admin() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    client.propose_admin(&admin, &new_admin);
+    assert_eq!(client.admin(), admin);
+    assert_eq!(client.pending_admin(), Some(new_admin));
+}
+
+#[test]
+fn test_campaign_non_admin_cannot_propose() {
+    let (env, client, _admin, new_admin) = setup_admin_rotation_campaign();
+    let imposter = Address::generate(&env);
+    let result = client.try_propose_admin(&imposter, &new_admin);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_campaign_only_pending_can_accept() {
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let third_party = Address::generate(&env);
+    client.propose_admin(&admin, &new_admin);
+    let result = client.try_accept_admin(&third_party);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+    assert_eq!(client.admin(), admin);
+}
+
+#[test]
+fn test_campaign_accept_without_proposal_fails() {
+    let (_env, client, _admin, new_admin) = setup_admin_rotation_campaign();
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::NoPendingAdmin)));
+}
+
+#[test]
+fn test_campaign_cancel_admin_transfer_clears_pending() {
+    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    client.propose_admin(&admin, &new_admin);
+    client.cancel_admin_transfer(&admin);
+    assert_eq!(client.pending_admin(), None);
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::NoPendingAdmin)));
+}
+
+#[test]
+fn test_campaign_new_admin_can_call_admin_operations() {
+    // Once accepted, the new admin's signature is enough to perform admin-only ops.
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    client.propose_admin(&admin, &new_admin);
+    client.accept_admin(&new_admin);
+
+    // set_active is admin-only — was previously rejected for `admin`'s replacement
+    // until the rotation completed.
+    let nonce = client.admin_nonce();
+    client.set_active(&new_admin, &nonce, &true);
+    assert!(client.is_active());
+
+    // Old admin can no longer perform admin-only ops.
+    let nonce = client.admin_nonce();
+    let result = client.try_set_active(&admin, &nonce, &false);
+    assert_eq!(result, Err(Ok(Error::Unauthorized)));
+}

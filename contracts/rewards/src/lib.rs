@@ -35,6 +35,7 @@ pub enum Error {
     InvalidMultiplier = 7,
     RateLimitExceeded = 8,
     VestingNotFound = 9,
+    NoPendingAdmin = 10,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -51,6 +52,32 @@ contractmeta!(
     key = "Description",
     val = "Trivela campaign rewards and points"
 );
+
+// ── Instance-storage TTL (issue #279) ────────────────────────────────────────
+//
+// `extend_ttl(threshold, extend_to)` is called on every state-mutating entry
+// point. On mainnet each ledger closes in ~5 seconds, so the prior
+// `extend_ttl(50, 100)` literals expired instance storage roughly 8 minutes
+// after the last mutation, which would erase admin, balances, and metadata
+// in production.
+//
+// Mainnet defaults aim for the contract to remain live for ~30 days after the
+// most recent write, with extension triggered well before that window closes:
+//   - `TTL_THRESHOLD` ≈ 100,000 ledgers (~6 days minimum life remaining)
+//   - `TTL_EXTEND_TO` ≈ 518,400 ledgers (~30 days target lifetime)
+//
+// Tests use a `cfg(test)` override so suites don't spend the full ledger
+// budget on TTL bookkeeping. See `docs/TTL_STRATEGY.md` for the full rationale.
+
+#[cfg(not(test))]
+pub const TTL_THRESHOLD: u32 = 100_000;
+#[cfg(not(test))]
+pub const TTL_EXTEND_TO: u32 = 518_400;
+
+#[cfg(test)]
+pub const TTL_THRESHOLD: u32 = 50;
+#[cfg(test)]
+pub const TTL_EXTEND_TO: u32 = 100;
 
 const ADMIN: Symbol = symbol_short!("admin");
 const BALANCE: Symbol = symbol_short!("balance");
@@ -87,6 +114,14 @@ const VEST_CTR: Symbol = symbol_short!("vestctr");
 const VEST_IDS: Symbol = symbol_short!("vestids");
 const VESTED_CREDIT_EVENT: Symbol = symbol_short!("vcredit");
 const VESTED_CLAIM_EVENT: Symbol = symbol_short!("vclaim");
+
+// ── 2-step admin transfer (issue #281) ───────────────────────────────────────
+// `PENDING_ADMIN` holds an in-flight proposed admin; the new admin must call
+// `accept_admin()` themselves to complete the rotation, eliminating the
+// "wrong address, key now lost" failure mode of a one-step transfer.
+const PENDING_ADMIN: Symbol = symbol_short!("padmin");
+const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
+const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
 
 #[contract]
 pub struct RewardsContract;
@@ -180,7 +215,7 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(CURRENT_SCHEMA_VERSION)
     }
 
@@ -192,7 +227,7 @@ impl RewardsContract {
             .instance()
             .set(&MAX_CREDIT_PER_CALL, &max_amount);
         env.events().publish((MAX_CREDIT_EVENT,), max_amount);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -221,7 +256,7 @@ impl RewardsContract {
             .set(&(CAMPAIGN_MULTIPLIER, campaign_id), &multiplier_bps);
         env.events()
             .publish((CAMPAIGN_MULTIPLIER_EVENT, campaign_id), multiplier_bps);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -266,7 +301,7 @@ impl RewardsContract {
         let new_balance = current.checked_add(amount).ok_or(Error::Overflow)?;
         env.storage().instance().set(&key, &new_balance);
         env.events().publish((CREDIT_EVENT, user), amount);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(new_balance)
     }
 
@@ -328,7 +363,7 @@ impl RewardsContract {
             env.events().publish((CREDIT_EVENT, user), amount);
         }
 
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -350,7 +385,7 @@ impl RewardsContract {
             .set(&CLAIMED, &total.saturating_add(amount));
 
         env.events().publish((CLAIM_EVENT, user), amount);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(new_balance)
     }
 
@@ -382,7 +417,68 @@ impl RewardsContract {
         env.storage().instance().set(&to_key, &new_to_balance);
 
         env.events().publish((TRANSFER_EVENT, from, to), amount);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    // ── Admin rotation (issue #281) ──────────────────────────────────────────
+
+    /// Return the current admin address.
+    pub fn admin(env: Env) -> Address {
+        env.storage().instance().get(&ADMIN).unwrap()
+    }
+
+    /// Return the pending admin address proposed by the current admin, if any.
+    /// `None` when there is no in-flight transfer.
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&PENDING_ADMIN)
+    }
+
+    /// Propose a new admin (current admin only). The transfer does not take
+    /// effect until `accept_admin` is called by the new admin.
+    ///
+    /// Calling again overwrites the previous pending admin, so the current
+    /// admin can cancel a proposal by calling `cancel_admin_transfer` or by
+    /// proposing themselves.
+    pub fn propose_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        require_admin(&env, &current_admin)?;
+        env.storage().instance().set(&PENDING_ADMIN, &new_admin);
+        env.events()
+            .publish((ADMIN_PROPOSED_EVENT, current_admin), new_admin);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Accept admin role. Caller MUST be the address that the current admin
+    /// previously proposed via `propose_admin`. Clears the pending slot on
+    /// success.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+        if pending != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&ADMIN, &new_admin);
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.events()
+            .publish((ADMIN_ACCEPTED_EVENT,), new_admin);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Cancel an in-flight admin transfer (current admin only).
+    pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
+        require_admin(&env, &current_admin)?;
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -391,7 +487,7 @@ impl RewardsContract {
         require_admin(&env, &admin)?;
         env.storage().instance().set(&PAUSED, &paused);
         env.events().publish((PAUSED_EVENT,), paused);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -414,7 +510,7 @@ impl RewardsContract {
 
         env.events()
             .publish((Symbol::new(&env, "set_tiers"), campaign_id), ());
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -426,7 +522,7 @@ impl RewardsContract {
 
         env.events()
             .publish((Symbol::new(&env, "clear_tiers"), campaign_id), ());
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -484,7 +580,7 @@ impl RewardsContract {
         env.storage().instance().set(&RATE_LIM_WIN, &window_ledgers);
         env.events()
             .publish((RATE_LIM_SET_EVENT,), (max_calls, window_ledgers));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -532,7 +628,7 @@ impl RewardsContract {
 
         env.events()
             .publish((SNAPSHOT_EVENT, snapshot_id), ledger_number);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -591,7 +687,7 @@ impl RewardsContract {
 
         env.events()
             .publish((VESTED_CREDIT_EVENT, user), (vest_id, total_amount));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(vest_id)
     }
 
@@ -643,7 +739,7 @@ impl RewardsContract {
 
         env.events()
             .publish((VESTED_CLAIM_EVENT, user), (vest_id, amount));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(available - amount)
     }
 

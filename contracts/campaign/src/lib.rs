@@ -49,9 +49,28 @@ pub enum Error {
     UnsupportedMigration = 105,
     InvalidAdminNonce = 106,
     InvalidWindow = 107,
+    NoPendingAdmin = 108,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
+
+// ── Instance-storage TTL (issue #279) ────────────────────────────────────────
+//
+// Mainnet ledgers close every ~5 seconds, so the prior `extend_ttl(50, 100)`
+// literals expired instance storage roughly 8 minutes after the last
+// mutation. These constants size the lifetime for production; tests override
+// with the small values via `cfg(test)` so suites don't churn ledger budget.
+// See `docs/TTL_STRATEGY.md` for the full rationale.
+
+#[cfg(not(test))]
+pub const TTL_THRESHOLD: u32 = 100_000;
+#[cfg(not(test))]
+pub const TTL_EXTEND_TO: u32 = 518_400;
+
+#[cfg(test)]
+pub const TTL_THRESHOLD: u32 = 50;
+#[cfg(test)]
+pub const TTL_EXTEND_TO: u32 = 100;
 
 const ADMIN: Symbol = symbol_short!("admin");
 const CAMPAIGN_ACTIVE: Symbol = symbol_short!("active");
@@ -79,6 +98,10 @@ const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 // max_cap and end_time are public).
 const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
 const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
+// ── 2-step admin transfer (issue #281) ───────────────────────────────────────
+const PENDING_ADMIN: Symbol = symbol_short!("padmin");
+const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
+const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
 
 #[contract]
 pub struct CampaignContract;
@@ -136,7 +159,7 @@ impl CampaignContract {
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
         env.storage().instance().set(&ADMIN_NONCE, &0u64);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -164,7 +187,7 @@ impl CampaignContract {
         env.storage()
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(CURRENT_SCHEMA_VERSION)
     }
 
@@ -187,7 +210,7 @@ impl CampaignContract {
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
         env.events().publish((SET_WINDOW_EVENT,), (start, end));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -219,7 +242,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &active);
         env.events().publish((SET_ACTIVE_EVENT,), active);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -228,7 +251,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MAX_CAP, &max_cap);
         env.events().publish((SET_MAX_CAP_EVENT,), max_cap);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -246,7 +269,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MERKLE_ROOT, &root);
         env.events().publish((SET_MERKLE_ROOT_EVENT,), root.clone());
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -352,6 +375,7 @@ impl CampaignContract {
         // (PARTICIPANT_COUNT, ADMIN, etc.) so keep its TTL fresh
         // too.
         env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(true)
     }
 
@@ -425,6 +449,70 @@ impl CampaignContract {
     pub fn admin_nonce(env: Env) -> u64 {
         env.storage().instance().get(&ADMIN_NONCE).unwrap_or(0)
     }
+
+    // ── Admin rotation (issue #281) ──────────────────────────────────────────
+
+    /// Return the current admin address.
+    pub fn admin(env: Env) -> Address {
+        env.storage().instance().get(&ADMIN).unwrap()
+    }
+
+    /// Return the pending admin address proposed by the current admin, if any.
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&PENDING_ADMIN)
+    }
+
+    /// Propose a new admin (current admin only). The transfer does not take
+    /// effect until `accept_admin` is called by the new admin.
+    pub fn propose_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        if stored_admin != current_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&PENDING_ADMIN, &new_admin);
+        env.events()
+            .publish((ADMIN_PROPOSED_EVENT, current_admin), new_admin);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Accept admin role. Caller MUST be the address that the current admin
+    /// previously proposed via `propose_admin`. Clears the pending slot on
+    /// success.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+        if pending != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&ADMIN, &new_admin);
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.events()
+            .publish((ADMIN_ACCEPTED_EVENT,), new_admin);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Cancel an in-flight admin transfer (current admin only).
+    pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
+        current_admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        if stored_admin != current_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
 }
 
 fn do_deregister(env: &Env, participant: Address) -> bool {
@@ -442,7 +530,7 @@ fn do_deregister(env: &Env, participant: Address) -> bool {
         (Symbol::new(env, "deregister"), participant),
         (),
     );
-    env.storage().instance().extend_ttl(50, 100);
+    env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
     true
 }
 

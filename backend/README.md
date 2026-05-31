@@ -548,6 +548,53 @@ Requires API key if `TRIVELA_API_KEY` is set.
 - `action` – Filter by action (`create`, `update`, `delete`)
 - `page`, `limit`, `offset` – Same pagination params as other list endpoints
 
+## PostgreSQL (issue #284)
+
+The backend ships with two repository implementations behind a single DAL
+factory. `better-sqlite3` is the default, suitable for local dev and
+single-instance deployments. For multi-instance and managed cloud setups
+(Railway, Render, Fly.io, RDS), point the backend at PostgreSQL via
+`DATABASE_URL`:
+
+```bash
+export DATABASE_URL=postgres://trivela:trivela@localhost:5432/trivela
+npm run dev
+```
+
+When `DATABASE_URL` starts with `postgres://` or `postgresql://`:
+
+- `dal.campaigns` and `dal.auditLogs` switch to the PG implementations.
+- A connection pool is created lazily with `pg` (`pg.Pool`). Pool size is
+  controlled by `PG_POOL_MAX` (default `10`).
+- SQL migrations in [`src/dal/pg/migrations/`](src/dal/pg/migrations/) run on
+  startup and are tracked in `_schema_migrations`.
+- `dal.webhooks`, `dal.referrals`, and `dal.apiKeys` continue to use SQLite —
+  porting them is a follow-up.
+
+### Local dev with Docker
+
+```bash
+docker compose --profile postgres up postgres
+# In another shell:
+DATABASE_URL=postgres://trivela:trivela@localhost:5432/trivela npm run dev
+```
+
+### Running the PG integration tests
+
+The unit-test target `npm test` skips the PG repository tests unless
+`TEST_DATABASE_URL` is set so a clean checkout stays green. To run them
+locally:
+
+```bash
+docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=trivela \
+  --name trivela-pg postgres:16-alpine
+TEST_DATABASE_URL=postgres://postgres:trivela@localhost:55432/postgres \
+  node --test src/dal/pg/pgCampaignRepository.test.js
+```
+
+The CI workflow can mount the `postgres` profile in `compose.yaml` and
+export `TEST_DATABASE_URL` to exercise the same path on every PR.
+
 ## Docker
 
 The backend ships as a multi-stage Alpine image. The build stage compiles
