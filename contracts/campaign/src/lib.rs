@@ -70,6 +70,16 @@ const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
 const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 
+// #280 — TTL thresholds for the per-participant persistent storage
+// entries. Values are deliberately modest in this initial migration:
+// every register call refreshes its own key without taking on the
+// expense of much-longer extension windows. Production deployers
+// should bump these via a future admin-only setter when traffic
+// patterns are known (e.g. lengthen to a full campaign window once
+// max_cap and end_time are public).
+const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
+const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
+
 #[contract]
 pub struct CampaignContract;
 
@@ -288,10 +298,16 @@ impl CampaignContract {
             }
         }
 
+        // #280 — Participant records live in PERSISTENT storage.
+        // Instance storage is shared with the contract code and caps
+        // at ~64KB total, which would brick a high-traffic campaign
+        // somewhere north of ~1.8k participants. Per-user data
+        // belongs in persistent storage where every key has its own
+        // TTL slot.
         let key = (PARTICIPANT, participant.clone());
         if env
             .storage()
-            .instance()
+            .persistent()
             .get::<_, bool>(&key)
             .unwrap_or(false)
         {
@@ -310,7 +326,16 @@ impl CampaignContract {
             }
         }
 
-        env.storage().instance().set(&key, &true);
+        env.storage().persistent().set(&key, &true);
+        // Extend the new persistent key's TTL alongside the write
+        // so the participant record stays alive across the campaign
+        // window. Threshold / extend-to values mirror the existing
+        // pattern used elsewhere in the workspace; the deployer can
+        // tune via a future admin-only setter without changing the
+        // storage tier.
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, PARTICIPANT_TTL_THRESHOLD, PARTICIPANT_TTL_EXTEND_TO);
 
         let count: u64 = env
             .storage()
@@ -323,6 +348,9 @@ impl CampaignContract {
 
         env.events().publish((REGISTER_EVENT, participant), ());
 
+        // Instance storage still holds aggregate state
+        // (PARTICIPANT_COUNT, ADMIN, etc.) so keep its TTL fresh
+        // too.
         env.storage().instance().extend_ttl(50, 100);
         Ok(true)
     }
@@ -363,10 +391,11 @@ impl CampaignContract {
         Ok(do_deregister(&env, participant))
     }
 
-    /// Check if a participant is registered.
+    /// Check if a participant is registered. (#280) Reads from
+    /// persistent storage where participant records live.
     pub fn is_participant(env: Env, participant: Address) -> bool {
         env.storage()
-            .instance()
+            .persistent()
             .get(&(PARTICIPANT, participant))
             .unwrap_or(false)
     }
@@ -399,11 +428,12 @@ impl CampaignContract {
 }
 
 fn do_deregister(env: &Env, participant: Address) -> bool {
+    // #280 — Participant records live in PERSISTENT storage.
     let key = (PARTICIPANT, participant.clone());
-    if !env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
+    if !env.storage().persistent().get::<_, bool>(&key).unwrap_or(false) {
         return false;
     }
-    env.storage().instance().remove(&key);
+    env.storage().persistent().remove(&key);
     let count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
     if count > 0 {
         env.storage().instance().set(&PARTICIPANT_COUNT, &(count - 1));

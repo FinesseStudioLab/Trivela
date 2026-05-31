@@ -34,6 +34,20 @@ services:
     ports:
       - '6379:6379'
 
+  # #288 — Distributed tracing collector. Opt-in via the `tracing`
+  # profile so it doesn't run on every `compose up`. Backend exporter
+  # posts traces to http://jaeger:4318/v1/traces; UI is reachable at
+  # http://localhost:16686.
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    profiles: ['tracing']
+    environment:
+      COLLECTOR_OTLP_ENABLED: 'true'
+    ports:
+      - '16686:16686' # UI
+      - '4318:4318'   # OTLP/HTTP
+      - '4317:4317'   # OTLP/gRPC
+
 volumes:
   backend_node_modules:
   frontend_node_modules:

@@ -3,6 +3,13 @@
  * Serves campaign data, health, and Stellar/Soroban RPC proxy for the frontend.
  */
 
+// #288 — OpenTelemetry SDK MUST initialize before any `http` /
+// `express` import so the auto-instrumentation patches catch them.
+// `initTracing()` is fire-and-forget; the API/SDK still works as a
+// no-op when the optional OTel deps aren't installed.
+import { initTracing, traceparentMiddleware, shutdownTracing } from './tracing.js';
+void initTracing();
+
 import cors from 'cors';
 import express from 'express';
 import compression from 'compression';
@@ -85,7 +92,11 @@ function createCorsOptions(allowedOrigins) {
     maxAge: 86400,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization'],
+    // #288 — accept `traceparent` from instrumented frontends and
+    // expose it on responses so the browser can stitch its own
+    // spans into the same OpenTelemetry trace.
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'traceparent'],
+    exposedHeaders: ['traceparent'],
   };
 
   if (allowedOrigins.includes('*')) {
@@ -263,6 +274,7 @@ export async function createApp(options = {}) {
   app.use(compression({ threshold: 1024 }));
   app.use(cors(createCorsOptions(allowedOrigins)));
   app.use(securityHeaders);
+  app.use(traceparentMiddleware());
   app.use(requestLogger);
   app.use(express.json({ limit: jsonBodyLimit }));
 

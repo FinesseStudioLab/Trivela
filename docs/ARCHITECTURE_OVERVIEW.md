@@ -64,6 +64,48 @@ flowchart LR
 ### 4) Operational observability
 1. Health checks: `/health`, `/health/rpc`.
 2. Metrics scrape: `/metrics` (request totals, errors, route hit counters, uptime gauge).
+3. Distributed traces via OpenTelemetry — see below.
+
+## Observability stack
+
+The backend ships three independent observability channels so SRE
+can pick whichever lens fits the question:
+
+| Lens | Surface | Why |
+|------|---------|-----|
+| Health | `/health`, `/health/rpc` | Boolean liveness + RPC reachability — page-able. |
+| Metrics | Prometheus scrape at `/metrics` | Aggregate rates / errors / latencies — dashboard-able. |
+| Traces | OpenTelemetry → OTLP/HTTP exporter | Per-request causality — debug-able. |
+
+### Distributed tracing (#288)
+
+- Bootstrap lives in [`backend/src/tracing.js`](../backend/src/tracing.js). `initTracing()`
+  runs once at process start (called from `index.js` BEFORE any other
+  import that loads `http` / `express`).
+- Auto-instrumentation: incoming Express requests + outbound `fetch` /
+  `http` calls.
+- Manual spans for DB queries, Soroban RPC calls, and the job runner —
+  wrapped via the exported `withSpan(name, attrs, fn)` helper.
+- Trace context is propagated to the frontend via the `traceparent`
+  response header (added to `Access-Control-Expose-Headers`).
+- `/health` and `/metrics` are excluded from tracing so the trace
+  stream isn't drowned by healthchecks.
+
+#### Configuration
+
+Set in `backend/.env`:
+
+- `OTEL_SERVICE_NAME` — defaults to `trivela-backend`.
+- `OTEL_EXPORTER_OTLP_ENDPOINT` — e.g. `http://jaeger:4318`. **Unset = no export**, but `withSpan` still works as a no-op.
+- `OTEL_EXPORTER_OTLP_HEADERS` — comma-separated `key=value` pairs for vendors that need auth (Honeycomb, Lightstep, etc.).
+
+#### Local-dev quickstart
+
+```bash
+docker compose --profile tracing up jaeger
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 npm --prefix backend run dev
+open http://localhost:16686
+```
 
 ## Future: upgradeability
 

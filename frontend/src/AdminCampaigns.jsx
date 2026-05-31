@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Header from './components/Header';
 import CreateCampaign from './CreateCampaign';
 import AdminControlPanel from './components/AdminControlPanel';
+import AllowlistUpload from './components/AllowlistUpload';
 import { apiClient } from './lib/apiClient';
 import { logSafeEvent } from './lib/safeAnalytics';
 import './Landing.css';
@@ -81,6 +82,11 @@ export default function AdminCampaigns({
           ) : null}
 
           <CreateCampaign campaigns={campaigns} onCampaignCreated={loadCampaigns} />
+
+          {/* #294 — Merkle allowlist generator. Computes the tree
+              client-side; admin pastes the root into the on-chain
+              setter and distributes the proofs JSON to participants. */}
+          <AllowlistUpload />
 
           {campaigns.length > 0 && (
             <section className="section admin-control-section">

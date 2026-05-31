@@ -21,6 +21,67 @@ Both `campaign` and `rewards` contracts currently use **schema version `1`**.
 
 This makes migration behavior deterministic for CI and rollout scripts.
 
+## Storage Tier Migration: Participant Records (Issue #280)
+
+The campaign contract previously stored per-participant registration
+records in **instance storage** under `(PARTICIPANT, participant)`.
+Soroban instance storage shares a single ~64KB envelope with the
+contract code, so a viral campaign would silently brick somewhere
+around 1.8k participants (each `Address` is ~35 bytes in XDR).
+
+As of this release, participant records live in **persistent storage**:
+
+```rust
+// register()
+env.storage().persistent().set(&key, &true);
+env.storage().persistent().extend_ttl(&key, threshold, extend_to);
+
+// is_participant()
+env.storage().persistent().get(&key)
+
+// do_deregister()
+env.storage().persistent().remove(&key);
+```
+
+`PARTICIPANT_COUNT` (the aggregate) stays in instance storage — it's
+a single counter, not per-user, and pulling it out doesn't help.
+
+### Impact on already-live campaigns
+
+A `campaign` contract deployed under schema v1 (instance-storage
+participants) is **not auto-migrated** by `migrate(admin, 2)` —
+moving keys across storage tiers requires reading from one tier and
+writing to the other, which we can only do safely if the registry of
+participants is known. The recommended procedure for a deployer:
+
+1. Drain the campaign (set inactive via `set_active(admin, n, false)`).
+2. Read every registered address via your indexer / event log
+   (`register` events are public).
+3. Deploy the new Wasm and `upgrade --new_wasm_hash <HASH>`.
+4. Call `register(...)` for each historical participant — the new
+   call writes to persistent storage. Idempotency is guaranteed
+   because the contract returns `false` for already-registered
+   participants.
+5. Re-activate via `set_active(admin, n+1, true)`.
+
+For new campaigns deployed after this release, no migration is
+needed — the first `register` call already targets persistent.
+
+### TTL tuning
+
+Two constants in `contracts/campaign/src/lib.rs` control how
+aggressively each registration refreshes its key's TTL:
+
+```rust
+const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
+const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
+```
+
+These are deliberately modest for the initial rollout. Production
+deployers running long campaigns should tune them in a follow-up
+contract release — moving them out into per-campaign admin-settable
+storage is appropriate once traffic patterns are known.
+
 ## Operational Upgrade Runbook
 
 1. Build and upload new Wasm:
