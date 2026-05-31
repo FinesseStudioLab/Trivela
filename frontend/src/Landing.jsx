@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { apiUrl, getCampaignContract, getRewardsContract } from './config';
 import { apiClient } from './lib/apiClient';
 import ClaimRewards from './ClaimRewards';
@@ -6,8 +7,21 @@ import './Landing.css';
 import RegisterCampaign from './RegisterCampaign';
 import Header from './components/Header';
 import CampaignCard from './components/CampaignCard';
+import CampaignFilters, { sortKeyToApiParams } from './components/CampaignFilters';
 import EmptyState from './components/EmptyState';
 import { logSafeEvent } from './lib/safeAnalytics';
+
+const VALID_SORT_KEYS = new Set([
+  'newest',
+  'oldest',
+  'name_asc',
+  'name_desc',
+  'reward_desc',
+]);
+
+function normalizeSortKey(raw) {
+  return VALID_SORT_KEYS.has(raw) ? raw : 'newest';
+}
 
 const STELLAR_DOCS = 'https://developers.stellar.org/docs';
 const DRIP_WAVE = 'https://www.drips.network/wave/stellar';
@@ -47,13 +61,44 @@ export default function Landing({
   isRewardsPointsLoading,
   onRefreshPoints,
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Hydrate filter/sort state from the URL so the page is shareable and
+  // bookmarkable (Issue #293). Subsequent updates push back into the URL
+  // via updateSearchParams() below.
+  const initialPage = (() => {
+    const raw = Number.parseInt(searchParams.get('page') ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  })();
+  const initialQuery = searchParams.get('q') ?? '';
+  const initialActiveOnly = searchParams.get('active') === 'true';
+  const initialSortKey = normalizeSortKey(searchParams.get('sortKey') ?? 'newest');
+
   const [campaigns, setCampaigns] = useState([]);
   const [campaignsError, setCampaignsError] = useState('');
   const [isCampaignsLoading, setIsCampaignsLoading] = useState(true);
-  const [campaignPage, setCampaignPage] = useState(1);
-  const [campaignQuery, setCampaignQuery] = useState('');
+  const [campaignPage, setCampaignPage] = useState(initialPage);
+  const [campaignQuery, setCampaignQuery] = useState(initialQuery);
+  const [activeOnly, setActiveOnly] = useState(initialActiveOnly);
+  const [sortKey, setSortKey] = useState(initialSortKey);
   const [campaignRefreshKey, setCampaignRefreshKey] = useState(0);
-  const [pagination, setPagination] = useState(() => getFallbackPagination([], 1));
+  const [pagination, setPagination] = useState(() => getFallbackPagination([], initialPage));
+
+  // Persist filter/sort state into the URL whenever it changes so the
+  // page survives refresh / share. Only writes params that are non-default
+  // to keep URLs clean.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (campaignQuery) next.set('q', campaignQuery);
+    if (activeOnly) next.set('active', 'true');
+    if (sortKey !== 'newest') next.set('sortKey', sortKey);
+    if (campaignPage > 1) next.set('page', String(campaignPage));
+
+    // Avoid pushing identical params (avoids a render loop with router).
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [campaignQuery, activeOnly, sortKey, campaignPage, searchParams, setSearchParams]);
   const campaignContract = getCampaignContract();
   const rewardsContract = getRewardsContract();
   const networkLabel = runtimeConfig?.stellar?.network || 'testnet';
@@ -61,6 +106,8 @@ export default function Landing({
   const horizonUrl = runtimeConfig?.stellar?.horizonUrl || 'Not configured';
   const rewardsContractId = runtimeConfig?.contracts?.rewards || '';
   const campaignContractId = runtimeConfig?.contracts?.campaign || '';
+
+  const sortParams = useMemo(() => sortKeyToApiParams(sortKey), [sortKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,6 +119,9 @@ export default function Landing({
         page: campaignPage,
         limit: CAMPAIGNS_PER_PAGE,
         q: campaignQuery.trim() || undefined,
+        active: activeOnly ? true : undefined,
+        sort: sortParams.sort,
+        order: sortParams.order,
       })
       .then((payload) => {
         if (controller.signal.aborted) return;
@@ -104,7 +154,10 @@ export default function Landing({
       });
 
     return () => controller.abort();
-  }, [campaignPage, campaignRefreshKey, campaignQuery]);
+  }, [campaignPage, campaignRefreshKey, campaignQuery, activeOnly, sortParams]);
+
+  const hasActiveFilters = Boolean(campaignQuery || activeOnly || sortKey !== 'newest');
+  const totalCampaigns = pagination?.total ?? campaigns.length;
 
   // Removed local loadPoints effect as it is now handled in App.jsx
 
@@ -398,22 +451,32 @@ export default function Landing({
           <p className="section-subtitle">
             Paginated from the backend API with keyboard-friendly previous and next controls.
           </p>
-          <div className="campaign-search">
-            <label htmlFor="campaign-search-input" className="campaign-search-label">
-              Search campaigns
-            </label>
-            <input
-              id="campaign-search-input"
-              type="search"
-              value={campaignQuery}
-              onChange={(event) => {
-                setCampaignPage(1);
-                setCampaignQuery(event.target.value);
-              }}
-              className="campaign-search-input"
-              placeholder="Search by campaign name or description"
-            />
-          </div>
+          <CampaignFilters
+            query={campaignQuery}
+            activeOnly={activeOnly}
+            sortKey={sortKey}
+            onQueryChange={(next) => {
+              setCampaignPage(1);
+              setCampaignQuery(next);
+            }}
+            onActiveOnlyChange={(next) => {
+              setCampaignPage(1);
+              setActiveOnly(next);
+            }}
+            onSortKeyChange={(next) => {
+              setCampaignPage(1);
+              setSortKey(normalizeSortKey(next));
+            }}
+          />
+
+          {!isCampaignsLoading && !campaignsError && (
+            <p className="campaign-result-count" aria-live="polite">
+              {totalCampaigns === 1
+                ? '1 campaign'
+                : `${totalCampaigns} campaigns`}
+              {hasActiveFilters ? ' matching your filters' : ''}
+            </p>
+          )}
 
           <div className="campaigns-panel" aria-busy={isCampaignsLoading}>
             {isCampaignsLoading ? (
@@ -430,11 +493,26 @@ export default function Landing({
                 onAction={() => setCampaignRefreshKey((value) => value + 1)}
               />
             ) : campaigns.length === 0 ? (
-              <EmptyState
-                eyebrow="Campaign API"
-                title="No campaigns yet"
-                description="Create a campaign through the API and it will appear here once saved."
-              />
+              hasActiveFilters ? (
+                <EmptyState
+                  eyebrow="Campaign API"
+                  title="No campaigns found"
+                  description="No campaigns match the current search or filters. Try clearing them or broadening your search."
+                  actionLabel="Clear filters"
+                  onAction={() => {
+                    setCampaignQuery('');
+                    setActiveOnly(false);
+                    setSortKey('newest');
+                    setCampaignPage(1);
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  eyebrow="Campaign API"
+                  title="No campaigns yet"
+                  description="Create a campaign through the API and it will appear here once saved."
+                />
+              )
             ) : (
               <>
                 {featuredCampaigns.length > 0 && (
