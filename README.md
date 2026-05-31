@@ -42,6 +42,29 @@ For the supported Stellar testnet/mainnet presets and runtime config flow, see [
 
 ---
 
+## Security & rate limiting
+
+All public `/api/*` and `/api/v1/*` routes are protected by a rate
+limiter that keys per **API key** when present and falls back to
+per-IP otherwise. Standard `X-RateLimit-Limit` / `-Remaining` / `-Reset`
+headers are emitted on every response; the limiter returns
+`429 Too Many Requests` + `Retry-After` once the bucket is exhausted.
+
+Configuration via env (defaults below; see [`backend/.env.example`](./backend/.env.example)):
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RATE_LIMIT_WINDOW_MS` | `60000` | Window size in milliseconds |
+| `RATE_LIMIT_MAX_REQUESTS` | `60` | Max requests per key per window |
+| `REDIS_HOST` / `REDIS_URL` | _(unset)_ | When set, swaps the in-memory bucket store for Redis so multiple API pods share state |
+
+Full implementation details (header schema, 429 payload shape,
+Redis-store considerations) live in [`backend/README.md`](./backend/README.md).
+Middleware source is `backend/src/middleware/rateLimit.js`; unit tests are
+in `backend/src/middleware/rateLimit.test.js`.
+
+---
+
 ## Prerequisites
 
 - **Rust** (for Soroban): [rustup](https://rustup.rs/)
