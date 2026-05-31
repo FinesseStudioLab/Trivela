@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Header from './components/Header';
 import CreateCampaign from './CreateCampaign';
+import AdminControlPanel from './components/AdminControlPanel';
 import { apiClient } from './lib/apiClient';
 import { logSafeEvent } from './lib/safeAnalytics';
 import './Landing.css';
@@ -20,6 +21,7 @@ export default function AdminCampaigns({
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
 
   const loadCampaigns = async () => {
     setLoading(true);
@@ -79,6 +81,49 @@ export default function AdminCampaigns({
           ) : null}
 
           <CreateCampaign campaigns={campaigns} onCampaignCreated={loadCampaigns} />
+
+          {campaigns.length > 0 && (
+            <section className="section admin-control-section">
+              <div className="admin-control-header">
+                <h3 className="section-title">On-Chain Campaign Controls</h3>
+                <p className="section-subtitle">
+                  Manage campaign settings directly on the Stellar blockchain.
+                </p>
+              </div>
+
+              <div className="campaign-selector">
+                <label htmlFor="campaign-select" className="campaign-selector-label">
+                  Select Campaign for On-Chain Management
+                </label>
+                <select
+                  id="campaign-select"
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                  className="campaign-selector-input"
+                >
+                  <option value="">Choose a campaign...</option>
+                  {campaigns
+                    .filter(campaign => campaign.contractId)
+                    .map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.name} ({campaign.contractId})
+                      </option>
+                    ))}
+                </select>
+                {campaigns.filter(c => c.contractId).length === 0 && (
+                  <small className="campaign-selector-hint">
+                    No campaigns with contract IDs found. Create a campaign with a contract ID first.
+                  </small>
+                )}
+              </div>
+
+              {selectedCampaignId && (
+                <AdminControlPanel 
+                  contractId={campaigns.find(c => c.id === selectedCampaignId)?.contractId}
+                />
+              )}
+            </section>
+          )}
         </section>
       </main>
     </div>

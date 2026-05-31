@@ -300,3 +300,144 @@ export async function initializeCampaignContract(walletAddress, contractId) {
 
   return { hash };
 }
+
+/* ---------- Admin campaign contract helpers ---------- */
+
+/**
+ * Get the current admin nonce for the campaign contract
+ */
+export async function getCampaignAdminNonce(contractId) {
+  const client = new CampaignClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+  });
+
+  const tx = await client.admin_nonce();
+  return await tx.simulate();
+}
+
+/**
+ * Set campaign active status (admin only)
+ */
+export async function setCampaignActive(walletAddress, contractId, active) {
+  const nonce = await getCampaignAdminNonce(contractId);
+  
+  const client = new CampaignClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.set_active({
+    admin: walletAddress,
+    nonce,
+    active
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/**
+ * Set campaign registration window (admin only)
+ */
+export async function setCampaignWindow(walletAddress, contractId, startTime, endTime) {
+  const nonce = await getCampaignAdminNonce(contractId);
+  
+  const client = new CampaignClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.set_window({
+    admin: walletAddress,
+    nonce,
+    start: BigInt(startTime),
+    end: BigInt(endTime)
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/**
+ * Set campaign maximum participant cap (admin only)
+ */
+export async function setCampaignMaxCap(walletAddress, contractId, maxCap) {
+  const nonce = await getCampaignAdminNonce(contractId);
+  
+  const client = new CampaignClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.set_max_cap({
+    admin: walletAddress,
+    nonce,
+    max_cap: BigInt(maxCap)
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/**
+ * Set campaign Merkle root for allowlist (admin only)
+ */
+export async function setCampaignMerkleRoot(walletAddress, contractId, merkleRoot) {
+  const nonce = await getCampaignAdminNonce(contractId);
+  
+  const client = new CampaignClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.set_merkle_root({
+    admin: walletAddress,
+    nonce,
+    root: merkleRoot
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}

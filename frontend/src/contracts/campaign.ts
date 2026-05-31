@@ -155,4 +155,111 @@ export class Client {
       (val) => scValToNative(val)
     );
   }
+
+  async set_active({ admin, nonce, active }: { admin: string; nonce: bigint; active: boolean }): Promise<AssembledTransaction<null>> {
+    return new AssembledTransaction(
+      this.options,
+      'set_active',
+      [
+        nativeToScVal(Address.fromString(admin)),
+        nativeToScVal(nonce, { type: 'u64' }),
+        nativeToScVal(active)
+      ],
+      () => null
+    );
+  }
+
+  async set_window({ admin, nonce, start, end }: { admin: string; nonce: bigint; start: bigint; end: bigint }): Promise<AssembledTransaction<null>> {
+    return new AssembledTransaction(
+      this.options,
+      'set_window',
+      [
+        nativeToScVal(Address.fromString(admin)),
+        nativeToScVal(nonce, { type: 'u64' }),
+        nativeToScVal(start, { type: 'u64' }),
+        nativeToScVal(end, { type: 'u64' })
+      ],
+      () => null
+    );
+  }
+
+  async set_max_cap({ admin, nonce, max_cap }: { admin: string; nonce: bigint; max_cap: bigint }): Promise<AssembledTransaction<null>> {
+    return new AssembledTransaction(
+      this.options,
+      'set_max_cap',
+      [
+        nativeToScVal(Address.fromString(admin)),
+        nativeToScVal(nonce, { type: 'u64' }),
+        nativeToScVal(max_cap, { type: 'u64' })
+      ],
+      () => null
+    );
+  }
+
+  async set_merkle_root({ admin, nonce, root }: { admin: string; nonce: bigint; root: Uint8Array }): Promise<AssembledTransaction<null>> {
+    return new AssembledTransaction(
+      this.options,
+      'set_merkle_root',
+      [
+        nativeToScVal(Address.fromString(admin)),
+        nativeToScVal(nonce, { type: 'u64' }),
+        nativeToScVal(root)
+      ],
+      () => null
+    );
+  }
+
+  async admin_nonce(): Promise<AssembledTransaction<bigint>> {
+    return new AssembledTransaction(
+      this.options,
+      'admin_nonce',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
+
+  async is_active(): Promise<AssembledTransaction<boolean>> {
+    return new AssembledTransaction(
+      this.options,
+      'is_active',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
+
+  async get_window(): Promise<AssembledTransaction<[bigint, bigint]>> {
+    return new AssembledTransaction(
+      this.options,
+      'get_window',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
+
+  async get_max_cap(): Promise<AssembledTransaction<bigint>> {
+    return new AssembledTransaction(
+      this.options,
+      'get_max_cap',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
+
+  async get_merkle_root(): Promise<AssembledTransaction<Uint8Array | null>> {
+    return new AssembledTransaction(
+      this.options,
+      'get_merkle_root',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
+
+  async get_participant_count(): Promise<AssembledTransaction<bigint>> {
+    return new AssembledTransaction(
+      this.options,
+      'get_participant_count',
+      [],
+      (val) => scValToNative(val)
+    );
+  }
 }
