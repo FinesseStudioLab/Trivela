@@ -1,29 +1,49 @@
-import EmptyState from '../components/EmptyState';
 
-const meta = {
-  title: 'Feedback/EmptyState',
+import EmptyState from '../components/EmptyState.jsx';
+
+export default {
+  title: 'Components/EmptyState',
   component: EmptyState,
+  tags: ['autodocs'],
+  argTypes: { onAction: { action: 'actionClicked' } },
+};
+
+export const NoCampaigns = {
   args: {
-    eyebrow: 'Campaign API',
-    title: 'No campaigns yet',
-    description:
-      'Create a campaign through the backend API and it will show up here once it is saved.',
-  },
-  argTypes: {
-    onAction: { action: 'action clicked' },
+    eyebrow: 'No campaigns yet',
+    title: 'Nothing here yet',
+    description: 'Create your first campaign to start rewarding your community.',
+    actionLabel: 'Create campaign',
+    onAction: () => {},
   },
 };
 
-export default meta;
-
-export const Default = {};
-
-export const Retry = {
+export const SearchNoResults = {
   args: {
-    eyebrow: 'Campaign API',
-    title: 'We could not load campaigns',
-    description:
-      'The backend did not respond in time. Try the request again once the API is running.',
-    actionLabel: 'Try again',
+    eyebrow: 'No results',
+    title: 'No campaigns match your search',
+    description: 'Try adjusting your filters or search terms.',
+    actionLabel: 'Clear filters',
+    onAction: () => {},
   },
+};
+
+export const WithoutAction = {
+  args: {
+    eyebrow: 'All done',
+    title: 'Nothing to show',
+    description: 'Check back later.',
+    actionLabel: '',
+  },
+};
+
+export const DarkMode = {
+  args: {
+    eyebrow: 'No campaigns',
+    title: 'Nothing here yet',
+    description: 'Get started by creating a campaign.',
+    actionLabel: 'Create campaign',
+    onAction: () => {},
+  },
+  parameters: { backgrounds: { default: 'dark' } },
 };

@@ -1,37 +1,57 @@
-import CampaignCard from '../components/CampaignCard';
+import CampaignCard from '../components/CampaignCard.jsx';
 
-const meta = {
-  title: 'Campaigns/CampaignCard',
+export default {
+  title: 'Components/CampaignCard',
   component: CampaignCard,
-  args: {
-    campaign: {
-      id: '12',
-      name: 'Builder Sprint',
-      description:
-        'Complete onboarding tasks, submit feedback, and earn points for each milestone.',
-      active: true,
-      rewardPerAction: 25,
-      createdAt: '2026-03-20T09:30:00.000Z',
-    },
-  },
-  parameters: {
-    layout: 'padded',
+  tags: ['autodocs'],
+  argTypes: {
+    campaign: { control: 'object' },
+    loading: { control: 'boolean' },
   },
 };
 
-export default meta;
+const baseCampaign = {
+  id: '1',
+  name: 'Summer DeFi Rewards',
+  slug: 'summer-defi-rewards',
+  description: 'Earn points for swapping on our DEX every day this summer.',
+  active: true,
+  featured: false,
+  rewardPerAction: 25,
+  status: 'active',
+  startDate: '2026-06-01',
+  endDate: '2026-08-31',
+  tags: ['defi', 'swap'],
+  category: 'DeFi',
+  imageUrl: null,
+};
 
-export const Active = {};
+export const Active = { args: { campaign: baseCampaign } };
+
+export const Featured = {
+  args: { campaign: { ...baseCampaign, featured: true, name: 'Featured Airdrop Campaign' } },
+};
 
 export const Inactive = {
+  args: { campaign: { ...baseCampaign, active: false, status: 'ended', name: 'Ended Campaign' } },
+};
+
+export const Upcoming = {
+  args: { campaign: { ...baseCampaign, status: 'upcoming', startDate: '2027-01-01', name: 'Upcoming Campaign' } },
+};
+
+export const WithImage = {
   args: {
     campaign: {
-      id: '13',
-      name: 'Archive Campaign',
-      description: 'A completed campaign kept around for reporting.',
-      active: false,
-      rewardPerAction: 10,
-      createdAt: '2026-01-10T15:00:00.000Z',
+      ...baseCampaign,
+      imageUrl: 'https://via.placeholder.com/400x200?text=Campaign+Banner',
     },
   },
+};
+
+export const LoadingSkeleton = { args: { campaign: baseCampaign, loading: true } };
+
+export const DarkMode = {
+  args: { campaign: { ...baseCampaign, featured: true } },
+  parameters: { backgrounds: { default: 'dark' } },
 };
