@@ -10,6 +10,7 @@ import CampaignCard from './components/CampaignCard';
 import CampaignFilters, { sortKeyToApiParams } from './components/CampaignFilters';
 import EmptyState from './components/EmptyState';
 import { logSafeEvent } from './lib/safeAnalytics';
+import OnboardingTour, { useRestartTour } from './components/OnboardingTour';
 
 const VALID_SORT_KEYS = new Set([
   'newest',
@@ -158,6 +159,7 @@ export default function Landing({
 
   const hasActiveFilters = Boolean(campaignQuery || activeOnly || sortKey !== 'newest');
   const totalCampaigns = pagination?.total ?? campaigns.length;
+  const { restartRef, restart } = useRestartTour();
 
   // Removed local loadPoints effect as it is now handled in App.jsx
 
@@ -249,7 +251,7 @@ export default function Landing({
 
             <div className="rewards-balance" aria-live="polite">
               <span className="rewards-balance-label">Available points</span>
-              <strong>{isRewardsPointsLoading ? '…' : rewardsPoints || '—'}</strong>
+              <strong data-tour="rewards">{isRewardsPointsLoading ? '…' : rewardsPoints || '—'}</strong>
             </div>
 
             <div className="rewards-actions">
@@ -444,7 +446,7 @@ export default function Landing({
           </div>
         </section>
 
-        <section className="section campaigns-preview" aria-labelledby="campaigns-title">
+        <section className="section campaigns-preview" aria-labelledby="campaigns-title" data-tour="campaigns">
           <h2 id="campaigns-title" className="section-title">
             Live campaigns
           </h2>
@@ -620,8 +622,18 @@ export default function Landing({
             </a>
           </div>
           <p className="footer-legal">Part of the Stellar ecosystem. Apache-2.0.</p>
+          <button
+            type="button"
+            className="footer-restart-tour"
+            onClick={restart}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary, #94a3b8)', fontSize: '0.8rem', textDecoration: 'underline', padding: 0 }}
+          >
+            Restart Tour
+          </button>
         </div>
       </footer>
+      <OnboardingTour onRestart={restartRef} />
     </div>
   );
 }
+
