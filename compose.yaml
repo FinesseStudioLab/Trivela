@@ -1,4 +1,55 @@
 services:
+  # ── Blue/Green deployment variants ──────────────────────────────────────────
+  # Only one of blue/green runs at a time in production.
+  # Use DEPLOY_STRATEGY=blue-green with scripts/deploy-blue-green.sh.
+  # In development, use the plain `backend` service below instead.
+
+  backend-blue:
+    image: ${DEPLOY_IMAGE:-node:20-alpine}
+    working_dir: /app/backend
+    command: node src/server.js
+    profiles: ['blue-green']
+    environment:
+      PORT: 3001
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+    ports:
+      - '3001:3001'
+    volumes:
+      - ./backend:/app/backend
+      - backend_blue_modules:/app/backend/node_modules
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:3001/health | grep -q status || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  backend-green:
+    image: ${DEPLOY_IMAGE:-node:20-alpine}
+    working_dir: /app/backend
+    command: node src/server.js
+    profiles: ['blue-green']
+    environment:
+      PORT: 3001
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173}
+      STELLAR_NETWORK: ${STELLAR_NETWORK:-testnet}
+    ports:
+      - '3002:3001'
+    volumes:
+      - ./backend:/app/backend
+      - backend_green_modules:/app/backend/node_modules
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -sf http://localhost:3001/health | grep -q status || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── Development services (default profile) ──────────────────────────────────
+
   backend:
     image: node:20-alpine
     working_dir: /app/backend
@@ -109,5 +160,7 @@ services:
 
 volumes:
   backend_node_modules:
+  backend_blue_modules:
+  backend_green_modules:
   frontend_node_modules:
   postgres_data:
