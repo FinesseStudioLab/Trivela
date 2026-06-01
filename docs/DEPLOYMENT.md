@@ -1,127 +1,136 @@
-# Deployment Guide
-
-## Strategies
-
-Set `DEPLOY_STRATEGY` in your `.env` or CI/CD pipeline to choose a deployment mode:
-
-| Value | Description |
-|---|---|
-| `blue-green` | Zero-downtime. Two containers run side-by-side; nginx shifts traffic after health check. |
-| `rolling` | Managed by your orchestrator (Kubernetes, ECS). Not scripted here. |
-| `recreate` | Stop old, start new. Accepts a brief outage window. Docker default. |
-
----
-
-## Blue/Green Deployment
-
-### Overview
-
-Two identical backend environments — **blue** (current live) and **green** (new version) — run simultaneously.
-The nginx upstream is pointed at green only after it passes health checks.
-Blue is stopped after a settle window with zero errors.
-
-```
-[Load Balancer / nginx]
-        │
-  ┌─────┴─────┐
-  │           │
-blue:3001   green:3002   ← only one receives live traffic at a time
-```
-
-### Running a Blue/Green Deploy
-
-```bash
-# Export the image you want to deploy
-export DEPLOY_IMAGE=ghcr.io/finesseStudioLab/trivela-backend:v1.2.3
-export DEPLOY_STRATEGY=blue-green
-
-# Run the script
-bash scripts/deploy-blue-green.sh
-```
-
-The script will:
-1. Start the green container on port `GREEN_PORT` (default `3002`)
-2. Poll `GET /health` until the response contains `"status"` (max 60 s)
-3. Rewrite the nginx upstream config and reload nginx
-4. Wait `SETTLE_WAIT` seconds (default `30`) watching for error-level logs
-5. Stop and remove the old blue container
-6. Rename green → blue for the next cycle
-
-### Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `DEPLOY_IMAGE` | — | **Required.** Docker image to deploy |
-| `DEPLOY_STRATEGY` | `blue-green` | Must be `blue-green` for this script |
-| `BLUE_PORT` | `3001` | Port the current live container uses |
-| `GREEN_PORT` | `3002` | Port the new container starts on |
-| `NGINX_CONF` | `/etc/nginx/conf.d/trivela_upstream.conf` | Upstream config file path |
-| `MAX_HEALTH_WAIT` | `60` | Seconds before declaring green unhealthy |
-| `SETTLE_WAIT` | `30` | Seconds to watch green before stopping blue |
-| `HEALTH_CHECK_URL` | `http://localhost:$GREEN_PORT/health` | Override health URL |
-
-### nginx Upstream Template
-
-`/etc/nginx/conf.d/trivela_upstream.conf` is rewritten by the deploy script.
-Initial state (pointing at blue):
-
-```nginx
-upstream trivela_backend {
-  server 127.0.0.1:3001;
-}
-```
-
-After cut-over to green:
-
-```nginx
-upstream trivela_backend {
-  server 127.0.0.1:3002;
-}
-```
-
-Your main `nginx.conf` references the upstream by name:
-
-```nginx
-location /api/ {
-  proxy_pass http://trivela_backend;
-}
-```
-
-### Rollback
-
-The script automatically rolls back on any failure (health timeout, error spike, nginx reload failure).
-To manually roll back after a completed deployment, see [RUNBOOK.md](./RUNBOOK.md).
-
----
+# Deployment & Restart Policy Guidance
 
 ## Docker Healthcheck
 
-The backend container exposes `GET /health` → `{"status": "ok"}`.
+The backend container includes a healthcheck that monitors the `/health` endpoint. The healthcheck:
+- Probes every 30 seconds
+- Waits up to 3 seconds for a response
+- Allows 5 seconds after startup before considering the container unhealthy
+- Marks the container unhealthy after 3 consecutive failed checks
 
-```yaml
-healthcheck:
-  test: ['CMD-SHELL', 'curl -sf http://localhost:3001/health | grep -q status || exit 1']
-  interval: 10s
-  timeout: 5s
-  retries: 3
-  start_period: 10s
-```
-
----
+A healthy container returns `{"status": "ok"}` from `GET /health`. Any other status or timeout marks the container as unhealthy.
 
 ## Restart Policies
 
-### Docker Compose (dev)
+Choose a restart policy appropriate for your deployment platform:
+
+### Docker Compose
 
 ```yaml
-restart: unless-stopped
+services:
+  backend:
+    build: .
+    restart_policy:
+      condition: on-failure
+      max_retries: 3
+      delay: 5s
 ```
+
+This restarts the container on non-zero exit or unhealthy status, with a 5-second delay between attempts and a max of 3 retries.
 
 ### Kubernetes
 
-See [docs/KUBERNETES.md](./KUBERNETES.md) for rolling update strategy configuration.
+```yaml
+spec:
+  containers:
+    - name: backend
+      image: trivela-backend:latest
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 3001
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 3
+        failureThreshold: 3
+  restartPolicy: Always
+```
 
----
+This uses the built-in healthcheck via liveness probe and restarts the pod on failure.
+
+### Docker Swarm
+
+```yaml
+version: '3.8'
+services:
+  backend:
+    image: trivela-backend:latest
+    deploy:
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+```
+
+Similar to Docker Compose, restarts on failure with exponential backoff.
+
+## Blue/Green Deployment
+
+Blue/green deployment eliminates downtime by running two identical backend
+environments in parallel and atomically switching traffic only after the new
+environment is verified healthy.
+
+### Overview
+
+| Colour | Role |
+|--------|------|
+| **blue** | Currently serving production traffic |
+| **green** | New version under validation |
+
+The load balancer (nginx) maintains an `upstream trivela_backend` block that
+points to whichever colour is active. Switching traffic is a single nginx
+reload — no DNS changes, no downtime.
+
+### Environments
+
+Both environments are identical in configuration. They differ only in port:
+
+| Environment | Internal Port |
+|-------------|---------------|
+| blue        | 3001          |
+| green       | 3002          |
+
+### Deployment steps
+
+1. **Build** the new image and tag it `trivela-backend:green`.
+2. **Start green** alongside blue:
+   ```bash
+   docker compose --profile green up -d backend-green
+   ```
+3. **Poll `/health`** on the green container (max 60 s):
+   ```bash
+   ./scripts/deploy-blue-green.sh
+   ```
+4. The script updates the nginx upstream to point at green and reloads nginx.
+5. After 30 s the script checks green logs for errors. If none are found it
+   stops the blue container.
+6. On any failure the script rolls back by switching nginx back to blue and
+   stopping green.
+
+### Nginx upstream template
+
+The nginx config uses an `upstream` block so the active backend can be
+changed with a single variable substitution and reload:
+
+```nginx
+upstream trivela_backend {
+    server ${TRIVELA_BACKEND_HOST}:${TRIVELA_BACKEND_PORT};
+}
+```
+
+At switch time `deploy-blue-green.sh` writes the correct host/port into
+`nginx/trivela.conf` and runs `nginx -s reload`.
+
+### Rollback
+
+If the green environment fails health checks or log scanning finds errors:
+
+1. nginx upstream is reverted to blue.
+2. nginx is reloaded.
+3. The green container is stopped.
+4. The operator is notified via the script exit code (non-zero).
+
+See [RUNBOOK.md](./RUNBOOK.md) for full rollback procedures.
 
 ## Admin key management (2-step transfer)
 
@@ -160,3 +169,4 @@ step 1 cannot brick the contract.
       instance-storage TTL).
 - [ ] Verify `admin()` returns the new address and `pending_admin()` returns
       `None`.
+
