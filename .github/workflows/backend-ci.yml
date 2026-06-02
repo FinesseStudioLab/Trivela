@@ -41,8 +41,8 @@ jobs:
             echo "No backend typecheck script found; skipping."
           fi
 
-      - name: Test backend (unit tests)
-        run: npm run test --workspace=backend
+      - name: Test backend (unit tests via Turborepo)
+        run: npx turbo run test --filter=backend
 
       - name: Test backend (integration tests)
         run: npm run test:integration --workspace=backend

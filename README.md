@@ -97,6 +97,36 @@ cd Trivela
 npm install
 ```
 
+### Monorepo task runner (Turborepo)
+
+The repo uses [Turborepo](https://turbo.build/repo) to coordinate builds and
+tests across the `backend` and `frontend` workspaces with caching and
+parallelization. Prefer these root-level commands over running each workspace
+by hand:
+
+```bash
+npm run build   # build:contracts (cargo/stellar), then turbo run build (frontend)
+npm run test    # turbo run test  (backend + frontend in parallel)
+npm run lint    # turbo run lint  (all workspaces in parallel)
+npm run dev      # turbo run dev   (backend + frontend concurrently)
+```
+
+`npm run build` builds the Soroban contracts first (which produces the
+TypeScript bindings the frontend depends on) and then runs `turbo run build`.
+Turbo caches task outputs, so unchanged workspaces are skipped on subsequent
+runs.
+
+**Remote cache (optional):** remote caching is enabled in `turbo.json`. To share
+the cache across CI and machines, export a Vercel Remote Cache (or self-hosted)
+token:
+
+```bash
+export TURBO_TOKEN=<your-token>
+export TURBO_TEAM=<your-team>
+```
+
+Without these variables Turbo falls back to the local `.turbo` cache only.
+
 ### 2. Build and run contracts (Soroban)
 
 To build the smart contracts, ensure you have the [Stellar CLI](https://developers.stellar.org/docs/build/smart-contracts/getting-started/setup#install-the-stellar-cli) installed.
@@ -242,11 +272,12 @@ docker compose --profile redis up --build
 ## Testing
 
 ```bash
-# All tests (Contracts + Backend + Frontend E2E)
+# Backend + Frontend tests via Turborepo (parallel, cached)
 npm run test
 
-# Rust contracts
+# Rust contracts (run independently of the Turbo pipeline)
 cargo test --workspace
+npm run test:contracts
 
 # Backend tests
 npm run test:backend

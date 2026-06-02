@@ -38,8 +38,8 @@ jobs:
           fs.appendFileSync(out, 'has_test=' + (pkg.scripts?.test ? 'true' : 'false') + '\n');
           EOF
 
-      - name: Build frontend
-        run: npm run build --workspace=frontend
+      - name: Build frontend (via Turborepo)
+        run: npx turbo run build --filter=frontend
 
       # Optional: add a Lighthouse CI step targeting PWA score >= 90 on production builds.
 
@@ -55,17 +55,17 @@ jobs:
         if: steps.scripts.outputs.has_test == 'true'
         run: npx playwright install --with-deps chromium
 
-      - name: Lint frontend
+      - name: Lint frontend (via Turborepo)
         if: steps.scripts.outputs.has_lint == 'true'
-        run: npm run lint --workspace=frontend
+        run: npx turbo run lint --filter=frontend
 
       - name: Check frontend formatting
         if: steps.scripts.outputs.has_format_check == 'true'
         run: npm run format:check --workspace=frontend
 
-      - name: Test frontend
+      - name: Test frontend (via Turborepo)
         if: steps.scripts.outputs.has_test == 'true'
-        run: npm run test --workspace=frontend
+        run: npx turbo run test --filter=frontend
 
       - name: Upload Playwright artifacts on failure
         if: failure() && steps.scripts.outputs.has_test == 'true'
