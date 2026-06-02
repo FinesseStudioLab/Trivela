@@ -862,6 +862,94 @@ export async function createApp(options = {}) {
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
+  async function getAdminDashboard(req, res) {
+    const cacheKey = 'admin:dashboard';
+    const cached = shortCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.set('x-cache', 'HIT').json(cached.payload);
+    }
+
+    // Campaign stats
+    const allCampaigns = campaignRepository.list({ includeHidden: true });
+    const totalCampaigns = allCampaigns.length;
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const campaignsByStatus = {
+      draft: allCampaigns.filter(c => !c.active && c.hidden).length,
+      published: allCampaigns.filter(c => c.active && !c.hidden).length,
+      archived: allCampaigns.filter(c => !c.active && !c.hidden).length,
+    };
+
+    const campaignsCreatedLast7Days = allCampaigns.filter(c => new Date(c.createdAt) >= sevenDaysAgo).length;
+    const campaignsCreatedLast30Days = allCampaigns.filter(c => new Date(c.createdAt) >= thirtyDaysAgo).length;
+
+    // Participants (unique wallets from referrals)
+    const allReferrals = referralRepository.listAll?.() ?? [];
+    const uniqueParticipants = new Set();
+    for (const referral of allReferrals) {
+      uniqueParticipants.add(referral.refereeAddress);
+      uniqueParticipants.add(referral.referrerAddress);
+    }
+    const totalParticipants = uniqueParticipants.size;
+
+    // Rewards stats (placeholder - would need indexer event DB integration)
+    const rewards = {
+      totalPointsCredited: 0,
+      totalClaimed: 0,
+      redemptionRate: 0,
+    };
+
+    // Activity: registrations per day (last 30 days)
+    const activity = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayReferrals = allReferrals.filter(r => r.createdAt.startsWith(dateStr)).length;
+      activity.push({ date: dateStr, registrations: dayReferrals });
+    }
+
+    // Errors from metrics (last 24h would need time-series tracking, using current total)
+    const errors = {
+      last24h: metrics.requestErrors,
+    };
+
+    // RPC pool status
+    const rpc = rpcPool.getStatus();
+
+    const payload = {
+      campaigns: {
+        total: totalCampaigns,
+        byStatus: campaignsByStatus,
+        createdLast7Days: campaignsCreatedLast7Days,
+        createdLast30Days: campaignsCreatedLast30Days,
+      },
+      participants: {
+        total: totalParticipants,
+      },
+      rewards,
+      activity,
+      errors,
+      rpc,
+      timestamp: now.toISOString(),
+    };
+
+    shortCache.set(cacheKey, {
+      expiresAt: Date.now() + 60000, // 60 seconds
+      payload,
+    });
+
+    return res.set('x-cache', 'MISS').json(payload);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listAdminCampaigns(req, res) {
+    const allCampaigns = campaignRepository.list({ includeHidden: true });
+    return res.json(paginateItems(allCampaigns, req.query));
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
   async function uploadCampaignImageHandler(req, res) {
     const campaign = campaignRepository.getById(req.params.id);
     if (!campaign) {
@@ -1062,6 +1150,10 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
     app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
     app.put(`${prefix}/admin/api-keys/:id/rotate`, rateLimiter, requireMasterKey, rotateApiKeyHandler);
+
+    // Admin dashboard and campaign management (Issue #467)
+    app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
+    app.get(`${prefix}/admin/campaigns`, rateLimiter, requireMasterKey, listAdminCampaigns);
 
     // Job dead-letter inspection / requeue (Issue #286)
     app.get(`${prefix}/jobs/failed`, rateLimiter, requireApiKey, listFailedJobsHandler);

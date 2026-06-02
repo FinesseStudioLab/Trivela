@@ -1188,3 +1188,115 @@ test('requests without api_version=v0 do not include Deprecation header', async 
   }
 });
 
+// #467 — Admin dashboard endpoint
+test('GET /api/v1/admin/dashboard requires master key authentication', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/dashboard`);
+    assert.equal(response.status, 401);
+    const body = await response.json();
+    assert.equal(body.code, 'UNAUTHORIZED');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/dashboard returns aggregated stats with master key', async () => {
+  const seedCampaigns = [
+    { name: 'Active Campaign', active: true, hidden: false, rewardPerAction: 10, createdAt: new Date().toISOString() },
+    { name: 'Draft Campaign', active: false, hidden: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    { name: 'Archived Campaign', active: false, hidden: false, rewardPerAction: 15, createdAt: new Date().toISOString() },
+  ];
+  const { server, baseUrl } = await startTestServer({
+    campaigns: seedCampaigns,
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    
+    assert.ok(body.campaigns);
+    assert.equal(body.campaigns.total, 3);
+    assert.equal(body.campaigns.byStatus.draft, 1);
+    assert.equal(body.campaigns.byStatus.published, 1);
+    assert.equal(body.campaigns.byStatus.archived, 1);
+    assert.ok(body.participants);
+    assert.ok(typeof body.participants.total === 'number');
+    assert.ok(body.rewards);
+    assert.ok(Array.isArray(body.activity));
+    assert.equal(body.activity.length, 30);
+    assert.ok(body.errors);
+    assert.ok(body.rpc);
+    assert.ok(body.timestamp);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/dashboard caches response for 60 seconds', async () => {
+  const { server, baseUrl } = await startTestServer({
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response1 = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response1.status, 200);
+    assert.equal(response1.headers.get('x-cache'), 'MISS');
+
+    const response2 = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response2.status, 200);
+    assert.equal(response2.headers.get('x-cache'), 'HIT');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/campaigns requires master key authentication', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/campaigns`);
+    assert.equal(response.status, 401);
+    const body = await response.json();
+    assert.equal(body.code, 'UNAUTHORIZED');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/campaigns returns all campaigns including hidden with master key', async () => {
+  const seedCampaigns = [
+    { name: 'Public Campaign', active: true, hidden: false, rewardPerAction: 10, createdAt: new Date().toISOString() },
+    { name: 'Hidden Campaign', active: true, hidden: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+  ];
+  const { server, baseUrl } = await startTestServer({
+    campaigns: seedCampaigns,
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/campaigns`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    
+    assert.ok(Array.isArray(body.data));
+    assert.equal(body.data.length, 2);
+    assert.ok(body.data.some(c => c.name === 'Public Campaign'));
+    assert.ok(body.data.some(c => c.name === 'Hidden Campaign'));
+    assert.ok(body.pagination);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+

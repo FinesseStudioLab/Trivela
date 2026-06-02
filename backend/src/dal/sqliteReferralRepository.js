@@ -81,5 +81,21 @@ export function createSqliteReferralRepository({ db }) {
     };
   }
 
-  return { create, countByReferrer, listByCampaign, getByRefereeAndCampaign };
+  function listAll() {
+    const rows = db
+      .prepare(
+        `SELECT * FROM referrals ORDER BY created_at ASC`,
+      )
+      .all();
+
+    return rows.map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      referrerAddress: row.referrer_address,
+      refereeAddress: row.referee_address,
+      createdAt: row.created_at,
+    }));
+  }
+
+  return { create, countByReferrer, listByCampaign, getByRefereeAndCampaign, listAll };
 }

@@ -41,4 +41,8 @@ See the main [README](README.md) for full setup.
 
 Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in an issue.
 
+## Governance
+
+For information about proposing major changes, RFCs, and decision-making processes, see [GOVERNANCE.md](docs/GOVERNANCE.md).
+
 Thank you for helping make Trivela better for the Stellar ecosystem.

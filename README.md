@@ -298,6 +298,8 @@ This reads `PAT` from `.env.local`, creates issues from `docs/issues-data.json`,
 
 We welcome contributions, especially from the Stellar and Drip community. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and check the [open issues](https://github.com/FinesseStudioLab/Trivela/issues) for labeled tasks (backend, frontend, smart-contract, good first issue, etc.).
 
+For information about governance, RFCs, and decision-making processes, see [GOVERNANCE.md](docs/GOVERNANCE.md).
+
 ---
 
 ## Resources
