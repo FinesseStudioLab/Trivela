@@ -39,11 +39,14 @@ import {
   formatZodErrors,
 } from './schemas.js';
 import { createStorageAdapter } from './storage/index.js';
-import { uploadCampaignImage, validateImageUpload, MAX_IMAGE_SIZE_BYTES } from './services/imageUpload.js';
+import {
+  uploadCampaignImage,
+  validateImageUpload,
+  MAX_IMAGE_SIZE_BYTES,
+} from './services/imageUpload.js';
 import { buildCampaignStats } from './services/campaignStatsService.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
-
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -108,7 +111,10 @@ function createCorsOptions(allowedOrigins) {
   }
 
   return {
-    origin(/** @type {string | undefined} */ origin, /** @type {(err: Error | null, allow?: boolean) => void} */ callback) {
+    origin(
+      /** @type {string | undefined} */ origin,
+      /** @type {(err: Error | null, allow?: boolean) => void} */ callback,
+    ) {
       if (!origin || allowedOrigins.includes(origin)) {
         callback(null, true);
         return;
@@ -147,7 +153,9 @@ function validateContractId(value, label) {
 export async function createApp(options = {}) {
   const isProduction = process.env.NODE_ENV === 'production';
   const jsonBodyLimit =
-    /** @type {string} */ (options.jsonBodyLimit) ?? process.env.JSON_BODY_LIMIT ?? DEFAULT_JSON_BODY_LIMIT;
+    /** @type {string} */ (options.jsonBodyLimit) ??
+    process.env.JSON_BODY_LIMIT ??
+    DEFAULT_JSON_BODY_LIMIT;
   const corsAllowedOriginsRaw =
     /** @type {string | undefined} */ (options.corsAllowedOrigins) ??
     process.env.CORS_ALLOWED_ORIGINS ??
@@ -157,7 +165,8 @@ export async function createApp(options = {}) {
     network: /** @type {string} */ (options.stellarNetwork) ?? process.env.STELLAR_NETWORK,
     sorobanRpcUrl: /** @type {string} */ (options.sorobanRpcUrl) ?? process.env.SOROBAN_RPC_URL,
     horizonUrl: /** @type {string} */ (options.horizonUrl) ?? process.env.HORIZON_URL,
-    networkPassphrase: /** @type {string} */ (options.networkPassphrase) ?? process.env.STELLAR_NETWORK_PASSPHRASE,
+    networkPassphrase:
+      /** @type {string} */ (options.networkPassphrase) ?? process.env.STELLAR_NETWORK_PASSPHRASE,
   });
   const rewardsContractId = validateContractId(
     readOptionalConfigValue(options, 'REWARDS_CONTRACT_ID'),
@@ -168,17 +177,19 @@ export async function createApp(options = {}) {
     'CAMPAIGN_CONTRACT_ID',
   );
   const fetchImpl = /** @type {typeof fetch} */ (options.fetchImpl) ?? globalThis.fetch;
-  const rpcUrlsRaw = /** @type {string | undefined} */ (options.sorobanRpcUrls) ?? process.env.SOROBAN_RPC_URLS;
+  const rpcUrlsRaw =
+    /** @type {string | undefined} */ (options.sorobanRpcUrls) ?? process.env.SOROBAN_RPC_URLS;
   const rpcUrls = rpcUrlsRaw
-    ? String(rpcUrlsRaw).split(',').map(u => u.trim()).filter(Boolean)
+    ? String(rpcUrlsRaw)
+        .split(',')
+        .map((u) => u.trim())
+        .filter(Boolean)
     : [stellarConfig.sorobanRpcUrl];
   const rpcPool = createRpcPool(rpcUrls);
   const allowedOrigins = parseAllowedOrigins(corsAllowedOriginsRaw);
 
   if (isProduction && allowedOrigins.includes('*')) {
-    throw new Error(
-      'Wildcard origins are not permitted in production.',
-    );
+    throw new Error('Wildcard origins are not permitted in production.');
   }
 
   const rateLimitWindowMs = normalizePositiveInteger(
@@ -229,7 +240,10 @@ export async function createApp(options = {}) {
   );
   const shortCache = new Map();
   const indexerCursorState = {
-    cursor: /** @type {string | null} */ (options.initialIndexerCursor) ?? process.env.INDEXER_EVENT_CURSOR ?? null,
+    cursor:
+      /** @type {string | null} */ (options.initialIndexerCursor) ??
+      process.env.INDEXER_EVENT_CURSOR ??
+      null,
     updatedAt: new Date().toISOString(),
     source: (options.initialIndexerCursor ?? process.env.INDEXER_EVENT_CURSOR) ? 'env' : 'runtime',
   };
@@ -261,7 +275,12 @@ export async function createApp(options = {}) {
   });
 
   const requireApiKey = createApiKeyAuth({
-    apiKeys: /** @type {string} */ (options.apiKeys) ?? /** @type {string} */ (options.apiKey) ?? process.env.TRIVELA_API_KEYS ?? process.env.TRIVELA_API_KEY ?? '',
+    apiKeys:
+      /** @type {string} */ (options.apiKeys) ??
+      /** @type {string} */ (options.apiKey) ??
+      process.env.TRIVELA_API_KEYS ??
+      process.env.TRIVELA_API_KEY ??
+      '',
     apiKeyRepository: options.apiKeyRepository ?? apiKeyRepository,
   });
   const requireMasterKey = createMasterKeyAuth({
@@ -281,9 +300,15 @@ export async function createApp(options = {}) {
         log.error({ err }, 'Redis connection error');
       });
       rateLimitStore = createRedisStore(redisClient);
-      log.info({ redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') }, 'Rate limiter using Redis store');
+      log.info(
+        { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
+        'Rate limiter using Redis store',
+      );
     } catch (error) {
-      log.warn({ err: error }, 'Failed to connect to Redis, falling back to in-memory rate limiter');
+      log.warn(
+        { err: error },
+        'Failed to connect to Redis, falling back to in-memory rate limiter',
+      );
     }
   }
 
@@ -306,42 +331,61 @@ export async function createApp(options = {}) {
   if ((process.env.STORAGE_BACKEND ?? 'local') === 'local') {
     app.use('/uploads', express.static(uploadDir));
   }
-  app.use((/** @type {any} */ err, /** @type {import('express').Request} */ _req, /** @type {import('express').Response} */ res, /** @type {import('express').NextFunction} */ next) => {
-    if (err?.type === 'entity.too.large') {
-      return res.status(413).json({ error: 'Request body too large', code: 'PAYLOAD_TOO_LARGE' });
-    }
-    return next(err);
-  });
-  app.use((/** @type {import('express').Request} */ req, /** @type {import('express').Response} */ res, /** @type {import('express').NextFunction} */ next) => {
-    metrics.requestTotal += 1;
-    res.on('finish', () => {
-      const routeKey = `${req.method} ${req.path}`;
-      metrics.routeHits.set(routeKey, (metrics.routeHits.get(routeKey) ?? 0) + 1);
-      if (res.statusCode >= 400) {
-        metrics.requestErrors += 1;
+  app.use(
+    (
+      /** @type {any} */ err,
+      /** @type {import('express').Request} */ _req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      if (err?.type === 'entity.too.large') {
+        return res.status(413).json({ error: 'Request body too large', code: 'PAYLOAD_TOO_LARGE' });
       }
-    });
-    next();
-  });
+      return next(err);
+    },
+  );
+  app.use(
+    (
+      /** @type {import('express').Request} */ req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      metrics.requestTotal += 1;
+      res.on('finish', () => {
+        const routeKey = `${req.method} ${req.path}`;
+        metrics.routeHits.set(routeKey, (metrics.routeHits.get(routeKey) ?? 0) + 1);
+        if (res.statusCode >= 400) {
+          metrics.requestErrors += 1;
+        }
+      });
+      next();
+    },
+  );
 
   const SCHEMA_VERSION_HEADER = 'X-Trivela-Schema-Version';
   const SCHEMA_VERSION = '1';
 
-  app.use((/** @type {import('express').Request} */ req, /** @type {import('express').Response} */ res, /** @type {import('express').NextFunction} */ next) => {
-    res.setHeader(SCHEMA_VERSION_HEADER, SCHEMA_VERSION);
+  app.use(
+    (
+      /** @type {import('express').Request} */ req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      res.setHeader(SCHEMA_VERSION_HEADER, SCHEMA_VERSION);
 
-    const requestedVersion = req.get(SCHEMA_VERSION_HEADER);
-    if (requestedVersion && requestedVersion !== SCHEMA_VERSION) {
-      return res.status(400).json({
-        error: 'Unsupported API schema version',
-        code: 'UNSUPPORTED_SCHEMA_VERSION',
-        supported: SCHEMA_VERSION,
-        requested: requestedVersion,
-      });
-    }
+      const requestedVersion = req.get(SCHEMA_VERSION_HEADER);
+      if (requestedVersion && requestedVersion !== SCHEMA_VERSION) {
+        return res.status(400).json({
+          error: 'Unsupported API schema version',
+          code: 'UNSUPPORTED_SCHEMA_VERSION',
+          supported: SCHEMA_VERSION,
+          requested: requestedVersion,
+        });
+      }
 
-    return next();
-  });
+      return next();
+    },
+  );
 
   const jobMaxAttempts = normalizePositiveInteger(
     /** @type {any} */ (options.jobMaxAttempts) ?? process.env.JOB_MAX_RETRIES,
@@ -392,14 +436,15 @@ export async function createApp(options = {}) {
   if (!options.disableJobs) {
     const webhookRetryIntervalMs = 5 * 60 * 1000; // 5 minutes
     jobRunner.enqueue('webhook_retry_failed_deliveries', null);
-    setInterval(() => jobRunner.enqueue('webhook_retry_failed_deliveries', null), webhookRetryIntervalMs).unref?.();
+    setInterval(
+      () => jobRunner.enqueue('webhook_retry_failed_deliveries', null),
+      webhookRetryIntervalMs,
+    ).unref?.();
   }
 
   async function buildHealthPayload() {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
-    const rpc =
-      rpcHealthCache.payload ??
-      (await checkSorobanRpcHealth({ rpcUrl, fetchImpl }));
+    const rpc = rpcHealthCache.payload ?? (await checkSorobanRpcHealth({ rpcUrl, fetchImpl }));
 
     return {
       status: /** @type {any} */ (rpc).status === 'ok' ? 'ok' : 'degraded',
@@ -513,7 +558,8 @@ export async function createApp(options = {}) {
       compatibility: {
         legacyPrefix: LEGACY_API_PREFIX,
         legacyRoutesSupported: true,
-        migrationNote: 'Prefer /api/v1/* routes. Legacy /api/* routes remain available for compatibility.',
+        migrationNote:
+          'Prefer /api/v1/* routes. Legacy /api/* routes remain available for compatibility.',
         usingLegacyPrefix,
       },
       stellar: {
@@ -568,15 +614,49 @@ export async function createApp(options = {}) {
 
     const activeRaw =
       typeof req.query.active === 'string' ? req.query.active.toLowerCase() : undefined;
-    const activeFilter =
-      activeRaw === 'true' ? true : activeRaw === 'false' ? false : undefined;
+    const activeFilter = activeRaw === 'true' ? true : activeRaw === 'false' ? false : undefined;
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
-    const order = req.query.order === 'asc' ? 'asc' : req.query.order === 'desc' ? 'desc' : undefined;
+    const order =
+      req.query.order === 'asc' ? 'asc' : req.query.order === 'desc' ? 'desc' : undefined;
     const category = typeof req.query.category === 'string' ? req.query.category.trim() : undefined;
     const tagsRaw = typeof req.query.tags === 'string' ? req.query.tags.trim() : '';
-    const tags = tagsRaw ? tagsRaw.split(',').map((t) => t.trim()).filter(Boolean) : undefined;
-    const items = campaignRepository.list({ active: activeFilter, q, sort, order, category, tags });
+    const tags = tagsRaw
+      ? tagsRaw
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined;
+
+    // Status filtering (Issue #457)
+    // By default, only show published campaigns to public API
+    // API key holders can request draft/archived/all statuses
+    const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : undefined;
+    const hasApiKey = req.context?.apiKeyRecord !== undefined;
+    let status = statusRaw;
+
+    if (statusRaw && ['draft', 'archived', 'all'].includes(statusRaw) && !hasApiKey) {
+      // Require API key for non-published statuses
+      return res.status(401).json({
+        error: 'API key required to access draft, archived, or all campaigns',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    // Default to published only for public API
+    if (!status && !hasApiKey) {
+      status = 'published';
+    }
+
+    const items = campaignRepository.list({
+      active: activeFilter,
+      q,
+      sort,
+      order,
+      category,
+      tags,
+      status,
+    });
     const payload = paginateItems(items, req.query);
     shortCache.set(cacheKey, {
       expiresAt: Date.now() + shortCacheTtlMs,
@@ -633,8 +713,22 @@ export async function createApp(options = {}) {
     }
 
     const {
-      name, slug, description, rewardPerAction, referralBonusPoints, startDate, endDate,
-      featured, hidden, hiddenReason, active, contractId, imageUrl, tags, category,
+      name,
+      slug,
+      description,
+      rewardPerAction,
+      referralBonusPoints,
+      startDate,
+      endDate,
+      featured,
+      hidden,
+      hiddenReason,
+      active,
+      contractId,
+      imageUrl,
+      tags,
+      category,
+      status,
     } = result.data;
     try {
       const campaign = campaignRepository.create({
@@ -653,6 +747,7 @@ export async function createApp(options = {}) {
         imageUrl: imageUrl ?? null,
         tags: tags ?? [],
         category: category ?? null,
+        status: status ?? 'draft',
       });
       recordAuditEntry(req, {
         action: 'create',
@@ -662,20 +757,24 @@ export async function createApp(options = {}) {
       });
 
       // Dispatch webhook event (Issue #287)
-      webhookService.dispatchEvent({
-        type: WEBHOOK_EVENTS.CAMPAIGN_CREATED,
-        campaignId: campaign.id,
-        data: campaign,
-        timestamp: new Date().toISOString(),
-      }).catch((err) => {
-        log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
-      });
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_CREATED,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
+        });
 
       shortCache.clear();
       return res.status(201).json(campaign);
     } catch (error) {
-      if (/** @type {any} */ (error).message?.includes('Tag')
-        || /** @type {any} */ (error).message?.includes('Category')) {
+      if (
+        /** @type {any} */ (error).message?.includes('Tag') ||
+        /** @type {any} */ (error).message?.includes('Category')
+      ) {
         return res.status(400).json({
           error: /** @type {Error} */ (error).message,
           code: 'VALIDATION_ERROR',
@@ -704,8 +803,21 @@ export async function createApp(options = {}) {
     }
 
     const {
-      name, description, active, rewardPerAction, referralBonusPoints, startDate, endDate,
-      featured, hidden, hiddenReason, contractId, imageUrl, tags, category,
+      name,
+      description,
+      active,
+      rewardPerAction,
+      referralBonusPoints,
+      startDate,
+      endDate,
+      featured,
+      hidden,
+      hiddenReason,
+      contractId,
+      imageUrl,
+      tags,
+      category,
+      status,
     } = result.data;
     /** @type {Record<string, unknown>} */
     const updateFields = {};
@@ -723,6 +835,7 @@ export async function createApp(options = {}) {
     if (imageUrl !== undefined) updateFields.imageUrl = imageUrl;
     if (tags !== undefined) updateFields.tags = tags;
     if (category !== undefined) updateFields.category = category;
+    if (status !== undefined) updateFields.status = status;
 
     const before = campaignRepository.getById(req.params.id);
     if (!before) {
@@ -733,8 +846,10 @@ export async function createApp(options = {}) {
     try {
       campaign = campaignRepository.update(req.params.id, updateFields);
     } catch (error) {
-      if (/** @type {any} */ (error).message?.includes('Tag')
-        || /** @type {any} */ (error).message?.includes('Category')) {
+      if (
+        /** @type {any} */ (error).message?.includes('Tag') ||
+        /** @type {any} */ (error).message?.includes('Category')
+      ) {
         return res.status(400).json({
           error: /** @type {Error} */ (error).message,
           code: 'VALIDATION_ERROR',
@@ -757,28 +872,37 @@ export async function createApp(options = {}) {
     // Dispatch webhook events (Issue #290, #352)
     const wasActive = before.active;
     const isNowActive = campaign.active;
-    
+
     if (active !== undefined && wasActive !== isNowActive) {
       // Dispatch activation/deactivation event
-      const eventType = isNowActive ? WEBHOOK_EVENTS.CAMPAIGN_ACTIVATED : WEBHOOK_EVENTS.CAMPAIGN_DEACTIVATED;
-      webhookService.dispatchEvent({
-        type: eventType,
-        campaignId: campaign.id,
-        data: campaign,
-        timestamp: new Date().toISOString(),
-      }).catch((err) => {
-        log.warn({ err, campaignId: campaign.id, eventType }, 'Failed to dispatch campaign activation/deactivation webhook');
-      });
+      const eventType = isNowActive
+        ? WEBHOOK_EVENTS.CAMPAIGN_ACTIVATED
+        : WEBHOOK_EVENTS.CAMPAIGN_DEACTIVATED;
+      webhookService
+        .dispatchEvent({
+          type: eventType,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id, eventType },
+            'Failed to dispatch campaign activation/deactivation webhook',
+          );
+        });
     } else {
       // Dispatch generic update event
-      webhookService.dispatchEvent({
-        type: WEBHOOK_EVENTS.CAMPAIGN_UPDATED,
-        campaignId: campaign.id,
-        data: campaign,
-        timestamp: new Date().toISOString(),
-      }).catch((err) => {
-        log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.updated webhook');
-      });
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_UPDATED,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.updated webhook');
+        });
     }
 
     shortCache.clear();
@@ -801,14 +925,19 @@ export async function createApp(options = {}) {
 
     // Dispatch webhook event (Issue #285)
     if (before) {
-      webhookService.dispatchEvent({
-        type: WEBHOOK_EVENTS.CAMPAIGN_DELETED,
-        campaignId: req.params.id,
-        data: before,
-        timestamp: new Date().toISOString(),
-      }).catch((err) => {
-        log.warn({ err, campaignId: req.params.id }, 'Failed to dispatch campaign.deleted webhook');
-      });
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_DELETED,
+          campaignId: req.params.id,
+          data: before,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: req.params.id },
+            'Failed to dispatch campaign.deleted webhook',
+          );
+        });
     }
 
     shortCache.clear();
@@ -819,16 +948,16 @@ export async function createApp(options = {}) {
   function cloneCampaign(req, res) {
     const sourceId = req.params.id;
     const source = campaignRepository.getById(sourceId);
-    
+
     if (!source) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
 
     const overrides = req.body?.overrides || {};
-    
+
     try {
       const clonedCampaign = campaignRepository.clone(sourceId, overrides);
-      
+
       if (!clonedCampaign) {
         return res.status(500).json({ error: 'Failed to clone campaign', code: 'CLONE_FAILED' });
       }
@@ -851,6 +980,88 @@ export async function createApp(options = {}) {
         });
       }
       throw error;
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function publishCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.publish(req.params.id);
+      recordAuditEntry(req, {
+        action: 'publish',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.published',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.published webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(campaign);
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'PUBLISH_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function archiveCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.archive(req.params.id);
+      recordAuditEntry(req, {
+        action: 'archive',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.archived',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.archived webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(campaign);
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'ARCHIVE_FAILED',
+      });
     }
   }
 
@@ -924,13 +1135,17 @@ export async function createApp(options = {}) {
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const campaignsByStatus = {
-      draft: allCampaigns.filter(c => !c.active && c.hidden).length,
-      published: allCampaigns.filter(c => c.active && !c.hidden).length,
-      archived: allCampaigns.filter(c => !c.active && !c.hidden).length,
+      draft: allCampaigns.filter((c) => !c.active && c.hidden).length,
+      published: allCampaigns.filter((c) => c.active && !c.hidden).length,
+      archived: allCampaigns.filter((c) => !c.active && !c.hidden).length,
     };
 
-    const campaignsCreatedLast7Days = allCampaigns.filter(c => new Date(c.createdAt) >= sevenDaysAgo).length;
-    const campaignsCreatedLast30Days = allCampaigns.filter(c => new Date(c.createdAt) >= thirtyDaysAgo).length;
+    const campaignsCreatedLast7Days = allCampaigns.filter(
+      (c) => new Date(c.createdAt) >= sevenDaysAgo,
+    ).length;
+    const campaignsCreatedLast30Days = allCampaigns.filter(
+      (c) => new Date(c.createdAt) >= thirtyDaysAgo,
+    ).length;
 
     // Participants (unique wallets from referrals)
     const allReferrals = referralRepository.listAll?.() ?? [];
@@ -953,7 +1168,7 @@ export async function createApp(options = {}) {
     for (let i = 29; i >= 0; i--) {
       const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
       const dateStr = date.toISOString().split('T')[0];
-      const dayReferrals = allReferrals.filter(r => r.createdAt.startsWith(dateStr)).length;
+      const dayReferrals = allReferrals.filter((r) => r.createdAt.startsWith(dateStr)).length;
       activity.push({ date: dateStr, registrations: dayReferrals });
     }
 
@@ -1101,7 +1316,9 @@ export async function createApp(options = {}) {
   function rotateApiKeyHandler(req, res) {
     const rotated = apiKeyRepository.rotate(req.params.id);
     if (!rotated) {
-      return res.status(404).json({ error: 'API key not found or already revoked', code: 'API_KEY_NOT_FOUND' });
+      return res
+        .status(404)
+        .json({ error: 'API key not found or already revoked', code: 'API_KEY_NOT_FOUND' });
     }
 
     recordAuditEntry(req, {
@@ -1137,9 +1354,7 @@ export async function createApp(options = {}) {
   function retryFailedJobHandler(req, res) {
     const entry = failedJobRepository.getById(req.params.id);
     if (!entry) {
-      return res
-        .status(404)
-        .json({ error: 'Failed job not found', code: 'FAILED_JOB_NOT_FOUND' });
+      return res.status(404).json({ error: 'Failed job not found', code: 'FAILED_JOB_NOT_FOUND' });
     }
 
     jobRunner.enqueue(entry.type, entry.payload);
@@ -1174,30 +1389,32 @@ export async function createApp(options = {}) {
     app.post(`${prefix}/indexer/cursor`, rateLimiter, requireApiKey, setIndexerCursorState);
     app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
     app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, requireApiKey, cloneCampaign);
-    app.post(
-      `${prefix}/campaigns/:id/image`,
-      rateLimiter,
-      requireApiKey,
-      (req, res, next) => {
-        imageUpload.single('image')(req, res, (err) => {
-          if (err?.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({
-              error: 'Image must be 5MB or smaller',
-              code: 'FILE_TOO_LARGE',
-            });
-          }
-          if (err) return next(err);
-          return uploadCampaignImageHandler(req, res);
-        });
-      },
-    );
+    app.post(`${prefix}/campaigns/:id/image`, rateLimiter, requireApiKey, (req, res, next) => {
+      imageUpload.single('image')(req, res, (err) => {
+        if (err?.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({
+            error: 'Image must be 5MB or smaller',
+            code: 'FILE_TOO_LARGE',
+          });
+        }
+        if (err) return next(err);
+        return uploadCampaignImageHandler(req, res);
+      });
+    });
     app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
+    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, requireApiKey, publishCampaign);
+    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, requireApiKey, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
 
     app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
     app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
-    app.put(`${prefix}/admin/api-keys/:id/rotate`, rateLimiter, requireMasterKey, rotateApiKeyHandler);
+    app.put(
+      `${prefix}/admin/api-keys/:id/rotate`,
+      rateLimiter,
+      requireMasterKey,
+      rotateApiKeyHandler,
+    );
 
     // Admin dashboard and campaign management (Issue #467)
     app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
@@ -1295,13 +1512,20 @@ export async function createApp(options = {}) {
 
       const { referrerAddress, refereeAddress } = req.body ?? {};
       if (!referrerAddress || typeof referrerAddress !== 'string') {
-        return res.status(400).json({ error: 'referrerAddress is required', code: 'VALIDATION_ERROR' });
+        return res
+          .status(400)
+          .json({ error: 'referrerAddress is required', code: 'VALIDATION_ERROR' });
       }
       if (!refereeAddress || typeof refereeAddress !== 'string') {
-        return res.status(400).json({ error: 'refereeAddress is required', code: 'VALIDATION_ERROR' });
+        return res
+          .status(400)
+          .json({ error: 'refereeAddress is required', code: 'VALIDATION_ERROR' });
       }
       if (referrerAddress === refereeAddress) {
-        return res.status(400).json({ error: 'referrerAddress and refereeAddress must be different', code: 'VALIDATION_ERROR' });
+        return res.status(400).json({
+          error: 'referrerAddress and refereeAddress must be different',
+          code: 'VALIDATION_ERROR',
+        });
       }
 
       const referral = referralRepository.create({
@@ -1311,7 +1535,10 @@ export async function createApp(options = {}) {
       });
 
       if (!referral) {
-        return res.status(409).json({ error: 'Referee already attributed to a referrer for this campaign', code: 'REFERRAL_DUPLICATE' });
+        return res.status(409).json({
+          error: 'Referee already attributed to a referrer for this campaign',
+          code: 'REFERRAL_DUPLICATE',
+        });
       }
 
       return res.status(201).json(referral);

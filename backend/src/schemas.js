@@ -9,16 +9,9 @@ const isoDateOrNull = z
   })
   .nullable();
 
-const tagSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(32, 'Each tag must be at most 32 characters');
+const tagSchema = z.string().trim().min(1).max(32, 'Each tag must be at most 32 characters');
 
-const tagsSchema = z
-  .array(tagSchema)
-  .max(10, 'A campaign may have at most 10 tags')
-  .optional();
+const tagsSchema = z.array(tagSchema).max(10, 'A campaign may have at most 10 tags').optional();
 
 /**
  * @param {string[]} allowedCategories
@@ -35,6 +28,8 @@ export function createCategorySchema(allowedCategories = DEFAULT_CATEGORIES) {
 }
 
 const imageUrlSchema = z.string().url('imageUrl must be a valid URL').optional();
+
+const statusSchema = z.enum(['draft', 'published', 'archived']).optional();
 
 /** Schema for creating a new campaign. */
 export const campaignCreateSchema = z
@@ -53,7 +48,11 @@ export const campaignCreateSchema = z
     featured: z.boolean().optional(),
     hidden: z.boolean().optional(),
     hiddenReason: z.string().nullable().optional(),
-    referralBonusPoints: z.number().int().min(0, 'referralBonusPoints must be a non-negative integer').optional(),
+    referralBonusPoints: z
+      .number()
+      .int()
+      .min(0, 'referralBonusPoints must be a non-negative integer')
+      .optional(),
     startDate: isoDateOrNull.optional(),
     endDate: isoDateOrNull.optional(),
     contractId: z
@@ -64,6 +63,7 @@ export const campaignCreateSchema = z
     imageUrl: imageUrlSchema,
     tags: tagsSchema,
     category: createCategorySchema(),
+    status: statusSchema,
   })
   .refine(
     (data) => {
@@ -87,12 +87,20 @@ export const campaignUpdateSchema = z
       .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be kebab-case (e.g., my-campaign-123)')
       .optional(),
     description: z.string().optional(),
-    rewardPerAction: z.number().finite().min(0, 'rewardPerAction must be a non-negative number').optional(),
+    rewardPerAction: z
+      .number()
+      .finite()
+      .min(0, 'rewardPerAction must be a non-negative number')
+      .optional(),
     active: z.boolean().optional(),
     featured: z.boolean().optional(),
     hidden: z.boolean().optional(),
     hiddenReason: z.string().nullable().optional(),
-    referralBonusPoints: z.number().int().min(0, 'referralBonusPoints must be a non-negative integer').optional(),
+    referralBonusPoints: z
+      .number()
+      .int()
+      .min(0, 'referralBonusPoints must be a non-negative integer')
+      .optional(),
     startDate: isoDateOrNull.optional(),
     endDate: isoDateOrNull.optional(),
     contractId: z
@@ -103,6 +111,7 @@ export const campaignUpdateSchema = z
     imageUrl: imageUrlSchema,
     tags: tagsSchema,
     category: createCategorySchema(),
+    status: statusSchema,
   })
   .refine(
     (data) => {
@@ -127,6 +136,7 @@ export const listQuerySchema = z
     q: z.string().optional(),
     tags: z.string().optional(),
     category: z.string().optional(),
+    status: z.enum(['draft', 'published', 'archived', 'all']).optional(),
   })
   .passthrough();
 
