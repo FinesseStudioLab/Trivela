@@ -53,7 +53,7 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.scripts.outputs.has_test == 'true'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
       - name: Lint frontend (via Turborepo)
         if: steps.scripts.outputs.has_lint == 'true'
