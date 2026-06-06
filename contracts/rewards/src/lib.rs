@@ -987,7 +987,7 @@ impl RewardsContract {
         // Transfer tokens from caller to contract
         use soroban_sdk::token;
         let token_client = token::Client::new(&env, &asset_address);
-        token_client.transfer(&from, &env.current_contract_address(), &(amount as i128));
+        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
 
         // Update reserve
         let current_reserve: u64 = env

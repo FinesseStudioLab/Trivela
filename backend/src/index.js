@@ -47,6 +47,7 @@ import {
 import { buildCampaignStats } from './services/campaignStatsService.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
+import { createEmbedRoute } from './routes/embed.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -486,6 +487,10 @@ export async function createApp(options = {}) {
     const payload = await buildHealthPayload();
     res.json(payload);
   });
+
+  const siteOrigin =
+    process.env.SITE_ORIGIN ?? allowedOrigins.find((origin) => origin !== '*') ?? '';
+  app.get('/embed/campaign/:id', createEmbedRoute(campaignRepository, siteOrigin));
 
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();

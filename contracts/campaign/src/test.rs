@@ -884,7 +884,7 @@ fn test_campaign_cancel_admin_transfer_clears_pending() {
 #[test]
 fn test_campaign_new_admin_can_call_admin_operations() {
     // Once accepted, the new admin's signature is enough to perform admin-only ops.
-    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
     client.propose_admin(&admin, &new_admin);
     client.accept_admin(&new_admin);
 
