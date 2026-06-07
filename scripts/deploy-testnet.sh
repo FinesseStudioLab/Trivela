@@ -22,6 +22,7 @@ NETWORK="${STELLAR_NETWORK:-testnet}"
 SOURCE="${STELLAR_SOURCE:-}"
 ENV_OUT="${TRIVELA_ENV_OUT:-.env.testnet}"
 BACKEND_ENV_OUT="${TRIVELA_BACKEND_ENV:-}"
+CONFIRM_MAINNET="${TRIVELA_CONFIRM_MAINNET:-}"
 REWARDS_WASM="target/wasm32-unknown-unknown/release/trivela_rewards_contract.wasm"
 CAMPAIGN_WASM="target/wasm32-unknown-unknown/release/trivela_campaign_contract.wasm"
 
@@ -32,6 +33,15 @@ err() {
 
 if [ -z "$SOURCE" ]; then
   err "STELLAR_SOURCE is required (set it to a funded Stellar identity or secret key)"
+fi
+
+if [ "$NETWORK" = "mainnet" ]; then
+  if [ "$CONFIRM_MAINNET" != "yes" ]; then
+    err "mainnet deployment requires STELLAR_NETWORK=mainnet and TRIVELA_CONFIRM_MAINNET=yes (use ./scripts/deploy-mainnet.sh or npm run deploy:mainnet)"
+  fi
+  echo "WARNING: deploying to MAINNET — real XLM fees will be charged."
+elif [ "$NETWORK" != "testnet" ]; then
+  echo "WARNING: deploying to non-default network '${NETWORK}'."
 fi
 
 if ! command -v cargo >/dev/null 2>&1; then

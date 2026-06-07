@@ -50,5 +50,7 @@ etc.) before the launch is approved.
 
 ## References
 
+- [MAINNET_DEPLOY.md](./MAINNET_DEPLOY.md) — step-by-step mainnet deployment guide
+- [SECURITY.md](./SECURITY.md) — key rotation and compromise procedures
 - [DEPLOYMENT.md](./DEPLOYMENT.md)
 - Issues: #278, #279, #280, #281, #282, #283, #284, #286, #288, #289, #290, #292
