@@ -52,6 +52,12 @@ See the main [README](README.md) for full setup.
 Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in
 an issue.
 
+## Maintainers
+
+Contract API docs are deployed to GitHub Pages via CI. If the **Deploy Contract API Docs**
+workflow fails with a Pages enablement error, see [docs/GITHUB_PAGES.md](docs/GITHUB_PAGES.md) for
+the one-time repository setup steps.
+
 ## Governance
 
 For information about proposing major changes, RFCs, and decision-making processes, see

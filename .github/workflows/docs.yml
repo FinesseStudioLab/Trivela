@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -38,6 +39,8 @@ jobs:
             ${{ runner.os }}-cargo-docs-
 
       - name: Check for missing documentation on public items
+        env:
+          RUSTDOCFLAGS: --html-root-url https://finessestudiolab.github.io/Trivela/
         run: |
           cargo doc --package trivela-campaign-contract --package trivela-rewards-contract --no-deps --document-private-items 2>&1 | tee cargo-doc-output.txt
           if grep -q "warning: missing documentation for" cargo-doc-output.txt; then
@@ -47,6 +50,8 @@ jobs:
           fi
 
       - name: Generate docs with cargo doc
+        env:
+          RUSTDOCFLAGS: --html-root-url https://finessestudiolab.github.io/Trivela/
         run: |
           cargo doc --package trivela-campaign-contract --package trivela-rewards-contract --no-deps
 
@@ -54,6 +59,13 @@ jobs:
         run: |
           rm -rf docs/contract-api
           cp -r target/doc docs/contract-api
+          touch docs/contract-api/.nojekyll
+          printf '%s\n' \
+            '<!DOCTYPE html>' \
+            '<meta charset="utf-8">' \
+            '<meta http-equiv="refresh" content="0; url=trivela_campaign_contract/">' \
+            '<link rel="canonical" href="trivela_campaign_contract/">' \
+            > docs/contract-api/index.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -38,10 +38,10 @@ open target/doc/trivela_rewards_contract/index.html
 
 Generated docs are deployed to GitHub Pages on every push to `main`:
 
-| Contract | URL                                                                                  |
-| -------- | ------------------------------------------------------------------------------------ |
-| Campaign | `https://finessestudiolab.github.io/Trivela/contract-api/trivela_campaign_contract/` |
-| Rewards  | `https://finessestudiolab.github.io/Trivela/contract-api/trivela_rewards_contract/`  |
+| Contract | URL                                                                            |
+| -------- | ------------------------------------------------------------------------------ |
+| Campaign | `https://finessestudiolab.github.io/Trivela/trivela_campaign_contract/` |
+| Rewards  | `https://finessestudiolab.github.io/Trivela/trivela_rewards_contract/`  |
 
 ### Regenerating Documentation
 
