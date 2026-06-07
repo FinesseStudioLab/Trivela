@@ -196,37 +196,32 @@ export default function Landing({
             rewards. Full stack: Rust contracts, Node API, React frontend.
           </p>
           <div className="hero-cta">
-            <a
-              href={GITHUB_REPO}
-              className="btn btn-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View repository
+            <a href="#campaigns" className="btn btn-primary">
+              Browse campaigns
             </a>
-            <a
-              href={GITHUB_ISSUES}
+            <button
+              type="button"
               className="btn btn-secondary"
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={onConnectWallet}
+              disabled={isWalletLoading}
             >
-              Browse contributor issues
-            </a>
+              {isWalletLoading
+                ? 'Connecting…'
+                : walletAddress
+                  ? 'Wallet connected ✓'
+                  : 'Connect wallet'}
+            </button>
           </div>
           <div className="hero-stats" aria-label="Project summary">
-            <span>
-              <strong>50</strong> open issues
-            </span>
-            <span className="hero-stats-dot" aria-hidden="true">
-              ·
-            </span>
-            <span>
-              <strong>3</strong> stacks
-            </span>
+            <span>Stellar Soroban</span>
             <span className="hero-stats-dot" aria-hidden="true">
               ·
             </span>
             <span>Rust · Node · React</span>
+            <span className="hero-stats-dot" aria-hidden="true">
+              ·
+            </span>
+            <span>Apache-2.0</span>
           </div>
         </header>
 
@@ -282,8 +277,23 @@ export default function Landing({
 
             {(rewardsPoints === 'Unavailable' || walletError) && (
               <p className="rewards-error" role="alert">
-                {walletError ||
-                  'Unable to load your rewards balance. Check your connection or contract deployment.'}
+                {walletError && walletError.toLowerCase().includes('freighter') ? (
+                  <>
+                    Freighter wallet not detected.{' '}
+                    <a
+                      href="https://www.freighter.app"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Install Freighter
+                    </a>{' '}
+                    then try again.
+                  </>
+                ) : (
+                  walletError ||
+                  'Unable to load your rewards balance. Check your connection or contract deployment.'
+                )}
               </p>
             )}
 
@@ -443,6 +453,7 @@ export default function Landing({
         </section>
 
         <section
+          id="campaigns"
           className="section campaigns-preview"
           aria-labelledby="campaigns-title"
           data-tour="campaigns"

@@ -9,10 +9,12 @@ import About from './About';
 import PageMeta from './components/PageMeta';
 import TransactionHistory from './TransactionHistory';
 import EmbedCampaign from './pages/EmbedCampaign';
+import WalletModal from './components/WalletModal';
+import RequireAdmin from './components/RequireAdmin';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
-  getWalletAddress,
+  connectWallet as connectWalletProvider,
   fetchWalletBalance,
   formatWalletBalance,
   fetchRewardsBalance,
@@ -31,6 +33,7 @@ export default function App() {
   const [isWalletBalanceLoading, setIsWalletBalanceLoading] = useState(false);
   const [isRewardsPointsLoading, setIsRewardsPointsLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
+  const [showWalletModal, setShowWalletModal] = useState(false);
 
   useEffect(() => {
     applyTheme(theme);
@@ -94,19 +97,27 @@ export default function App() {
     }
   };
 
-  const connectWallet = async () => {
+  const openWalletModal = () => {
+    setWalletError('');
+    setShowWalletModal(true);
+  };
+
+  const handleWalletSelect = async (providerName) => {
+    setShowWalletModal(false);
     setIsWalletLoading(true);
     setWalletError('');
 
     try {
-      const address = await getWalletAddress();
+      const { address } = await connectWalletProvider(providerName);
       setWalletAddress(address);
-      logSafeEvent('wallet_connected');
+      logSafeEvent('wallet_connected', { provider: providerName });
       await loadWalletBalance(address);
     } catch (error) {
       setWalletAddress('');
       setWalletBalance('');
-      setWalletError(normalizeError(error));
+      const msg = normalizeError(error);
+      setWalletError(msg);
+      setShowWalletModal(true);
     } finally {
       setIsWalletLoading(false);
     }
@@ -157,7 +168,7 @@ export default function App() {
               isWalletBalanceLoading={isWalletBalanceLoading}
               isRewardsPointsLoading={isRewardsPointsLoading}
               walletError={walletError}
-              onConnectWallet={connectWallet}
+              onConnectWallet={openWalletModal}
               onDisconnectWallet={disconnectWallet}
               onRefreshPoints={() => loadWalletBalance(walletAddress)}
             />
@@ -177,7 +188,7 @@ export default function App() {
               isWalletLoading={isWalletLoading}
               isWalletBalanceLoading={isWalletBalanceLoading}
               isRewardsPointsLoading={isRewardsPointsLoading}
-              onConnectWallet={connectWallet}
+              onConnectWallet={openWalletModal}
               onDisconnectWallet={disconnectWallet}
               onRefreshPoints={() => loadWalletBalance(walletAddress)}
             />
@@ -197,7 +208,7 @@ export default function App() {
               isWalletLoading={isWalletLoading}
               isWalletBalanceLoading={isWalletBalanceLoading}
               isRewardsPointsLoading={isRewardsPointsLoading}
-              onConnectWallet={connectWallet}
+              onConnectWallet={openWalletModal}
               onDisconnectWallet={disconnectWallet}
               onRefreshPoints={() => loadWalletBalance(walletAddress)}
             />
@@ -206,35 +217,47 @@ export default function App() {
         <Route
           path="/admin/campaigns/:id/analytics"
           element={
-            <CampaignAnalytics
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
+            <RequireAdmin
               walletAddress={walletAddress}
-              walletBalance={walletBalance}
+              onConnectWallet={openWalletModal}
               isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={connectWallet}
-              onDisconnectWallet={disconnectWallet}
-            />
+            >
+              <CampaignAnalytics
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            </RequireAdmin>
           }
         />
         <Route
           path="/admin"
           element={
-            <AdminCampaigns
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
+            <RequireAdmin
               walletAddress={walletAddress}
-              walletBalance={walletBalance}
+              onConnectWallet={openWalletModal}
               isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={connectWallet}
-              onDisconnectWallet={disconnectWallet}
-            />
+            >
+              <AdminCampaigns
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            </RequireAdmin>
           }
         />
         <Route
@@ -249,7 +272,7 @@ export default function App() {
               walletBalance={walletBalance}
               isWalletLoading={isWalletLoading}
               isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={connectWallet}
+              onConnectWallet={openWalletModal}
               onDisconnectWallet={disconnectWallet}
             />
           }
@@ -266,13 +289,20 @@ export default function App() {
               walletBalance={walletBalance}
               isWalletLoading={isWalletLoading}
               isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={connectWallet}
+              onConnectWallet={openWalletModal}
               onDisconnectWallet={disconnectWallet}
             />
           }
         />
         <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
       </Routes>
+      <WalletModal
+        isOpen={showWalletModal}
+        onClose={() => setShowWalletModal(false)}
+        onConnect={handleWalletSelect}
+        isLoading={isWalletLoading}
+        error={walletError}
+      />
     </>
   );
 }
