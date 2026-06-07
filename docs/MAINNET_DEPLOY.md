@@ -146,8 +146,42 @@ set — this prevents accidental mainnet deploys from a mistyped env var.
 ### After deployment
 
 1. Record both contract IDs and the deployment transaction hashes.
-2. Call `initialize` on each contract with your admin address (if not done in a separate step).
+2. Call `initialize` on each contract with your admin address (see below).
 3. Copy contract IDs into backend and frontend production env (see below).
+
+#### Initialize contracts (Stellar CLI)
+
+Replace `<ADMIN_IDENTITY>`, `<REWARDS_ID>`, and `<CAMPAIGN_ID>` with your values. The admin identity
+must match the keypair that will control the contracts in production.
+
+```bash
+# Rewards contract — requires admin, name, and symbol
+stellar contract invoke \
+  --id <REWARDS_ID> \
+  --source <ADMIN_IDENTITY> \
+  --network mainnet \
+  -- initialize \
+  --admin <ADMIN_IDENTITY> \
+  --name "Trivela_Rewards" \
+  --symbol "TVL"
+
+# Campaign contract — requires admin only
+stellar contract invoke \
+  --id <CAMPAIGN_ID> \
+  --source <ADMIN_IDENTITY> \
+  --network mainnet \
+  -- initialize \
+  --admin <ADMIN_IDENTITY>
+```
+
+Verify initialization:
+
+```bash
+stellar contract invoke --id <REWARDS_ID> --network mainnet -- admin
+stellar contract invoke --id <CAMPAIGN_ID> --network mainnet -- admin
+```
+
+Both should return your admin public key (`G...`).
 
 ---
 
@@ -169,7 +203,7 @@ Set every production value — do not rely on defaults.
 | `REWARDS_CONTRACT_ID` | `C...` | From deploy script output |
 | `CAMPAIGN_CONTRACT_ID` | `C...` | From deploy script output |
 | `CORS_ALLOWED_ORIGINS` | `https://app.yourdomain.com` | **Must** match your production frontend origin |
-| `TRIVELA_API_KEYS` | `sk_prod_...` | Comma-separated write/admin API keys (generate strong random values) |
+| `TRIVELA_API_KEYS` | `sk_prod_...` | Comma-separated write/admin API keys (generate strong random values). This is the production API secret referenced in deployment checklists — there is no separate `API_KEY_SECRET` variable in this repo. |
 | `TRIVELA_MASTER_KEY` | `mk_prod_...` | Master key for API key management endpoints |
 
 ### Strongly recommended for production

@@ -218,6 +218,14 @@ You can also build and deploy both contracts with the helper script:
 STELLAR_SOURCE=alice npm run deploy:testnet
 ```
 
+For **mainnet** deployment, see the full production walkthrough in
+[`docs/MAINNET_DEPLOY.md`](docs/MAINNET_DEPLOY.md) (pre-flight checks, env config, smoke tests) and
+[`docs/SECURITY.md`](docs/SECURITY.md) (key rotation and incident response). Quick entry point:
+
+```bash
+STELLAR_SOURCE=<mainnet-identity> npm run deploy:mainnet
+```
+
 Optional environment variables:
 
 - `STELLAR_NETWORK`: Stellar CLI network alias to deploy against (defaults to `testnet`)
