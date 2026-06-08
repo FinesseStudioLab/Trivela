@@ -230,3 +230,11 @@ export function getCampaignContract() {
   const contractId = getCampaignContractId();
   return contractId ? new Contract(contractId) : null;
 }
+
+export function getAdminAddresses() {
+  const raw = import.meta.env.VITE_ADMIN_ADDRESSES || '';
+  return raw
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean);
+}

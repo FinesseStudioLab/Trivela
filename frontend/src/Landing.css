@@ -81,8 +81,10 @@
   color: var(--text-muted);
 }
 
-.nav-links a:hover {
+.nav-links a:hover,
+.nav-links a.nav-link-active {
   color: var(--accent);
+  font-weight: 600;
 }
 
 .nav-utilities {

@@ -1,3 +1,4 @@
+import { useLocation } from 'react-router-dom';
 import DevNetworkSwitcher from './DevNetworkSwitcher';
 
 function truncateWalletAddress(walletAddress) {
@@ -7,22 +8,9 @@ function truncateWalletAddress(walletAddress) {
 }
 
 const NAV_LINKS = [
-  {
-    href: '/api-docs.html',
-    label: 'API Docs',
-  },
-  {
-    href: 'https://github.com/FinesseStudioLab/Trivela',
-    label: 'GitHub',
-  },
-  {
-    href: 'https://github.com/FinesseStudioLab/Trivela/issues',
-    label: 'Contribute',
-  },
-  {
-    href: 'https://developers.stellar.org/docs',
-    label: 'Stellar',
-  },
+  { href: '/', label: 'Campaigns' },
+  { href: '/about', label: 'About' },
+  { href: '/admin', label: 'Admin' },
 ];
 
 export default function Header({
@@ -39,6 +27,7 @@ export default function Header({
 }) {
   const nextTheme = theme === 'dark' ? 'light' : 'dark';
   const balanceLabel = `${stellarNetwork === 'mainnet' ? 'Mainnet' : 'Testnet'} balance`;
+  const { pathname } = useLocation();
 
   return (
     <header className="site-header">
@@ -52,14 +41,25 @@ export default function Header({
 
         <div className="nav-actions">
           <div className="nav-links">
-            {/* #295 — only show the history link when a wallet is
-                connected; the page itself is per-wallet. */}
-            {walletAddress && <a href="/history">Transaction History</a>}
             {NAV_LINKS.map((link) => (
-              <a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer">
+              <a
+                key={link.href}
+                href={link.href}
+                className={pathname === link.href ? 'nav-link-active' : undefined}
+                aria-current={pathname === link.href ? 'page' : undefined}
+              >
                 {link.label}
               </a>
             ))}
+            {walletAddress && (
+              <a
+                href="/history"
+                className={pathname === '/history' ? 'nav-link-active' : undefined}
+                aria-current={pathname === '/history' ? 'page' : undefined}
+              >
+                History
+              </a>
+            )}
           </div>
 
           <div className="nav-utilities">
