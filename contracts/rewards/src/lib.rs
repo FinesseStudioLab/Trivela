@@ -15,6 +15,8 @@
 //! - `vested_credit`: topics `(vcredit, user)`, data `(vest_id: u64, total: u64)`
 //! - `vested_claim`: topics `(vclaim, user)`, data `(vest_id: u64, amount: u64)`
 //! - `redeem`: topics `(redeem, user)`, data `(points_burned: u64, asset_amount: i128)`
+//! - `ref_config`: topics `(refcfg,)`, data `(rate_bps: u32, per_referrer_cap: u64)`
+//! - `ref_bonus`: topics `(refbonus, referrer, referee)`, data `(bonus: u64, qualifying_amount: u64)`
 
 #![no_std]
 
@@ -40,6 +42,20 @@ pub enum Error {
     InsufficientReserve = 11,
     InvalidRedemptionRate = 12,
     InvalidAdminNonce = 13,
+    /// A referrer and referee cannot be the same address.
+    SelfReferral = 14,
+    /// The referee was previously rewarded as a referee of this referrer (cycle).
+    CircularReferral = 15,
+    /// This referee has already triggered a referral bonus (one per referee).
+    ReferralAlreadyRewarded = 16,
+    /// Paying this bonus would exceed the configured per-referrer cap.
+    ReferralCapExceeded = 17,
+    /// Referral rewards have not been configured (bonus rate is zero).
+    ReferralNotConfigured = 18,
+    /// The supplied referral configuration is invalid.
+    InvalidReferralConfig = 19,
+    /// The computed referral bonus rounded down to zero.
+    ZeroReferralBonus = 20,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -135,6 +151,23 @@ const ADMIN_NONCE: Symbol = symbol_short!("anonce");
 const PENDING_ADMIN: Symbol = symbol_short!("padmin");
 const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
 const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
+
+// ── On-chain referral rewards (issue #656 / #603) ────────────────────────────
+// The referral *graph* (who referred whom) is attributed by the campaign
+// contract; this contract owns the *payout* and its anti-abuse invariants:
+// self/circular blocking, one-bonus-per-referee uniqueness (the sybil gate),
+// and a configurable per-referrer cap. Referral state lives in instance storage
+// alongside balances, matching the existing crediting model.
+const REF_RATE: Symbol = symbol_short!("refrate"); // u32 bonus rate, basis points
+const REF_CAP: Symbol = symbol_short!("refcap"); // u64 cumulative cap per referrer (0 = uncapped)
+const REF_PAID: Symbol = symbol_short!("refpaid"); // (REF_PAID, referee) -> referrer Address
+const REF_TOTAL: Symbol = symbol_short!("reftotal"); // (REF_TOTAL, referrer) -> u64 cumulative bonus
+const REF_COUNT: Symbol = symbol_short!("refcount"); // (REF_COUNT, referrer) -> u64 referrals rewarded
+const REF_CONFIG_EVENT: Symbol = symbol_short!("refcfg");
+const REF_BONUS_EVENT: Symbol = symbol_short!("refbonus");
+// Upper bound on the configurable rate (1000%) to guard against fat-finger
+// configuration and keep `qualifying_amount * rate_bps` comfortably in range.
+const MAX_REFERRAL_RATE_BPS: u32 = 100_000;
 
 #[contract]
 pub struct RewardsContract;
@@ -1004,6 +1037,169 @@ impl RewardsContract {
 
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
+    }
+
+    // ── Referral rewards ─────────────────────────────────────────────────────
+
+    /// Configure the on-chain referral reward engine (admin only).
+    ///
+    /// `rate_bps` is the referrer bonus as basis points of a referee's
+    /// qualifying amount (`bonus = qualifying_amount * rate_bps / 10_000`) and
+    /// must be in `1..=MAX_REFERRAL_RATE_BPS`. `per_referrer_cap` is the maximum
+    /// cumulative bonus a single referrer may earn; `0` means uncapped.
+    pub fn set_referral_config(
+        env: Env,
+        admin: Address,
+        rate_bps: u32,
+        per_referrer_cap: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if rate_bps == 0 || rate_bps > MAX_REFERRAL_RATE_BPS {
+            return Err(Error::InvalidReferralConfig);
+        }
+        env.storage().instance().set(&REF_RATE, &rate_bps);
+        env.storage().instance().set(&REF_CAP, &per_referrer_cap);
+        env.events()
+            .publish((REF_CONFIG_EVENT,), (rate_bps, per_referrer_cap));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Returns the referral configuration as `(rate_bps, per_referrer_cap)`.
+    /// Defaults to `(0, 0)` when referral rewards have not been configured.
+    pub fn referral_config(env: Env) -> (u32, u64) {
+        let rate: u32 = env.storage().instance().get(&REF_RATE).unwrap_or(0);
+        let cap: u64 = env.storage().instance().get(&REF_CAP).unwrap_or(0);
+        (rate, cap)
+    }
+
+    /// Pay a referrer the configured bonus for a referee's qualifying action
+    /// (admin only). Enforces the anti-abuse invariants on-chain:
+    ///
+    /// - **self-referral**: `referrer == referee` is rejected.
+    /// - **circular**: rejected when `referrer` was itself previously rewarded as
+    ///   a referee of `referee` (an `A → B` then `B → A` cycle).
+    /// - **uniqueness / sybil gate**: each `referee` can trigger at most one
+    ///   referral bonus, ever — making the payout idempotent and all-or-nothing.
+    /// - **per-referrer cap**: the referrer's cumulative bonus may not exceed the
+    ///   configured cap.
+    ///
+    /// On success the bonus is credited to `referrer`'s balance (emitting the
+    /// standard `credit` event so balance indexers stay consistent) and a
+    /// `ref_bonus` event is published for attribution/instrumentation. Returns
+    /// the bonus amount credited.
+    pub fn pay_referral_bonus(
+        env: Env,
+        admin: Address,
+        referrer: Address,
+        referee: Address,
+        qualifying_amount: u64,
+    ) -> Result<u64, Error> {
+        require_admin(&env, &admin)?;
+        ensure_not_paused(&env)?;
+
+        let rate_bps: u32 = env.storage().instance().get(&REF_RATE).unwrap_or(0);
+        if rate_bps == 0 {
+            return Err(Error::ReferralNotConfigured);
+        }
+        if referrer == referee {
+            return Err(Error::SelfReferral);
+        }
+
+        // Uniqueness / replay: a referee may only ever be rewarded once.
+        let referee_key = (REF_PAID, referee.clone());
+        let already: Option<Address> = env.storage().instance().get(&referee_key);
+        if already.is_some() {
+            return Err(Error::ReferralAlreadyRewarded);
+        }
+
+        // Circular: reject if the referrer was previously rewarded as a referee
+        // of this referee (A referred B; now B is trying to refer A).
+        let prior_for_referrer: Option<Address> =
+            env.storage().instance().get(&(REF_PAID, referrer.clone()));
+        if prior_for_referrer == Some(referee.clone()) {
+            return Err(Error::CircularReferral);
+        }
+
+        // bonus = qualifying_amount * rate_bps / 10_000 (floor division).
+        let bonus_u128 = (qualifying_amount as u128)
+            .checked_mul(rate_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if bonus_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let bonus = bonus_u128 as u64;
+        if bonus == 0 {
+            return Err(Error::ZeroReferralBonus);
+        }
+
+        // Per-referrer cap (0 = uncapped).
+        let cap: u64 = env.storage().instance().get(&REF_CAP).unwrap_or(0);
+        let prior_total: u64 = env
+            .storage()
+            .instance()
+            .get(&(REF_TOTAL, referrer.clone()))
+            .unwrap_or(0);
+        let new_total = prior_total.checked_add(bonus).ok_or(Error::Overflow)?;
+        if cap > 0 && new_total > cap {
+            return Err(Error::ReferralCapExceeded);
+        }
+
+        // Credit the referrer's balance (same storage as `credit`).
+        let balance_key = (BALANCE, referrer.clone());
+        let current: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current.checked_add(bonus).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Record attribution edge + per-referrer counters.
+        env.storage().instance().set(&referee_key, &referrer);
+        env.storage()
+            .instance()
+            .set(&(REF_TOTAL, referrer.clone()), &new_total);
+        let prior_count: u64 = env
+            .storage()
+            .instance()
+            .get(&(REF_COUNT, referrer.clone()))
+            .unwrap_or(0);
+        env.storage().instance().set(
+            &(REF_COUNT, referrer.clone()),
+            &prior_count.saturating_add(1),
+        );
+
+        env.events()
+            .publish((CREDIT_EVENT, referrer.clone()), bonus);
+        env.events().publish(
+            (REF_BONUS_EVENT, referrer, referee),
+            (bonus, qualifying_amount),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(bonus)
+    }
+
+    /// Cumulative referral bonus credited to `referrer`.
+    pub fn referral_bonus_total(env: Env, referrer: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(REF_TOTAL, referrer))
+            .unwrap_or(0)
+    }
+
+    /// Number of referees `referrer` has been rewarded for.
+    pub fn referral_reward_count(env: Env, referrer: Address) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(REF_COUNT, referrer))
+            .unwrap_or(0)
+    }
+
+    /// The referrer that was rewarded for `referee`, if any.
+    pub fn rewarded_referrer_of(env: Env, referee: Address) -> Option<Address> {
+        env.storage().instance().get(&(REF_PAID, referee))
     }
 }
 

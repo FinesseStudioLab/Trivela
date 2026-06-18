@@ -22,6 +22,7 @@ export function createEventIndexer({
     vcredit: handleVestedCreditEvent,
     vclaim: handleVestedClaimEvent,
     referred: (event, database) => handleReferredEvent(event, database, referralBonus),
+    refbonus: handleRefBonusEvent,
   };
 
   async function processEvent(event) {
@@ -138,6 +139,40 @@ async function handleReferredEvent(event, db, referralBonus = 0) {
     event.ledger,
     event.txHash,
   ]);
+}
+
+/**
+ * Index a `ref_bonus` event emitted by the rewards contract's on-chain referral
+ * engine (issue #656).
+ *
+ * Topics are `(refbonus, referrer, referee)`, data `(bonus, qualifying_amount)`.
+ * The same payout also emits a standard `credit` event for the referrer, which
+ * `handleCreditEvent` already applies to balances — so this handler records
+ * *instrumentation only* (the attribution edge, bonus, and qualifying amount)
+ * for referral-conversion metrics, and never touches balances to avoid
+ * double-counting. The `UNIQUE(referee)` guard makes re-indexing idempotent,
+ * mirroring the contract's one-bonus-per-referee invariant.
+ */
+async function handleRefBonusEvent(event, db) {
+  const referrer = event.topic?.[1];
+  const referee = event.topic?.[2];
+  if (!referrer || !referee) return;
+
+  const [bonus, qualifyingAmount] = Array.isArray(event.data) ? event.data : [0, 0];
+  await db.run(
+    `INSERT OR IGNORE INTO referral_bonus_events
+       (referrer, referee, bonus, qualifying_amount, ledger, tx_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      referrer,
+      referee,
+      String(bonus),
+      String(qualifyingAmount),
+      event.ledger,
+      event.txHash,
+      Date.now(),
+    ],
+  );
 }
 
 async function handleSnapshotEvent(event, db) {

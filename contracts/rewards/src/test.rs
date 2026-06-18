@@ -1134,3 +1134,228 @@ fn test_propose_overwrites_previous_proposal() {
     client.accept_admin(&later_admin);
     assert_eq!(client.admin(), later_admin);
 }
+
+// ── Referral rewards (issue #656 / #603) ─────────────────────────────────────
+
+/// Register + initialize a rewards contract and return `(env, client, admin)`.
+fn setup_rewards<'a>() -> (Env, RewardsContractClient<'a>, Address) {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    (env, client, admin)
+}
+
+#[test]
+fn test_referral_config_set_and_get() {
+    let (env, client, admin) = setup_rewards();
+    assert_eq!(client.referral_config(), (0, 0));
+
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &5_000);
+    assert_eq!(client.referral_config(), (1_000, 5_000));
+}
+
+#[test]
+fn test_referral_config_rejects_invalid() {
+    let (env, client, admin) = setup_rewards();
+    env.mock_all_auths();
+    assert_eq!(
+        client.try_set_referral_config(&admin, &0, &0),
+        Err(Ok(Error::InvalidReferralConfig))
+    );
+    assert_eq!(
+        client.try_set_referral_config(&admin, &200_000, &0),
+        Err(Ok(Error::InvalidReferralConfig))
+    );
+}
+
+#[test]
+fn test_referral_config_requires_admin() {
+    let (env, client, _admin) = setup_rewards();
+    let other = Address::generate(&env);
+    env.mock_all_auths();
+    assert_eq!(
+        client.try_set_referral_config(&other, &1_000, &0),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_pay_referral_bonus_credits_and_records() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0); // 10%, uncapped
+
+    let bonus = client.pay_referral_bonus(&admin, &referrer, &referee, &1_000);
+    assert_eq!(bonus, 100); // 1000 * 10% = 100
+
+    assert_eq!(client.balance(&referrer), 100);
+    assert_eq!(client.referral_bonus_total(&referrer), 100);
+    assert_eq!(client.referral_reward_count(&referrer), 1);
+    assert_eq!(client.rewarded_referrer_of(&referee), Some(referrer));
+}
+
+#[test]
+fn test_pay_referral_bonus_emits_events() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+
+    client.pay_referral_bonus(&admin, &referrer, &referee, &1_000);
+
+    // A single payout emits the standard `credit` event (so balance indexers
+    // stay consistent) followed by the `ref_bonus` attribution edge.
+    assert_eq!(
+        env.events().all(),
+        vec![
+            &env,
+            (
+                client.address.clone(),
+                vec![
+                    &env,
+                    CREDIT_EVENT.into_val(&env),
+                    referrer.clone().into_val(&env),
+                ],
+                100u64.into_val(&env),
+            ),
+            (
+                client.address.clone(),
+                vec![
+                    &env,
+                    REF_BONUS_EVENT.into_val(&env),
+                    referrer.into_val(&env),
+                    referee.into_val(&env),
+                ],
+                (100u64, 1_000u64).into_val(&env),
+            ),
+        ]
+    );
+}
+
+#[test]
+fn test_pay_referral_bonus_requires_configuration() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &referrer, &referee, &1_000),
+        Err(Ok(Error::ReferralNotConfigured))
+    );
+}
+
+#[test]
+fn test_self_referral_blocked() {
+    let (env, client, admin) = setup_rewards();
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &user, &user, &1_000),
+        Err(Ok(Error::SelfReferral))
+    );
+}
+
+#[test]
+fn test_referral_already_rewarded_is_idempotent() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+
+    client.pay_referral_bonus(&admin, &referrer, &referee, &1_000);
+    // Second payout for the same referee is rejected (sybil/replay gate).
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &referrer, &referee, &1_000),
+        Err(Ok(Error::ReferralAlreadyRewarded))
+    );
+    // State unchanged after the rejected replay.
+    assert_eq!(client.balance(&referrer), 100);
+    assert_eq!(client.referral_reward_count(&referrer), 1);
+}
+
+#[test]
+fn test_circular_referral_blocked() {
+    let (env, client, admin) = setup_rewards();
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+
+    // A refers B (ok), then B tries to refer A (cycle → blocked).
+    client.pay_referral_bonus(&admin, &a, &b, &1_000);
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &b, &a, &1_000),
+        Err(Ok(Error::CircularReferral))
+    );
+}
+
+#[test]
+fn test_per_referrer_cap_enforced() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee_a = Address::generate(&env);
+    let referee_b = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &150); // cap 150
+
+    client.pay_referral_bonus(&admin, &referrer, &referee_a, &1_000); // +100 -> 100
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &referrer, &referee_b, &1_000), // +100 -> 200 > 150
+        Err(Ok(Error::ReferralCapExceeded))
+    );
+    // Capped attempt left no trace.
+    assert_eq!(client.referral_bonus_total(&referrer), 100);
+    assert_eq!(client.referral_reward_count(&referrer), 1);
+    assert_eq!(client.rewarded_referrer_of(&referee_b), None);
+}
+
+#[test]
+fn test_zero_bonus_rejected() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1, &0); // 0.01%
+                                                // 1 * 1 / 10_000 = 0 -> rejected.
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &referrer, &referee, &1),
+        Err(Ok(Error::ZeroReferralBonus))
+    );
+}
+
+#[test]
+fn test_pay_referral_bonus_requires_admin() {
+    let (env, client, admin) = setup_rewards();
+    let other = Address::generate(&env);
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+    assert_eq!(
+        client.try_pay_referral_bonus(&other, &referrer, &referee, &1_000),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_paused_blocks_referral_bonus() {
+    let (env, client, admin) = setup_rewards();
+    let referrer = Address::generate(&env);
+    let referee = Address::generate(&env);
+    env.mock_all_auths();
+    client.set_referral_config(&admin, &1_000, &0);
+    client.set_paused(&admin, &true);
+    assert_eq!(
+        client.try_pay_referral_bonus(&admin, &referrer, &referee, &1_000),
+        Err(Ok(Error::ContractPaused))
+    );
+}

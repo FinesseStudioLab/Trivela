@@ -44,6 +44,34 @@ export const Errors = {
   11: { message: 'InsufficientReserve' },
   12: { message: 'InvalidRedemptionRate' },
   13: { message: 'InvalidAdminNonce' },
+  /**
+   * A referrer and referee cannot be the same address.
+   */
+  14: { message: 'SelfReferral' },
+  /**
+   * The referee was previously rewarded as a referee of this referrer (cycle).
+   */
+  15: { message: 'CircularReferral' },
+  /**
+   * This referee has already triggered a referral bonus (one per referee).
+   */
+  16: { message: 'ReferralAlreadyRewarded' },
+  /**
+   * Paying this bonus would exceed the configured per-referrer cap.
+   */
+  17: { message: 'ReferralCapExceeded' },
+  /**
+   * Referral rewards have not been configured (bonus rate is zero).
+   */
+  18: { message: 'ReferralNotConfigured' },
+  /**
+   * The supplied referral configuration is invalid.
+   */
+  19: { message: 'InvalidReferralConfig' },
+  /**
+   * The computed referral bonus rounded down to zero.
+   */
+  20: { message: 'ZeroReferralBonus' },
 };
 
 /**
@@ -331,6 +359,13 @@ export interface Client {
   ) => Promise<AssembledTransaction<Option<readonly [string, u32]>>>;
 
   /**
+   * Construct and simulate a referral_config transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Returns the referral configuration as `(rate_bps, per_referrer_cap)`.
+   * Defaults to `(0, 0)` when referral rewards have not been configured.
+   */
+  referral_config: (options?: MethodOptions) => Promise<AssembledTransaction<readonly [u32, u64]>>;
+
+  /**
    * Construct and simulate a withdraw_reserve transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Withdraw asset tokens from redemption reserve (admin only).
    * Used to reclaim unredeemed assets.
@@ -357,6 +392,34 @@ export interface Client {
     { rank, campaign_id }: { rank: u64; campaign_id: u64 },
     options?: MethodOptions,
   ) => Promise<AssembledTransaction<u64>>;
+
+  /**
+   * Construct and simulate a pay_referral_bonus transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Pay a referrer the configured bonus for a referee's qualifying action
+   * (admin only). Enforces the anti-abuse invariants on-chain:
+   *
+   * - **self-referral**: `referrer == referee` is rejected.
+   * - **circular**: rejected when `referrer` was itself previously rewarded as
+   * a referee of `referee` (an `A → B` then `B → A` cycle).
+   * - **uniqueness / sybil gate**: each `referee` can trigger at most one
+   * referral bonus, ever — making the payout idempotent and all-or-nothing.
+   * - **per-referrer cap**: the referrer's cumulative bonus may not exceed the
+   * configured cap.
+   *
+   * On success the bonus is credited to `referrer`'s balance (emitting the
+   * standard `credit` event so balance indexers stay consistent) and a
+   * `ref_bonus` event is published for attribution/instrumentation. Returns
+   * the bonus amount credited.
+   */
+  pay_referral_bonus: (
+    {
+      admin,
+      referrer,
+      referee,
+      qualifying_amount,
+    }: { admin: string; referrer: string; referee: string; qualifying_amount: u64 },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Result<u64>>>;
 
   /**
    * Construct and simulate a redemption_reserve transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -406,6 +469,38 @@ export interface Client {
   ) => Promise<AssembledTransaction<Result<void>>>;
 
   /**
+   * Construct and simulate a set_referral_config transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Configure the on-chain referral reward engine (admin only).
+   *
+   * `rate_bps` is the referrer bonus as basis points of a referee's
+   * qualifying amount (`bonus = qualifying_amount * rate_bps / 10_000`) and
+   * must be in `1..=MAX_REFERRAL_RATE_BPS`. `per_referrer_cap` is the maximum
+   * cumulative bonus a single referrer may earn; `0` means uncapped.
+   */
+  set_referral_config: (
+    { admin, rate_bps, per_referrer_cap }: { admin: string; rate_bps: u32; per_referrer_cap: u64 },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Result<void>>>;
+
+  /**
+   * Construct and simulate a referral_bonus_total transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Cumulative referral bonus credited to `referrer`.
+   */
+  referral_bonus_total: (
+    { referrer }: { referrer: string },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<u64>>;
+
+  /**
+   * Construct and simulate a rewarded_referrer_of transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * The referrer that was rewarded for `referee`, if any.
+   */
+  rewarded_referrer_of: (
+    { referee }: { referee: string },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Option<string>>>;
+
+  /**
    * Construct and simulate a cancel_admin_transfer transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Cancel an in-flight admin transfer (current admin only).
    */
@@ -422,6 +517,15 @@ export interface Client {
   get_credit_rate_limit: (
     options?: MethodOptions,
   ) => Promise<AssembledTransaction<readonly [u32, u32]>>;
+
+  /**
+   * Construct and simulate a referral_reward_count transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Number of referees `referrer` has been rewarded for.
+   */
+  referral_reward_count: (
+    { referrer }: { referrer: string },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<u64>>;
 
   /**
    * Construct and simulate a set_credit_rate_limit transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -476,7 +580,7 @@ export class Client extends ContractClient {
   constructor(public readonly options: ContractClientOptions) {
     super(
       new ContractSpec([
-        'AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAADQAAAAAAAAAIT3ZlcmZsb3cAAAABAAAAAAAAABNJbnN1ZmZpY2llbnRCYWxhbmNlAAAAAAIAAAAAAAAADFVuYXV0aG9yaXplZAAAAAMAAAAAAAAADkNvbnRyYWN0UGF1c2VkAAAAAAAEAAAAAAAAABNDcmVkaXRMaW1pdEV4Y2VlZGVkAAAAAAUAAAAAAAAAFFVuc3VwcG9ydGVkTWlncmF0aW9uAAAABgAAAAAAAAARSW52YWxpZE11bHRpcGxpZXIAAAAAAAAHAAAAAAAAABFSYXRlTGltaXRFeGNlZWRlZAAAAAAAAAgAAAAAAAAAD1Zlc3RpbmdOb3RGb3VuZAAAAAAJAAAAAAAAAA5Ob1BlbmRpbmdBZG1pbgAAAAAACgAAAAAAAAATSW5zdWZmaWNpZW50UmVzZXJ2ZQAAAAALAAAAAAAAABVJbnZhbGlkUmVkZW1wdGlvblJhdGUAAAAAAAAMAAAAAAAAABFJbnZhbGlkQWRtaW5Ob25jZQAAAAAAAA0=',
+        'AAAABAAAAAAAAAAAAAAABUVycm9yAAAAAAAAFAAAAAAAAAAIT3ZlcmZsb3cAAAABAAAAAAAAABNJbnN1ZmZpY2llbnRCYWxhbmNlAAAAAAIAAAAAAAAADFVuYXV0aG9yaXplZAAAAAMAAAAAAAAADkNvbnRyYWN0UGF1c2VkAAAAAAAEAAAAAAAAABNDcmVkaXRMaW1pdEV4Y2VlZGVkAAAAAAUAAAAAAAAAFFVuc3VwcG9ydGVkTWlncmF0aW9uAAAABgAAAAAAAAARSW52YWxpZE11bHRpcGxpZXIAAAAAAAAHAAAAAAAAABFSYXRlTGltaXRFeGNlZWRlZAAAAAAAAAgAAAAAAAAAD1Zlc3RpbmdOb3RGb3VuZAAAAAAJAAAAAAAAAA5Ob1BlbmRpbmdBZG1pbgAAAAAACgAAAAAAAAATSW5zdWZmaWNpZW50UmVzZXJ2ZQAAAAALAAAAAAAAABVJbnZhbGlkUmVkZW1wdGlvblJhdGUAAAAAAAAMAAAAAAAAABFJbnZhbGlkQWRtaW5Ob25jZQAAAAAAAA0AAAAyQSByZWZlcnJlciBhbmQgcmVmZXJlZSBjYW5ub3QgYmUgdGhlIHNhbWUgYWRkcmVzcy4AAAAAAAxTZWxmUmVmZXJyYWwAAAAOAAAASlRoZSByZWZlcmVlIHdhcyBwcmV2aW91c2x5IHJld2FyZGVkIGFzIGEgcmVmZXJlZSBvZiB0aGlzIHJlZmVycmVyIChjeWNsZSkuAAAAAAAQQ2lyY3VsYXJSZWZlcnJhbAAAAA8AAABGVGhpcyByZWZlcmVlIGhhcyBhbHJlYWR5IHRyaWdnZXJlZCBhIHJlZmVycmFsIGJvbnVzIChvbmUgcGVyIHJlZmVyZWUpLgAAAAAAF1JlZmVycmFsQWxyZWFkeVJld2FyZGVkAAAAABAAAAA/UGF5aW5nIHRoaXMgYm9udXMgd291bGQgZXhjZWVkIHRoZSBjb25maWd1cmVkIHBlci1yZWZlcnJlciBjYXAuAAAAABNSZWZlcnJhbENhcEV4Y2VlZGVkAAAAABEAAAA/UmVmZXJyYWwgcmV3YXJkcyBoYXZlIG5vdCBiZWVuIGNvbmZpZ3VyZWQgKGJvbnVzIHJhdGUgaXMgemVybykuAAAAABVSZWZlcnJhbE5vdENvbmZpZ3VyZWQAAAAAAAASAAAAL1RoZSBzdXBwbGllZCByZWZlcnJhbCBjb25maWd1cmF0aW9uIGlzIGludmFsaWQuAAAAABVJbnZhbGlkUmVmZXJyYWxDb25maWcAAAAAAAATAAAAMVRoZSBjb21wdXRlZCByZWZlcnJhbCBib251cyByb3VuZGVkIGRvd24gdG8gemVyby4AAAAAAAARWmVyb1JlZmVycmFsQm9udXMAAAAAAAAU',
         'AAAAAQAAADRWZXN0aW5nIHNjaGVkdWxlIHJlY29yZCBzdG9yZWQgcGVyIHVzZXIgcGVyIHZlc3RfaWQuAAAAAAAAAA1WZXN0aW5nUmVjb3JkAAAAAAAABAAAAAAAAAAHY2xhaW1lZAAAAAAGAAAAAAAAAAplbmRfbGVkZ2VyAAAAAAAEAAAAAAAAAAxzdGFydF9sZWRnZXIAAAAEAAAAAAAAAAV0b3RhbAAAAAAAAAY=',
         'AAAAAAAAACFSZXR1cm4gdGhlIGN1cnJlbnQgYWRtaW4gYWRkcmVzcy4AAAAAAAAFYWRtaW4AAAAAAAAAAAAAAQAAABM=',
         'AAAAAAAAACtDbGFpbSByZXdhcmRzIGZvciBhIHVzZXIgKHJlZHVjZXMgYmFsYW5jZSkuAAAAAAVjbGFpbQAAAAAAAAIAAAAAAAAABHVzZXIAAAATAAAAAAAAAAZhbW91bnQAAAAAAAYAAAABAAAD6QAAAAYAAAAD',
@@ -507,16 +611,22 @@ export class Client extends ContractClient {
         'AAAAAAAAADxSZXR1cm5zIHRoZSBhY3RpdmUgc3RvcmFnZSBzY2hlbWEgdmVyc2lvbiBmb3IgdGhpcyBjb250cmFjdC4AAAAOc2NoZW1hX3ZlcnNpb24AAAAAAAAAAAABAAAABA==',
         'AAAAAAAAAGtSZXR1cm5zIHRoZSBjdXJyZW50bHkgdW5sb2NrZWQgYnV0IHVuY2xhaW1lZCB2ZXN0ZWQgYmFsYW5jZSBmb3IgYSB1c2VyCmFjcm9zcyBhbGwgYWN0aXZlIHZlc3Rpbmcgc2NoZWR1bGVzLgAAAAAOdmVzdGVkX2JhbGFuY2UAAAAAAAEAAAAAAAAABHVzZXIAAAATAAAAAQAAAAY=',
         'AAAAAAAAAF9HZXQgcmVkZW1wdGlvbiByYXRlIGNvbmZpZ3VyYXRpb24uClJldHVybnMgKGFzc2V0X2FkZHJlc3MsIHJhdGVfYnBzKSBvciBOb25lIGlmIG5vdCBjb25maWd1cmVkLgAAAAAPcmVkZW1wdGlvbl9yYXRlAAAAAAAAAAABAAAD6AAAA+0AAAACAAAAEwAAAAQ=',
+        'AAAAAAAAAIpSZXR1cm5zIHRoZSByZWZlcnJhbCBjb25maWd1cmF0aW9uIGFzIGAocmF0ZV9icHMsIHBlcl9yZWZlcnJlcl9jYXApYC4KRGVmYXVsdHMgdG8gYCgwLCAwKWAgd2hlbiByZWZlcnJhbCByZXdhcmRzIGhhdmUgbm90IGJlZW4gY29uZmlndXJlZC4AAAAAAA9yZWZlcnJhbF9jb25maWcAAAAAAAAAAAEAAAPtAAAAAgAAAAQAAAAG',
         'AAAAAAAAAF5XaXRoZHJhdyBhc3NldCB0b2tlbnMgZnJvbSByZWRlbXB0aW9uIHJlc2VydmUgKGFkbWluIG9ubHkpLgpVc2VkIHRvIHJlY2xhaW0gdW5yZWRlZW1lZCBhc3NldHMuAAAAAAAQd2l0aGRyYXdfcmVzZXJ2ZQAAAAMAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAFbm9uY2UAAAAAAAALAAAAAAAAAAZhbW91bnQAAAAAAAYAAAABAAAD6QAAAAIAAAAD',
         'AAAAAAAAAEZHZXQgdGhlIG51bWJlciBvZiBjcmVkaXQgY2FsbHMgbWFkZSBieSBgY2FsbGVyYCBpbiB0aGUgY3VycmVudCB3aW5kb3cuAAAAAAARY3JlZGl0X2NhbGxfY291bnQAAAAAAAABAAAAAAAAAAZjYWxsZXIAAAAAABMAAAABAAAABA==',
         'AAAAAAAAADRHZXQgcG9pbnRzIHJld2FyZCBmb3IgYSBnaXZlbiByYW5rIHVuZGVyIGEgY2FtcGFpZ24uAAAAEWdldF90aWVyX2Zvcl9yYW5rAAAAAAAAAgAAAAAAAAAEcmFuawAAAAYAAAAAAAAAC2NhbXBhaWduX2lkAAAAAAYAAAABAAAABg==',
+        'AAAAAAAAAxlQYXkgYSByZWZlcnJlciB0aGUgY29uZmlndXJlZCBib251cyBmb3IgYSByZWZlcmVlJ3MgcXVhbGlmeWluZyBhY3Rpb24KKGFkbWluIG9ubHkpLiBFbmZvcmNlcyB0aGUgYW50aS1hYnVzZSBpbnZhcmlhbnRzIG9uLWNoYWluOgoKLSAqKnNlbGYtcmVmZXJyYWwqKjogYHJlZmVycmVyID09IHJlZmVyZWVgIGlzIHJlamVjdGVkLgotICoqY2lyY3VsYXIqKjogcmVqZWN0ZWQgd2hlbiBgcmVmZXJyZXJgIHdhcyBpdHNlbGYgcHJldmlvdXNseSByZXdhcmRlZCBhcwphIHJlZmVyZWUgb2YgYHJlZmVyZWVgIChhbiBgQSDihpIgQmAgdGhlbiBgQiDihpIgQWAgY3ljbGUpLgotICoqdW5pcXVlbmVzcyAvIHN5YmlsIGdhdGUqKjogZWFjaCBgcmVmZXJlZWAgY2FuIHRyaWdnZXIgYXQgbW9zdCBvbmUKcmVmZXJyYWwgYm9udXMsIGV2ZXIg4oCUIG1ha2luZyB0aGUgcGF5b3V0IGlkZW1wb3RlbnQgYW5kIGFsbC1vci1ub3RoaW5nLgotICoqcGVyLXJlZmVycmVyIGNhcCoqOiB0aGUgcmVmZXJyZXIncyBjdW11bGF0aXZlIGJvbnVzIG1heSBub3QgZXhjZWVkIHRoZQpjb25maWd1cmVkIGNhcC4KCk9uIHN1Y2Nlc3MgdGhlIGJvbnVzIGlzIGNyZWRpdGVkIHRvIGByZWZlcnJlcmAncyBiYWxhbmNlIChlbWl0dGluZyB0aGUKc3RhbmRhcmQgYGNyZWRpdGAgZXZlbnQgc28gYmFsYW5jZSBpbmRleGVycyBzdGF5IGNvbnNpc3RlbnQpIGFuZCBhCmByZWZfYm9udXNgIGV2ZW50IGlzIHB1Ymxpc2hlZCBmb3IgYXR0cmlidXRpb24vaW5zdHJ1bWVudGF0aW9uLiBSZXR1cm5zCnRoZSBib251cyBhbW91bnQgY3JlZGl0ZWQuAAAAAAAAEnBheV9yZWZlcnJhbF9ib251cwAAAAAABAAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAhyZWZlcnJlcgAAABMAAAAAAAAAB3JlZmVyZWUAAAAAEwAAAAAAAAARcXVhbGlmeWluZ19hbW91bnQAAAAAAAAGAAAAAQAAA+kAAAAGAAAAAw==',
         'AAAAAAAAACdHZXQgY3VycmVudCByZWRlbXB0aW9uIHJlc2VydmUgYmFsYW5jZS4AAAAAEnJlZGVtcHRpb25fcmVzZXJ2ZQAAAAAAAAAAAAEAAAAG',
         'AAAAAAAAAERSZXR1cm5zIG11bHRpcGxpZXIgaW4gYmFzaXMgcG9pbnRzIGZvciBjYW1wYWlnbiwgZGVmYXVsdHMgdG8gMTBfMDAwLgAAABNjYW1wYWlnbl9tdWx0aXBsaWVyAAAAAAEAAAAAAAAAC2NhbXBhaWduX2lkAAAAAAYAAAABAAAABA==',
         'AAAAAAAAAHpDcmVkaXQgcG9pbnRzIHVzaW5nIGNhbXBhaWduIG11bHRpcGxpZXIuIFJvdW5kaW5nIHVzZXMgZmxvb3IgZGl2aXNpb246CmBhZGp1c3RlZCA9IGJhc2VfYW1vdW50ICogbXVsdGlwbGllcl9icHMgLyAxMF8wMDBgLgAAAAAAE2NyZWRpdF9mb3JfY2FtcGFpZ24AAAAABAAAAAAAAAAEZnJvbQAAABMAAAAAAAAABHVzZXIAAAATAAAAAAAAAAtjYW1wYWlnbl9pZAAAAAAGAAAAAAAAAAtiYXNlX2Ftb3VudAAAAAAGAAAAAQAAA+kAAAAGAAAAAw==',
         'AAAAAAAAAEZHZXQgbWF4aW11bSBhbW91bnQgYWxsb3dlZCBwZXIgc2luZ2xlIGNyZWRpdCBjYWxsICgwIG1lYW5zIHVubGltaXRlZCkuAAAAAAATbWF4X2NyZWRpdF9wZXJfY2FsbAAAAAAAAAAAAQAAAAY=',
         'AAAAAAAAAMVTZXQgcmVkZW1wdGlvbiByYXRlIGZvciBwb2ludHMtdG8tYXNzZXQgY29udmVyc2lvbiAoYWRtaW4gb25seSkuCnJhdGVfYnBzOiBob3cgbWFueSB1bml0cyBvZiBhc3NldCBwZXIgMTAsMDAwIHBvaW50cyAoYmFzaXMgcG9pbnRzKS4KRXhhbXBsZTogcmF0ZV9icHMgPSAxMDAgbWVhbnMgMTAwLzEwLDAwMCA9IDAuMDEgYXNzZXQgcGVyIHBvaW50LgAAAAAAABNzZXRfcmVkZW1wdGlvbl9yYXRlAAAAAAQAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAAFbm9uY2UAAAAAAAALAAAAAAAAAAVhc3NldAAAAAAAABMAAAAAAAAACHJhdGVfYnBzAAAABAAAAAEAAAPpAAAAAgAAAAM=',
+        'AAAAAAAAAU9Db25maWd1cmUgdGhlIG9uLWNoYWluIHJlZmVycmFsIHJld2FyZCBlbmdpbmUgKGFkbWluIG9ubHkpLgoKYHJhdGVfYnBzYCBpcyB0aGUgcmVmZXJyZXIgYm9udXMgYXMgYmFzaXMgcG9pbnRzIG9mIGEgcmVmZXJlZSdzCnF1YWxpZnlpbmcgYW1vdW50IChgYm9udXMgPSBxdWFsaWZ5aW5nX2Ftb3VudCAqIHJhdGVfYnBzIC8gMTBfMDAwYCkgYW5kCm11c3QgYmUgaW4gYDEuLj1NQVhfUkVGRVJSQUxfUkFURV9CUFNgLiBgcGVyX3JlZmVycmVyX2NhcGAgaXMgdGhlIG1heGltdW0KY3VtdWxhdGl2ZSBib251cyBhIHNpbmdsZSByZWZlcnJlciBtYXkgZWFybjsgYDBgIG1lYW5zIHVuY2FwcGVkLgAAAAATc2V0X3JlZmVycmFsX2NvbmZpZwAAAAADAAAAAAAAAAVhZG1pbgAAAAAAABMAAAAAAAAACHJhdGVfYnBzAAAABAAAAAAAAAAQcGVyX3JlZmVycmVyX2NhcAAAAAYAAAABAAAD6QAAAAIAAAAD',
+        'AAAAAAAAADFDdW11bGF0aXZlIHJlZmVycmFsIGJvbnVzIGNyZWRpdGVkIHRvIGByZWZlcnJlcmAuAAAAAAAAFHJlZmVycmFsX2JvbnVzX3RvdGFsAAAAAQAAAAAAAAAIcmVmZXJyZXIAAAATAAAAAQAAAAY=',
+        'AAAAAAAAADVUaGUgcmVmZXJyZXIgdGhhdCB3YXMgcmV3YXJkZWQgZm9yIGByZWZlcmVlYCwgaWYgYW55LgAAAAAAABRyZXdhcmRlZF9yZWZlcnJlcl9vZgAAAAEAAAAAAAAAB3JlZmVyZWUAAAAAEwAAAAEAAAPoAAAAEw==',
         'AAAAAAAAADhDYW5jZWwgYW4gaW4tZmxpZ2h0IGFkbWluIHRyYW5zZmVyIChjdXJyZW50IGFkbWluIG9ubHkpLgAAABVjYW5jZWxfYWRtaW5fdHJhbnNmZXIAAAAAAAABAAAAAAAAAA1jdXJyZW50X2FkbWluAAAAAAAAEwAAAAEAAAPpAAAAAgAAAAM=',
         'AAAAAAAAAG9HZXQgdGhlIGN1cnJlbnQgcmF0ZSBsaW1pdCBjb25maWc6IGAobWF4X2NhbGxzLCB3aW5kb3dfbGVkZ2VycylgLgpSZXR1cm5zIGAoMCwgMClgIHdoZW4gbm8gbGltaXQgaXMgY29uZmlndXJlZC4AAAAAFWdldF9jcmVkaXRfcmF0ZV9saW1pdAAAAAAAAAAAAAABAAAD7QAAAAIAAAAEAAAABA==',
+        'AAAAAAAAADROdW1iZXIgb2YgcmVmZXJlZXMgYHJlZmVycmVyYCBoYXMgYmVlbiByZXdhcmRlZCBmb3IuAAAAFXJlZmVycmFsX3Jld2FyZF9jb3VudAAAAAAAAAEAAAAAAAAACHJlZmVycmVyAAAAEwAAAAEAAAAG',
         'AAAAAAAAAJxTZXQgcGVyLWNhbGxlciBjcmVkaXQgcmF0ZSBsaW1pdCAoYWRtaW4gb25seSkuCmBtYXhfY2FsbHNgIGNyZWRpdHMgYWxsb3dlZCBwZXIgYHdpbmRvd19sZWRnZXJzYCBsZWRnZXIgd2luZG93LgpTZXQgYG1heF9jYWxscyA9IDBgIHRvIGRpc2FibGUgcmF0ZSBsaW1pdGluZy4AAAAVc2V0X2NyZWRpdF9yYXRlX2xpbWl0AAAAAAAAAwAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAltYXhfY2FsbHMAAAAAAAAEAAAAAAAAAA53aW5kb3dfbGVkZ2VycwAAAAAABAAAAAEAAAPpAAAAAgAAAAM=',
         'AAAAAAAAAHtTZXQgY2FtcGFpZ24tc3BlY2lmaWMgcmV3YXJkIG11bHRpcGxpZXIgaW4gYmFzaXMgcG9pbnRzIChhZG1pbiBvbmx5KS4KRXhhbXBsZTogMTBfMDAwID0gMS4weCwgMTJfNTAwID0gMS4yNXgsIDVfMDAwID0gMC41eC4AAAAAF3NldF9jYW1wYWlnbl9tdWx0aXBsaWVyAAAAAAMAAAAAAAAABWFkbWluAAAAAAAAEwAAAAAAAAALY2FtcGFpZ25faWQAAAAABgAAAAAAAAAObXVsdGlwbGllcl9icHMAAAAAAAQAAAABAAAD6QAAAAIAAAAD',
         'AAAAAAAAAF5TZXQgbWF4aW11bSBhbW91bnQgYWxsb3dlZCBwZXIgc2luZ2xlIGNyZWRpdCBjYWxsIChhZG1pbiBvbmx5KS4KU2V0IHRvIDAgdG8gZGlzYWJsZSB0aGUgbGltaXQuAAAAAAAXc2V0X21heF9jcmVkaXRfcGVyX2NhbGwAAAAAAgAAAAAAAAAFYWRtaW4AAAAAAAATAAAAAAAAAAptYXhfYW1vdW50AAAAAAAGAAAAAQAAA+kAAAACAAAAAw==',
@@ -554,16 +664,22 @@ export class Client extends ContractClient {
     schema_version: this.txFromJSON<u32>,
     vested_balance: this.txFromJSON<u64>,
     redemption_rate: this.txFromJSON<Option<readonly [string, u32]>>,
+    referral_config: this.txFromJSON<readonly [u32, u64]>,
     withdraw_reserve: this.txFromJSON<Result<void>>,
     credit_call_count: this.txFromJSON<u32>,
     get_tier_for_rank: this.txFromJSON<u64>,
+    pay_referral_bonus: this.txFromJSON<Result<u64>>,
     redemption_reserve: this.txFromJSON<u64>,
     campaign_multiplier: this.txFromJSON<u32>,
     credit_for_campaign: this.txFromJSON<Result<u64>>,
     max_credit_per_call: this.txFromJSON<u64>,
     set_redemption_rate: this.txFromJSON<Result<void>>,
+    set_referral_config: this.txFromJSON<Result<void>>,
+    referral_bonus_total: this.txFromJSON<u64>,
+    rewarded_referrer_of: this.txFromJSON<Option<string>>,
     cancel_admin_transfer: this.txFromJSON<Result<void>>,
     get_credit_rate_limit: this.txFromJSON<readonly [u32, u32]>,
+    referral_reward_count: this.txFromJSON<u64>,
     set_credit_rate_limit: this.txFromJSON<Result<void>>,
     set_campaign_multiplier: this.txFromJSON<Result<void>>,
     set_max_credit_per_call: this.txFromJSON<Result<void>>,
