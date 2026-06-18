@@ -52,16 +52,17 @@ function selectVariantByWeight(variants, userId) {
  * @throws {Error} if weights are invalid
  */
 function validateTrafficWeights(variants) {
-  const totalWeight = variants.reduce((sum, v) => sum + v.trafficWeight, 0);
-  
-  if (totalWeight > 100) {
-    throw new Error(`Total traffic weight (${totalWeight}%) exceeds 100%`);
-  }
-
+  // First check individual weights
   for (const variant of variants) {
     if (variant.trafficWeight < 0 || variant.trafficWeight > 100) {
       throw new Error(`Traffic weight must be between 0 and 100, got ${variant.trafficWeight}`);
     }
+  }
+
+  // Then check total
+  const totalWeight = variants.reduce((sum, v) => sum + v.trafficWeight, 0);
+  if (totalWeight > 100) {
+    throw new Error(`Total traffic weight (${totalWeight}%) exceeds 100%`);
   }
 }
 
@@ -183,8 +184,7 @@ export function createVariantService({ variantRepo }) {
 
     // Merge stats and assignments
     return stats.map((stat) => {
-      const assignmentData =
-        assignments.find((a) => a.variantId === stat.variantId) || {};
+      const assignmentData = assignments.find((a) => a.variantId === stat.variantId) || {};
       return {
         ...stat,
         assignmentCount: assignmentData.assignmentCount || 0,
@@ -200,7 +200,7 @@ export function createVariantService({ variantRepo }) {
    * @param {object} variant
    * @param {number} variant.sampleCount
    * @param {number} variant.mean
-   * @returns {{pValue: number, isSignificant: boolean, improvement: number}}
+   * @returns {{pValue: number, isSignificant: boolean, improvement: number, zScore: number}}
    */
   function calculateSignificance(control, variant) {
     if (control.sampleCount === 0 || variant.sampleCount === 0) {
@@ -208,6 +208,7 @@ export function createVariantService({ variantRepo }) {
         pValue: 1,
         isSignificant: false,
         improvement: 0,
+        zScore: 0,
       };
     }
 
@@ -241,10 +242,7 @@ export function createVariantService({ variantRepo }) {
     const t = 1 / (1 + 0.2316419 * Math.abs(x));
     const d = 0.3989423 * Math.exp((-x * x) / 2);
     const prob =
-      d *
-      t *
-      (0.3193815 +
-        t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+      d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
     return x > 0 ? 1 - prob : prob;
   }
 

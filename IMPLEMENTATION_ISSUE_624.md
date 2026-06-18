@@ -2,30 +2,38 @@
 
 ## Overview
 
-This implementation adds a comprehensive A/B testing framework to the Trivela platform, allowing campaign operators to create and test multiple variants of their campaigns to optimize conversion rates.
+This implementation adds a comprehensive A/B testing framework to the Trivela platform, allowing
+campaign operators to create and test multiple variants of their campaigns to optimize conversion
+rates.
 
 ## Features Implemented
 
 ### 1. **Database Schema** (Migration 010)
+
 - `campaign_variants` table: Stores variant configurations
 - `variant_assignments` table: Tracks user-to-variant assignments
 - `variant_results` table: Records metrics and experiment outcomes
 
 ### 2. **Data Access Layer**
-- **Repository** (`sqliteVariantRepository.js`): Full CRUD operations for variants, assignments, and results
+
+- **Repository** (`sqliteVariantRepository.js`): Full CRUD operations for variants, assignments, and
+  results
 - **Integration**: Seamlessly integrated with existing campaign infrastructure
 
 ### 3. **Business Logic**
-- **Service** (`variantService.js`): 
+
+- **Service** (`variantService.js`):
   - Deterministic variant assignment based on traffic weights
   - Sticky assignment support (users consistently see the same variant)
   - Result tracking and aggregation
   - Statistical significance calculation (z-test for proportions)
 
 ### 4. **API Endpoints**
+
 All endpoints under `/api/v1/campaigns/:campaignId/variants` (requires API key):
 
 #### Variant Management
+
 - `POST /campaigns/:campaignId/variants` - Create a new variant
 - `GET /campaigns/:campaignId/variants` - List all variants
 - `GET /campaigns/:campaignId/variants/:variantId` - Get variant details
@@ -33,6 +41,7 @@ All endpoints under `/api/v1/campaigns/:campaignId/variants` (requires API key):
 - `DELETE /campaigns/:campaignId/variants/:variantId` - Delete variant
 
 #### Assignment & Tracking
+
 - `POST /campaigns/:campaignId/variants/assign` - Assign user to a variant
 - `GET /campaigns/:campaignId/variants/assignment/:userId` - Get user's assignment
 - `POST /campaigns/:campaignId/variants/results` - Track a metric result
@@ -40,11 +49,13 @@ All endpoints under `/api/v1/campaigns/:campaignId/variants` (requires API key):
 - `GET /campaigns/:campaignId/variants/stats/assignments` - Get assignment statistics
 
 ### 5. **Validation & Schemas**
+
 - Zod schemas for all request/response validation
 - Traffic weight validation (must sum to ≤100%)
 - Variant key format validation (alphanumeric + underscores)
 
 ### 6. **Testing**
+
 - Comprehensive unit tests for service layer
 - Tests cover assignment logic, result tracking, and statistical calculations
 
@@ -53,6 +64,7 @@ All endpoints under `/api/v1/campaigns/:campaignId/variants` (requires API key):
 ### Variant Assignment Algorithm
 
 The system uses a **deterministic hash-based assignment** to ensure:
+
 1. Same user always gets the same variant (consistency)
 2. Traffic is distributed according to configured weights
 3. No need for centralized coordination
@@ -61,9 +73,9 @@ The system uses a **deterministic hash-based assignment** to ensure:
 // Simplified algorithm
 function selectVariant(variants, userId) {
   const hash = simpleHash(userId);
-  const totalWeight = sum(variants.map(v => v.trafficWeight));
+  const totalWeight = sum(variants.map((v) => v.trafficWeight));
   const selection = hash % totalWeight;
-  
+
   // Find variant based on cumulative weight
   let cumulative = 0;
   for (const variant of variants) {
@@ -79,9 +91,9 @@ Operators configure traffic weights (0-100%) for each variant:
 
 ```json
 {
-  "control": 50,    // 50% of users
-  "variant_a": 30,  // 30% of users
-  "variant_b": 20   // 20% of users
+  "control": 50, // 50% of users
+  "variant_a": 30, // 30% of users
+  "variant_b": 20 // 20% of users
 }
 ```
 
@@ -89,7 +101,8 @@ Operators configure traffic weights (0-100%) for each variant:
 
 ### Statistical Significance
 
-The system calculates z-test for proportions to determine if variant improvements are statistically significant:
+The system calculates z-test for proportions to determine if variant improvements are statistically
+significant:
 
 ```javascript
 const zScore = (p2 - p1) / SE;
@@ -215,43 +228,43 @@ curl http://localhost:3001/api/v1/campaigns/1/variants/results/conversion \
 
 ### campaign_variants
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Primary key |
-| campaign_id | INTEGER | Foreign key to campaigns |
-| variant_key | TEXT | Unique key (e.g., 'control', 'variant_a') |
-| name | TEXT | Human-readable name |
-| description | TEXT | Optional description |
-| traffic_weight | INTEGER | Traffic percentage (0-100) |
-| is_control | INTEGER | Boolean: is this the control variant? |
-| active | INTEGER | Boolean: is variant active? |
-| config | TEXT | JSON blob for variant-specific configuration |
-| created_at | TEXT | ISO timestamp |
-| updated_at | TEXT | ISO timestamp |
+| Column         | Type    | Description                                  |
+| -------------- | ------- | -------------------------------------------- |
+| id             | INTEGER | Primary key                                  |
+| campaign_id    | INTEGER | Foreign key to campaigns                     |
+| variant_key    | TEXT    | Unique key (e.g., 'control', 'variant_a')    |
+| name           | TEXT    | Human-readable name                          |
+| description    | TEXT    | Optional description                         |
+| traffic_weight | INTEGER | Traffic percentage (0-100)                   |
+| is_control     | INTEGER | Boolean: is this the control variant?        |
+| active         | INTEGER | Boolean: is variant active?                  |
+| config         | TEXT    | JSON blob for variant-specific configuration |
+| created_at     | TEXT    | ISO timestamp                                |
+| updated_at     | TEXT    | ISO timestamp                                |
 
 ### variant_assignments
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Primary key |
-| campaign_id | INTEGER | Foreign key to campaigns |
-| variant_id | INTEGER | Foreign key to campaign_variants |
-| user_id | TEXT | User identifier (wallet address, session, etc.) |
-| assigned_at | TEXT | ISO timestamp |
-| sticky | INTEGER | Boolean: keep user in same variant? |
+| Column      | Type    | Description                                     |
+| ----------- | ------- | ----------------------------------------------- |
+| id          | INTEGER | Primary key                                     |
+| campaign_id | INTEGER | Foreign key to campaigns                        |
+| variant_id  | INTEGER | Foreign key to campaign_variants                |
+| user_id     | TEXT    | User identifier (wallet address, session, etc.) |
+| assigned_at | TEXT    | ISO timestamp                                   |
+| sticky      | INTEGER | Boolean: keep user in same variant?             |
 
 ### variant_results
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | INTEGER | Primary key |
-| campaign_id | INTEGER | Foreign key to campaigns |
-| variant_id | INTEGER | Foreign key to campaign_variants |
-| metric_name | TEXT | Metric identifier (e.g., 'conversion', 'engagement') |
-| metric_value | REAL | The measured value |
-| user_id | TEXT | Optional: user who generated this metric |
-| recorded_at | TEXT | ISO timestamp |
-| metadata | TEXT | JSON blob for additional context |
+| Column       | Type    | Description                                          |
+| ------------ | ------- | ---------------------------------------------------- |
+| id           | INTEGER | Primary key                                          |
+| campaign_id  | INTEGER | Foreign key to campaigns                             |
+| variant_id   | INTEGER | Foreign key to campaign_variants                     |
+| metric_name  | TEXT    | Metric identifier (e.g., 'conversion', 'engagement') |
+| metric_value | REAL    | The measured value                                   |
+| user_id      | TEXT    | Optional: user who generated this metric             |
+| recorded_at  | TEXT    | ISO timestamp                                        |
+| metadata     | TEXT    | JSON blob for additional context                     |
 
 ## Integration Points
 
@@ -292,6 +305,7 @@ curl http://localhost:3001/api/v1/campaigns/1/variants/results/conversion \
 ### Metrics to Track
 
 Common metrics for campaign optimization:
+
 - `conversion`: Did user complete the desired action? (0 or 1)
 - `engagement_time`: Time spent interacting (seconds)
 - `click_through`: Did user click the CTA? (0 or 1)
@@ -301,6 +315,7 @@ Common metrics for campaign optimization:
 ## Files Changed/Created
 
 ### New Files
+
 - `backend/src/db/migrations/010_campaign_variants.js` - Database schema
 - `backend/src/dal/sqliteVariantRepository.js` - Data access layer
 - `backend/src/services/variantService.js` - Business logic
@@ -309,6 +324,7 @@ Common metrics for campaign optimization:
 - `IMPLEMENTATION_ISSUE_624.md` - This documentation
 
 ### Modified Files
+
 - `backend/src/schemas.js` - Added variant validation schemas
 - `backend/src/dal/index.js` - Integrated variant repository
 - `backend/src/index.js` - Registered variant routes and service
@@ -323,6 +339,7 @@ npm test src/services/variantService.test.js
 ```
 
 Tests cover:
+
 - Variant assignment based on traffic weights
 - Sticky assignments (user consistency)
 - Result tracking
@@ -364,11 +381,10 @@ Tests cover:
 
 ## Conclusion
 
-This implementation provides a production-ready A/B testing framework that integrates seamlessly with Trivela's existing campaign infrastructure. It enables data-driven optimization of campaigns through controlled experiments with statistical rigor.
+This implementation provides a production-ready A/B testing framework that integrates seamlessly
+with Trivela's existing campaign infrastructure. It enables data-driven optimization of campaigns
+through controlled experiments with statistical rigor.
 
 ---
 
-**Issue**: #624
-**Status**: ✅ Complete
-**Author**: Williams-1604
-**Date**: 2026-06-18
+**Issue**: #624 **Status**: ✅ Complete **Author**: Williams-1604 **Date**: 2026-06-18

@@ -51,7 +51,13 @@ export function createVariantRoutes({ variantRepo, variantService, campaignRepo 
       // Create variant
       const variant = variantRepo.createVariant({
         campaignId,
-        ...data,
+        variantKey: data.variantKey,
+        name: data.name,
+        description: data.description,
+        trafficWeight: data.trafficWeight,
+        isControl: data.isControl,
+        active: data.active,
+        config: data.config,
       });
 
       res.status(201).json(variant);
@@ -243,7 +249,10 @@ export function createVariantRoutes({ variantRepo, variantService, campaignRepo 
       // Track result
       const result = await variantService.trackResult({
         campaignId,
-        ...data,
+        userId: data.userId,
+        metricName: data.metricName,
+        metricValue: data.metricValue,
+        metadata: data.metadata,
       });
 
       res.status(201).json(result);

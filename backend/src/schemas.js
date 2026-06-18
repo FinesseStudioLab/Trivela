@@ -169,12 +169,7 @@ export const variantCreateSchema = z.object({
 export const variantUpdateSchema = z.object({
   name: z.string().trim().min(1).optional(),
   description: z.string().optional(),
-  trafficWeight: z
-    .number()
-    .int()
-    .min(0)
-    .max(100)
-    .optional(),
+  trafficWeight: z.number().int().min(0).max(100).optional(),
   isControl: z.boolean().optional(),
   active: z.boolean().optional(),
   config: z.record(z.unknown()).optional(),

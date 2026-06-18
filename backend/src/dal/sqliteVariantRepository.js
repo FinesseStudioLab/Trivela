@@ -105,21 +105,11 @@ export function createSqliteVariantRepository({ db }) {
       ? 'SELECT * FROM campaign_variants WHERE campaign_id = ? AND active = 1 ORDER BY is_control DESC, id ASC'
       : 'SELECT * FROM campaign_variants WHERE campaign_id = ? ORDER BY is_control DESC, id ASC';
 
-    return db
-      .prepare(sql)
-      .all(Number(campaignId))
-      .map(rowToVariant);
+    return db.prepare(sql).all(Number(campaignId)).map(rowToVariant);
   }
 
   function updateVariant(id, fields) {
-    const allowed = [
-      'name',
-      'description',
-      'trafficWeight',
-      'isControl',
-      'active',
-      'config',
-    ];
+    const allowed = ['name', 'description', 'trafficWeight', 'isControl', 'active', 'config'];
     const columnMap = {
       name: 'name',
       description: 'description',
@@ -262,8 +252,13 @@ export function createSqliteVariantRepository({ db }) {
     return row ? rowToResult(row) : undefined;
   }
 
+  /**
+   * @param {number} campaignId
+   * @param {{ variantId?: number, metricName?: string, limit?: number, offset?: number }} options
+   */
   function listResults(campaignId, { variantId, metricName, limit = 100, offset = 0 } = {}) {
     const where = ['campaign_id = ?'];
+    /** @type {Array<number | string>} */
     const params = [Number(campaignId)];
 
     if (variantId) {
