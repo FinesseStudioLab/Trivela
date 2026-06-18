@@ -33,12 +33,12 @@ test.describe('Storybook Visual Regression', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to Storybook and wait for it to load
     await page.goto(STORYBOOK_URL);
-    
+
     // Wait for Storybook to be fully loaded
-    await page.waitForSelector('[data-testid="story-list"], .sidebar-container, #storybook-root', { 
-      timeout: 15000 
+    await page.waitForSelector('[data-testid="story-list"], .sidebar-container, #storybook-root', {
+      timeout: 15000,
     });
-    
+
     // Give Storybook additional time to initialize
     await page.waitForTimeout(2000);
   });
@@ -48,22 +48,22 @@ test.describe('Storybook Visual Regression', () => {
       // Navigate to the specific story
       const storyUrl = `${STORYBOOK_URL}/iframe.html?id=${story.id}&viewMode=story`;
       const response = await page.goto(storyUrl);
-      
+
       // Check if the story loaded successfully
       if (!response || response.status() >= 400) {
         test.skip(`Story ${story.id} not found or failed to load`);
         return;
       }
-      
+
       // Wait for the story to render
       await page.waitForSelector('#storybook-root > *', { timeout: 10000 });
-      
+
       // Give components time to settle (animations, etc.)
       await page.waitForTimeout(1000);
-      
+
       // Wait for any async loading to complete
       await page.waitForLoadState('networkidle');
-      
+
       // Take screenshot and compare
       await expect(page).toHaveScreenshot(`${story.id}.png`, {
         fullPage: true,
