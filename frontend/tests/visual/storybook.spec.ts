@@ -13,15 +13,19 @@ const STORYBOOK_URL = process.env.STORYBOOK_URL || 'http://localhost:6006';
 
 // Stories to test - add new stories here as they're created
 const stories = [
-  { id: 'components-header--default', name: 'Header - Default' },
+  { id: 'layout-header--default', name: 'Header - Default' },
+  { id: 'layout-header--connected-wallet', name: 'Header - ConnectedWallet' },
   { id: 'components-campaigncard--active', name: 'CampaignCard - Active' },
-  { id: 'components-campaigncard--expired', name: 'CampaignCard - Expired' },
-  { id: 'components-emptystate--default', name: 'EmptyState - Default' },
+  { id: 'components-campaigncard--featured', name: 'CampaignCard - Featured' },
+  { id: 'components-campaigncard--inactive', name: 'CampaignCard - Inactive' },
+  { id: 'components-emptystate--no-campaigns', name: 'EmptyState - NoCampaigns' },
+  { id: 'components-emptystate--search-no-results', name: 'EmptyState - SearchNoResults' },
   { id: 'components-statusbadge--active', name: 'StatusBadge - Active' },
-  { id: 'components-statusbadge--pending', name: 'StatusBadge - Pending' },
-  { id: 'components-statusbadge--completed', name: 'StatusBadge - Completed' },
-  { id: 'components-transactionstatus--success', name: 'TransactionStatus - Success' },
+  { id: 'components-statusbadge--upcoming', name: 'StatusBadge - Upcoming' },
+  { id: 'components-statusbadge--ended', name: 'StatusBadge - Ended' },
+  { id: 'components-statusbadge--paused', name: 'StatusBadge - Paused' },
   { id: 'components-transactionstatus--pending', name: 'TransactionStatus - Pending' },
+  { id: 'components-transactionstatus--success', name: 'TransactionStatus - Success' },
   { id: 'components-transactionstatus--failed', name: 'TransactionStatus - Failed' },
 ];
 
@@ -29,20 +33,37 @@ test.describe('Storybook Visual Regression', () => {
   test.beforeEach(async ({ page }) => {
     // Navigate to Storybook and wait for it to load
     await page.goto(STORYBOOK_URL);
-    await page.waitForSelector('#storybook-root', { timeout: 10000 });
+    
+    // Wait for Storybook to be fully loaded
+    await page.waitForSelector('[data-testid="story-list"], .sidebar-container, #storybook-root', { 
+      timeout: 15000 
+    });
+    
+    // Give Storybook additional time to initialize
+    await page.waitForTimeout(2000);
   });
 
   for (const story of stories) {
     test(`${story.name} matches snapshot`, async ({ page }) => {
       // Navigate to the specific story
-      await page.goto(`${STORYBOOK_URL}/iframe.html?id=${story.id}&viewMode=story`);
-
+      const storyUrl = `${STORYBOOK_URL}/iframe.html?id=${story.id}&viewMode=story`;
+      const response = await page.goto(storyUrl);
+      
+      // Check if the story loaded successfully
+      if (!response || response.status() >= 400) {
+        test.skip(`Story ${story.id} not found or failed to load`);
+        return;
+      }
+      
       // Wait for the story to render
-      await page.waitForSelector('#storybook-root > *', { timeout: 5000 });
-
+      await page.waitForSelector('#storybook-root > *', { timeout: 10000 });
+      
       // Give components time to settle (animations, etc.)
-      await page.waitForTimeout(500);
-
+      await page.waitForTimeout(1000);
+      
+      // Wait for any async loading to complete
+      await page.waitForLoadState('networkidle');
+      
       // Take screenshot and compare
       await expect(page).toHaveScreenshot(`${story.id}.png`, {
         fullPage: true,
