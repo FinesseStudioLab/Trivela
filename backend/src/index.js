@@ -19,6 +19,7 @@ import { pathToFileURL } from 'node:url';
 import Redis from 'ioredis';
 import createApiKeyAuth, { createMasterKeyAuth } from './middleware/apiKeyAuth.js';
 import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
+import { createAuthLockout } from './middleware/authLockout.js';
 import requestLogger, { log } from './middleware/logger.js';
 import requestId from './middleware/requestId.js';
 import securityHeaders from './middleware/securityHeaders.js';
@@ -52,6 +53,9 @@ import { createEmbedRoute } from './routes/embed.js';
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 60;
+const DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD = 5;
+const DEFAULT_AUTH_LOCKOUT_HARD_THRESHOLD = 10;
+const DEFAULT_AUTH_LOCKOUT_BASE_LOCKOUT_MS = 60_000;
 const DEFAULT_SHORT_CACHE_TTL_MS = 5_000;
 const DEFAULT_JSON_BODY_LIMIT = '100kb';
 const DEFAULT_RPC_POLL_INTERVAL_MS = 60_000;
@@ -202,6 +206,20 @@ export async function createApp(options = {}) {
     DEFAULT_RATE_LIMIT_MAX_REQUESTS,
   );
 
+  const authLockoutOptions = /** @type {any} */ (options.authLockout) ?? {};
+  const authLockoutSoftThreshold = normalizePositiveInteger(
+    authLockoutOptions.softThreshold ?? process.env.AUTH_LOCKOUT_SOFT_THRESHOLD,
+    DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD,
+  );
+  const authLockoutHardThreshold = normalizePositiveInteger(
+    authLockoutOptions.hardThreshold ?? process.env.AUTH_LOCKOUT_HARD_THRESHOLD,
+    DEFAULT_AUTH_LOCKOUT_HARD_THRESHOLD,
+  );
+  const authLockoutBaseMs = normalizePositiveInteger(
+    authLockoutOptions.baseLockoutMs ?? process.env.AUTH_LOCKOUT_BASE_MS,
+    DEFAULT_AUTH_LOCKOUT_BASE_LOCKOUT_MS,
+  );
+
   const seed = /** @type {any[]} */ (options.campaigns) ?? defaultSeed();
   const dbPath = /** @type {string} */ (options.dbPath) ?? process.env.DB_PATH ?? './trivela.db';
   const dal = await createDal({
@@ -256,6 +274,8 @@ export async function createApp(options = {}) {
     requestTotal: 0,
     requestErrors: 0,
     routeHits: new Map(),
+    authFailures: 0,
+    authLockouts: 0,
   };
 
   /**
@@ -273,18 +293,51 @@ export async function createApp(options = {}) {
     next();
   });
 
-  const requireApiKey = createApiKeyAuth({
-    apiKeys:
-      /** @type {string} */ (options.apiKeys) ??
-      /** @type {string} */ (options.apiKey) ??
-      process.env.TRIVELA_API_KEYS ??
-      process.env.TRIVELA_API_KEY ??
-      '',
-    apiKeyRepository: options.apiKeyRepository ?? apiKeyRepository,
+  // Brute-force / credential-stuffing guard (#588). Runs immediately before the
+  // auth middleware on every protected route; a spike in failures/lockouts is
+  // surfaced via the trivela_auth_* counters and structured warn logs.
+  const authGuard = createAuthLockout({
+    softThreshold: authLockoutSoftThreshold,
+    hardThreshold: authLockoutHardThreshold,
+    baseLockoutMs: authLockoutBaseMs,
+    timeProvider: authLockoutOptions.timeProvider,
+    delayFn: authLockoutOptions.delayFn,
+    store: authLockoutOptions.store,
+    onFailure: ({ key, failures }) => {
+      metrics.authFailures += 1;
+      log.warn({ key, failures }, 'Failed authentication attempt');
+    },
+    onLockout: ({ key, failures, lockoutMs, lockoutCount }) => {
+      metrics.authLockouts += 1;
+      log.warn(
+        { key, failures, lockoutMs, lockoutCount },
+        'Authentication lockout triggered (possible brute-force)',
+      );
+    },
   });
-  const requireMasterKey = createMasterKeyAuth({
-    masterKey: /** @type {string} */ (options.masterKey) ?? process.env.TRIVELA_MASTER_KEY ?? '',
-  });
+
+  // Auth middlewares are exposed as [authGuard, requireX] arrays; Express
+  // flattens nested handler arrays, so existing route registrations pick up the
+  // guard with no change. Only auth-bearing routes are guarded, which keeps a
+  // 200 on a public route from ever resetting an attacker's failure counter.
+  const requireApiKey = [
+    authGuard,
+    createApiKeyAuth({
+      apiKeys:
+        /** @type {string} */ (options.apiKeys) ??
+        /** @type {string} */ (options.apiKey) ??
+        process.env.TRIVELA_API_KEYS ??
+        process.env.TRIVELA_API_KEY ??
+        '',
+      apiKeyRepository: options.apiKeyRepository ?? apiKeyRepository,
+    }),
+  ];
+  const requireMasterKey = [
+    authGuard,
+    createMasterKeyAuth({
+      masterKey: /** @type {string} */ (options.masterKey) ?? process.env.TRIVELA_MASTER_KEY ?? '',
+    }),
+  ];
   const requireAdminMasterKey = requireMasterKey;
 
   let rateLimitStore = null;
@@ -520,6 +573,12 @@ export async function createApp(options = {}) {
       '# HELP trivela_request_errors_total Total HTTP requests with status >= 400.',
       '# TYPE trivela_request_errors_total counter',
       `trivela_request_errors_total ${metrics.requestErrors}`,
+      '# HELP trivela_auth_failures_total Total failed authentication attempts on guarded routes.',
+      '# TYPE trivela_auth_failures_total counter',
+      `trivela_auth_failures_total ${metrics.authFailures}`,
+      '# HELP trivela_auth_lockouts_total Total brute-force lockouts triggered on guarded routes.',
+      '# TYPE trivela_auth_lockouts_total counter',
+      `trivela_auth_lockouts_total ${metrics.authLockouts}`,
       '# HELP trivela_process_uptime_seconds Node.js process uptime.',
       '# TYPE trivela_process_uptime_seconds gauge',
       `trivela_process_uptime_seconds ${uptimeSeconds.toFixed(3)}`,
@@ -580,6 +639,12 @@ export async function createApp(options = {}) {
         keying: 'per API key when present, otherwise per IP address',
         windowMs: rateLimitWindowMs,
         maxRequests: rateLimitMaxRequests,
+      },
+      authLockout: {
+        keying: 'per client IP address',
+        softThreshold: authLockoutSoftThreshold,
+        hardThreshold: authLockoutHardThreshold,
+        baseLockoutMs: authLockoutBaseMs,
       },
       body: {
         jsonLimit: jsonBodyLimit,

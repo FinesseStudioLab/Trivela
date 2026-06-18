@@ -29,14 +29,15 @@ frontend-friendly message mappings.
 
 ## Backend API Errors
 
-| Status | Error                   | Cause                              | Frontend Message                                       |
-| ------ | ----------------------- | ---------------------------------- | ------------------------------------------------------ |
-| 400    | `Bad Request`           | Invalid request body or parameters | "Invalid input. Please check your data and try again"  |
-| 401    | `Unauthorized`          | Missing or invalid API key         | "API key is required or invalid"                       |
-| 404    | `Not Found`             | Campaign or resource not found     | "The requested campaign was not found"                 |
-| 429    | `Too Many Requests`     | Rate limit exceeded                | "Too many requests. Please wait before trying again"   |
-| 500    | `Internal Server Error` | Server error                       | "An unexpected error occurred. Please try again later" |
-| 503    | `Service Unavailable`   | Soroban RPC unavailable            | "The blockchain service is temporarily unavailable"    |
+| Status | Error                   | Cause                                          | Frontend Message                                       |
+| ------ | ----------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| 400    | `Bad Request`           | Invalid request body or parameters             | "Invalid input. Please check your data and try again"  |
+| 401    | `Unauthorized`          | Missing or invalid API key                     | "API key is required or invalid"                       |
+| 404    | `Not Found`             | Campaign or resource not found                 | "The requested campaign was not found"                 |
+| 429    | `Too Many Requests`     | Rate limit exceeded                            | "Too many requests. Please wait before trying again"   |
+| 429    | `AUTH_LOCKED_OUT`       | Brute-force lockout after repeated failed auth | "Too many failed attempts. Try again later"            |
+| 500    | `Internal Server Error` | Server error                                   | "An unexpected error occurred. Please try again later" |
+| 503    | `Service Unavailable`   | Soroban RPC unavailable                        | "The blockchain service is temporarily unavailable"    |
 
 ## Frontend Error Mapping
 

@@ -98,6 +98,26 @@ If the API returns 429 responses unexpectedly:
 3. For immediate relief, restart the backend container to flush the in-memory limiter (only
    effective when Redis is not in use).
 
+## Auth Brute-Force Lockout
+
+Triggered by the `AuthFailureSpike` / `AuthLockoutTriggered` alerts, or a surge in
+`trivela_auth_failures_total` / `trivela_auth_lockouts_total` on `/metrics`. The backend
+progressively delays and then temporarily locks out (HTTP 429, `code: AUTH_LOCKED_OUT`) clients that
+repeatedly fail authentication on a guarded route.
+
+1. Identify the offending source(s). Lockout/failure events are logged at `warn` with the keyed
+   client, e.g.:
+   ```bash
+   docker compose logs backend --tail 500 | grep -E "Authentication lockout|Failed authentication"
+   ```
+2. If the traffic is malicious, block the source IP(s) at the edge (nginx / load balancer / WAF) so
+   it never reaches the app.
+3. If a legitimate integrator is locked out (e.g. a rotated/expired key), have them fix their
+   credentials; the lockout self-clears after the back-off window, or restart the backend to flush
+   the in-memory lockout state immediately.
+4. Tune thresholds via `AUTH_LOCKOUT_SOFT_THRESHOLD`, `AUTH_LOCKOUT_HARD_THRESHOLD`, and
+   `AUTH_LOCKOUT_BASE_MS` if the defaults are too aggressive/lenient, then restart the backend.
+
 ## Database Migration Failures
 
 If `npm run db:migrate` fails during deployment:

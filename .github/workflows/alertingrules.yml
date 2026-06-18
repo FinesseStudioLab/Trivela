@@ -35,6 +35,38 @@ groups:
             'The backend process restarted at {{ $value }}. Verify deployment or investigate crash.'
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#backend-restart'
 
+      # Brute-force / credential-stuffing: spike in failed auth attempts (#588)
+      - alert: AuthFailureSpike
+        expr: |
+          sum(rate(trivela_auth_failures_total{job="trivela-backend"}[5m])) > 1
+        for: 5m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: 'Spike in failed authentication attempts'
+          description:
+            'Failed auth attempts are averaging {{ $value | humanize }}/s over the last 5 minutes —
+            possible brute-force or credential-stuffing. Check the trivela_auth_lockouts_total
+            counter and backend warn logs.'
+          runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#auth-brute-force-lockout'
+
+      # Brute-force lockout actively triggering (#588)
+      - alert: AuthLockoutTriggered
+        expr: |
+          increase(trivela_auth_lockouts_total{job="trivela-backend"}[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: 'Authentication lockout triggered'
+          description:
+            '{{ $value }} brute-force lockout(s) triggered in the last 5 minutes. One or more
+            clients are being temporarily locked out of auth endpoints. Investigate source IPs in
+            the backend warn logs.'
+          runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#auth-brute-force-lockout'
+
       # Backend is down (no scrape)
       - alert: BackendDown
         expr: up{job="trivela-backend"} == 0

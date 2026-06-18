@@ -82,6 +82,13 @@ export function validateBackendEnv(env = process.env) {
   record(() => normalizePositiveInteger(env.RATE_LIMIT_WINDOW_MS, 'RATE_LIMIT_WINDOW_MS'));
   record(() => normalizePositiveInteger(env.RATE_LIMIT_MAX_REQUESTS, 'RATE_LIMIT_MAX_REQUESTS'));
   record(() => normalizePositiveInteger(env.SHORT_CACHE_TTL_MS, 'SHORT_CACHE_TTL_MS'));
+  record(() =>
+    normalizePositiveInteger(env.AUTH_LOCKOUT_SOFT_THRESHOLD, 'AUTH_LOCKOUT_SOFT_THRESHOLD'),
+  );
+  record(() =>
+    normalizePositiveInteger(env.AUTH_LOCKOUT_HARD_THRESHOLD, 'AUTH_LOCKOUT_HARD_THRESHOLD'),
+  );
+  record(() => normalizePositiveInteger(env.AUTH_LOCKOUT_BASE_MS, 'AUTH_LOCKOUT_BASE_MS'));
 
   record(() =>
     resolveStellarNetworkConfig({
