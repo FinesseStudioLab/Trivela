@@ -134,6 +134,32 @@ export function apiUrl(path) {
   return `${API_BASE_URL}${path}`;
 }
 
+/**
+ * Resolve the real-time (SSE) stream URL for a campaign, or '' when real-time
+ * is not configured — in which case consumers fall back to polling.
+ *
+ * Priority:
+ *   1. VITE_REALTIME_URL (an SSE base; the campaignId is appended when present)
+ *   2. VITE_REALTIME_ENABLED=true → derive `${API}/api/v1/campaigns/:id/events`
+ *   3. otherwise '' (real-time disabled → polling only)
+ *
+ * @param {string} [campaignId]
+ * @returns {string}
+ */
+export function getRealtimeUrl(campaignId) {
+  const base = trimTrailingSlash(import.meta.env.VITE_REALTIME_URL || '');
+  if (base) {
+    return campaignId ? `${base}/${encodeURIComponent(campaignId)}` : base;
+  }
+
+  const enabled = String(import.meta.env.VITE_REALTIME_ENABLED || '').toLowerCase() === 'true';
+  if (enabled && campaignId) {
+    return apiUrl(`/api/v1/campaigns/${encodeURIComponent(campaignId)}/events`);
+  }
+
+  return '';
+}
+
 export async function initializeRuntimeConfig(fetchImpl = globalThis.fetch) {
   if (typeof fetchImpl !== 'function') {
     return getRuntimeConfig();
