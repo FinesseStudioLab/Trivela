@@ -1,10 +1,16 @@
 import { useId, useState } from 'react';
-import { submitClaimTransaction, normalizeError, getStellarNetwork } from './stellar';
+import { submitClaimTransaction, getStellarNetwork } from './stellar';
 import TransactionStatus from './components/TransactionStatus';
+import { useOptimisticAction } from './hooks/useOptimisticAction';
 
 /**
  * ClaimRewards — lets the user enter a points amount, sign a Soroban
  * `claim(user, amount)` transaction via Freighter, and see the result.
+ *
+ * The submit is optimistic: the input clears and a pending indicator appears
+ * immediately; on confirmation the parent reconciles the on-chain balance, and
+ * on failure the entered amount is restored and a class-aware error is shown.
+ * A second submit while one is in flight is ignored (double-submit guard).
  *
  * Props
  * ─────
@@ -15,40 +21,35 @@ import TransactionStatus from './components/TransactionStatus';
  */
 export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
   const [amount, setAmount] = useState('');
-  const [isClaiming, setIsClaiming] = useState(false);
   const [txHash, setTxHash] = useState('');
-  const [claimError, setClaimError] = useState('');
   const amountId = useId();
   const headingId = useId();
   const feedbackId = useId();
-  const feedbackDescribedBy = txHash || claimError ? feedbackId : undefined;
   const stellarNetwork = getStellarNetwork();
+  const { run, isPending, isError, error } = useOptimisticAction();
 
   const parsedAmount = Number(amount);
   const isValid = Number.isInteger(parsedAmount) && parsedAmount > 0;
+  const feedbackDescribedBy = txHash || isError ? feedbackId : undefined;
 
   const handleClaim = async (event) => {
     event.preventDefault();
     if (!walletAddress || !isValid) return;
 
-    setIsClaiming(true);
-    setClaimError('');
     setTxHash('');
+    const submittedAmount = amount;
 
-    try {
-      const { hash, newBalance } = await submitClaimTransaction(walletAddress, parsedAmount);
-
-      setTxHash(hash);
-      setAmount('');
-
-      if (onClaimSuccess) {
-        onClaimSuccess(newBalance);
-      }
-    } catch (error) {
-      setClaimError(normalizeError(error));
-    } finally {
-      setIsClaiming(false);
-    }
+    await run(() => submitClaimTransaction(walletAddress, parsedAmount), {
+      // Optimistic: clear the input right away so the action feels instant.
+      optimistic: () => setAmount(''),
+      // Rollback: restore the amount the user entered if the claim fails.
+      rollback: () => setAmount(submittedAmount),
+      // Reconcile: surface the tx + let the parent refresh the chain balance.
+      reconcile: ({ hash, newBalance }) => {
+        setTxHash(hash);
+        onClaimSuccess?.(newBalance);
+      },
+    });
   };
 
   return (
@@ -70,26 +71,32 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
             placeholder="e.g. 100"
             className="claim-input"
             value={amount}
-            disabled={isClaiming || !walletAddress}
-            aria-invalid={Boolean(claimError)}
+            disabled={isPending || !walletAddress}
+            aria-invalid={isError}
             aria-describedby={feedbackDescribedBy}
             onChange={(e) => setAmount(e.target.value)}
           />
           <button
             type="submit"
             className="btn btn-primary btn-button"
-            disabled={!walletAddress || !isValid || isClaiming}
+            disabled={!walletAddress || !isValid || isPending}
           >
-            {isClaiming ? 'Signing…' : 'Claim'}
+            {isPending ? 'Signing…' : 'Claim'}
           </button>
         </div>
       </form>
 
-      {txHash && <TransactionStatus hash={txHash} network={stellarNetwork} />}
+      {isPending && (
+        <TransactionStatus variant="pending" network={stellarNetwork} status="Claiming…" />
+      )}
+      {!isPending && txHash && (
+        <TransactionStatus hash={txHash} network={stellarNetwork} status="Claim confirmed" />
+      )}
 
-      {claimError && (
+      {isError && error && (
         <p id={feedbackId} className="claim-error" role="alert">
-          {claimError}
+          {error.message}
+          {error.recovery ? ` ${error.recovery}.` : ''}
         </p>
       )}
     </section>
