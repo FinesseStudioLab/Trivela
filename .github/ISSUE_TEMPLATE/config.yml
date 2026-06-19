@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Question / Support
+    url: https://github.com/FinesseStudioLab/Trivela/discussions
+    about: Ask questions and get help in Discussions rather than opening an issue.

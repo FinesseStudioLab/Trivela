@@ -1,0 +1,27 @@
+# Rust build artifacts
+target/
+**/*.rs.bk
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Env files
+.env
+.env.*
+!.env.example
+
+# Stellar / Soroban
+.soroban/
+*.wasm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Turborepo
+.turbo
+
+# Playwright
+**/playwright-report-visual/
+**/test-results/

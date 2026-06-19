@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "trivela.fullname" . }}-backend
+  labels:
+    {{- include "trivela.labels" . | nindent 4 }}
+    component: backend
+spec:
+  replicas: {{ .Values.backend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "trivela.selectorLabels" . | nindent 6 }}
+      component: backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        {{- include "trivela.selectorLabels" . | nindent 8 }}
+        component: backend
+    spec:
+      containers:
+        - name: backend
+          image: "{{ .Values.backend.image.repository }}:{{ .Values.backend.image.tag }}"
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - containerPort: {{ .Values.backend.port }}
+              name: http
+          env:
+            - name: NODE_ENV
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ include "trivela.fullname" . }}-config
+                  key: NODE_ENV
+            - name: PORT
+              value: {{ .Values.backend.port | quote }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trivela.fullname" . }}-secrets
+                  key: DATABASE_URL
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trivela.fullname" . }}-secrets
+                  key: JWT_SECRET
+            - name: SOROBAN_RPC_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "trivela.fullname" . }}-secrets
+                  key: SOROBAN_RPC_URL
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.backend.livenessProbe.path }}
+              port: {{ .Values.backend.port }}
+            initialDelaySeconds: {{ .Values.backend.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.livenessProbe.periodSeconds }}
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.backend.readinessProbe.path }}
+              port: {{ .Values.backend.port }}
+            initialDelaySeconds: {{ .Values.backend.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.backend.readinessProbe.periodSeconds }}

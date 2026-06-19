@@ -1,0 +1,1137 @@
+openapi: 3.1.0
+info:
+  title: Trivela API
+  version: 0.1.0
+  description: |
+    REST API for the Trivela campaign and rewards platform. Handles campaign metadata,
+    health checks, and Soroban RPC configuration for the frontend.
+
+    See the [API Migration Guide](../docs/API_MIGRATION.md) for v0 → v1 breaking changes,
+    endpoint changelog, deprecation policy, and migration examples with curl snippets.
+  license:
+    name: Apache-2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0.html
+
+servers:
+  - url: http://localhost:3001
+    description: Local development server
+  - url: https://api.trivela.example.com
+    description: Production server
+
+tags:
+  - name: Health
+    description: Health check and monitoring endpoints
+  - name: Campaigns
+    description: Campaign management operations
+  - name: Config
+    description: Configuration and metadata endpoints
+  - name: Audit
+    description: Audit log endpoints
+  - name: Admin
+    description: Administrative API key management
+
+security:
+  - ApiKeyAuth: []
+  - BearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Check API and RPC health
+      tags:
+        - Health
+      operationId: getHealth
+      security: []
+      responses:
+        '200':
+          description: Health status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/rpc:
+    get:
+      summary: Check Soroban RPC health
+      tags:
+        - Health
+      operationId: getRpcHealth
+      security: []
+      responses:
+        '200':
+          description: RPC is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RpcHealthResponse'
+        '503':
+          description: RPC is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RpcHealthResponse'
+
+  /metrics:
+    get:
+      summary: Get Prometheus metrics
+      tags:
+        - Health
+      operationId: getMetrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus-format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /api/v1:
+    get:
+      summary: Get API information
+      tags:
+        - Config
+      operationId: getApiInfo
+      security: []
+      responses:
+        '200':
+          description: API metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiInfo'
+
+  /api/v1/config:
+    get:
+      summary: Get public configuration
+      tags:
+        - Config
+      operationId: getConfig
+      security: []
+      responses:
+        '200':
+          description: Public configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfigResponse'
+
+  /api/v1/explorer:
+    get:
+      summary: Get explorer links
+      tags:
+        - Config
+      operationId: getExplorerLinks
+      security: []
+      responses:
+        '200':
+          description: Explorer configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExplorerResponse'
+
+  /api/v1/campaigns:
+    get:
+      summary: List campaigns
+      tags:
+        - Campaigns
+      operationId: listCampaigns
+      security: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number (1-indexed)
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+        - name: offset
+          in: query
+          description: Number of items to skip
+          schema:
+            type: integer
+            minimum: 0
+        - name: active
+          in: query
+          description: Filter by active status
+          schema:
+            type: string
+            enum: [true, false]
+        - name: q
+          in: query
+          description: Full-text search query (supports phrases, prefix with *, boolean AND/OR/NOT)
+          schema:
+            type: string
+        - name: tags
+          in: query
+          description: Comma-separated tags (any match includes campaign)
+          schema:
+            type: string
+        - name: category
+          in: query
+          description: Filter by category
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Sort field
+          schema:
+            type: string
+        - name: order
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum: [asc, desc]
+      responses:
+        '200':
+          description: Paginated campaign list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignListResponse'
+
+    post:
+      summary: Create a new campaign
+      tags:
+        - Campaigns
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignCreate'
+      responses:
+        '201':
+          description: Campaign created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Slug conflict
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/campaigns/{id}:
+    get:
+      summary: Get campaign by ID
+      tags:
+        - Campaigns
+      operationId: getCampaignById
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Campaign ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update campaign
+      tags:
+        - Campaigns
+      operationId: updateCampaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Campaign ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CampaignUpdate'
+      responses:
+        '200':
+          description: Campaign updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete campaign
+      tags:
+        - Campaigns
+      operationId: deleteCampaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Campaign ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Campaign deleted
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/campaigns/by-slug/{slug}:
+    get:
+      summary: Get campaign by slug
+      tags:
+        - Campaigns
+      operationId: getCampaignBySlug
+      security: []
+      parameters:
+        - name: slug
+          in: path
+          required: true
+          description: Campaign slug
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Campaign details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/campaigns/{id}/image:
+    post:
+      summary: Upload campaign image
+      tags:
+        - Campaigns
+      operationId: uploadCampaignImage
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Image uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imageUrl:
+                    type: string
+                    format: uri
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/categories:
+    get:
+      summary: List categories with campaign counts
+      tags:
+        - Campaigns
+      operationId: listCategories
+      security: []
+      responses:
+        '200':
+          description: Category list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        count:
+                          type: integer
+
+  /api/v1/tags:
+    get:
+      summary: List tags with frequency counts (top 50)
+      tags:
+        - Campaigns
+      operationId: listTags
+      security: []
+      responses:
+        '200':
+          description: Tag list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                        count:
+                          type: integer
+
+  /api/v1/admin/api-keys:
+    get:
+      summary: List API keys (metadata only)
+      tags:
+        - Admin
+      operationId: listApiKeys
+      responses:
+        '200':
+          description: API key list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ApiKeyMetadata'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    post:
+      summary: Create a new API key
+      tags:
+        - Admin
+      operationId: createApiKey
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                label:
+                  type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        '201':
+          description: API key created (raw key returned once)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  metadata:
+                    $ref: '#/components/schemas/ApiKeyMetadata'
+
+  /api/v1/admin/api-keys/{id}:
+    delete:
+      summary: Revoke an API key
+      tags:
+        - Admin
+      operationId: revokeApiKey
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Key revoked
+        '404':
+          description: Key not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/admin/api-keys/{id}/rotate:
+    put:
+      summary: Rotate an API key (revoke old, issue new)
+      tags:
+        - Admin
+      operationId: rotateApiKey
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: New key issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                  metadata:
+                    $ref: '#/components/schemas/ApiKeyMetadata'
+
+  /api/v1/audit-logs:
+    get:
+      summary: List audit logs
+      tags:
+        - Audit
+      operationId: listAuditLogs
+      parameters:
+        - name: entity
+          in: query
+          description: Filter by entity type
+          schema:
+            type: string
+        - name: entityId
+          in: query
+          description: Filter by entity ID
+          schema:
+            type: string
+        - name: action
+          in: query
+          description: Filter by action
+          schema:
+            type: string
+            enum: [create, update, delete]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 10
+      responses:
+        '200':
+          description: Paginated audit log list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditLogListResponse'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/indexer/cursor:
+    get:
+      summary: Get indexer cursor state
+      tags:
+        - Config
+      operationId: getIndexerCursor
+      security: []
+      responses:
+        '200':
+          description: Cursor state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexerCursorState'
+
+    post:
+      summary: Update indexer cursor
+      tags:
+        - Config
+      operationId: setIndexerCursor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IndexerCursorUpdate'
+      responses:
+        '200':
+          description: Cursor updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IndexerCursorState'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+      description: API key for write operations
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Bearer token authentication
+
+  schemas:
+    Campaign:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - description
+        - active
+        - featured
+        - rewardPerAction
+        - createdAt
+        - updatedAt
+        - status
+      properties:
+        id:
+          type: string
+          description: Campaign ID
+        name:
+          type: string
+          description: Campaign name
+        slug:
+          type: string
+          description: URL-friendly slug
+        description:
+          type: string
+          description: Campaign description
+        active:
+          type: boolean
+          description: Whether campaign is active
+        featured:
+          type: boolean
+          description: Whether campaign is featured
+        hidden:
+          type: boolean
+          description: Whether campaign is hidden
+        hiddenReason:
+          type: string
+          nullable: true
+          description: Reason for hiding campaign
+        rewardPerAction:
+          type: number
+          description: Reward points per action
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign start date
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign end date
+        status:
+          type: string
+          enum: [active, upcoming, ended]
+          description: Computed campaign status
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+        imageUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: Public URL for campaign image
+        tags:
+          type: array
+          items:
+            type: string
+          description: Campaign tags
+        category:
+          type: string
+          nullable: true
+          description: Campaign category
+
+    CampaignCreate:
+      type: object
+      required:
+        - name
+        - rewardPerAction
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Campaign name
+        slug:
+          type: string
+          description: URL-friendly slug (auto-generated if not provided)
+        description:
+          type: string
+          description: Campaign description
+        rewardPerAction:
+          type: number
+          minimum: 0
+          description: Reward points per action
+        active:
+          type: boolean
+          default: true
+          description: Whether campaign is active
+        featured:
+          type: boolean
+          default: false
+          description: Whether campaign is featured
+        hidden:
+          type: boolean
+          default: false
+          description: Whether campaign is hidden
+        hiddenReason:
+          type: string
+          nullable: true
+          description: Reason for hiding campaign
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign start date
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign end date
+        imageUrl:
+          type: string
+          format: uri
+          description: Optional image URL
+        tags:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 32
+        category:
+          type: string
+          description: Category from controlled vocabulary
+
+    CampaignUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          description: Campaign name
+        slug:
+          type: string
+          description: URL-friendly slug
+        description:
+          type: string
+          description: Campaign description
+        rewardPerAction:
+          type: number
+          minimum: 0
+          description: Reward points per action
+        active:
+          type: boolean
+          description: Whether campaign is active
+        featured:
+          type: boolean
+          description: Whether campaign is featured
+        hidden:
+          type: boolean
+          description: Whether campaign is hidden
+        hiddenReason:
+          type: string
+          nullable: true
+          description: Reason for hiding campaign
+        startDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign start date
+        endDate:
+          type: string
+          format: date-time
+          nullable: true
+          description: Campaign end date
+
+    CampaignListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Campaign'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    Pagination:
+      type: object
+      required:
+        - total
+        - count
+        - page
+        - limit
+        - offset
+        - totalPages
+        - hasPreviousPage
+        - hasNextPage
+      properties:
+        total:
+          type: integer
+          description: Total number of items
+        count:
+          type: integer
+          description: Number of items in current page
+        page:
+          type: integer
+          description: Current page number
+        limit:
+          type: integer
+          description: Items per page
+        offset:
+          type: integer
+          description: Number of items skipped
+        totalPages:
+          type: integer
+          description: Total number of pages
+        hasPreviousPage:
+          type: boolean
+          description: Whether there is a previous page
+        hasNextPage:
+          type: boolean
+          description: Whether there is a next page
+        previousPage:
+          type: integer
+          nullable: true
+          description: Previous page number
+        nextPage:
+          type: integer
+          nullable: true
+          description: Next page number
+
+    HealthResponse:
+      type: object
+      required:
+        - status
+        - service
+        - timestamp
+        - rpc
+      properties:
+        status:
+          type: string
+          enum: [ok, degraded]
+          description: Overall health status
+        service:
+          type: string
+          description: Service name
+        timestamp:
+          type: string
+          format: date-time
+          description: Health check timestamp
+        rpc:
+          $ref: '#/components/schemas/RpcHealthResponse'
+
+    RpcHealthResponse:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [ok, error]
+          description: RPC health status
+        latency_ms:
+          type: number
+          description: RPC latency in milliseconds
+        error:
+          type: string
+          description: Error message if status is error
+
+    ApiInfo:
+      type: object
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+        prefix:
+          type: string
+        endpoints:
+          type: object
+        compatibility:
+          type: object
+        stellar:
+          type: object
+        config:
+          type: object
+        cors:
+          type: object
+        rateLimit:
+          type: object
+        body:
+          type: object
+
+    ConfigResponse:
+      type: object
+      required:
+        - stellar
+        - contracts
+      properties:
+        stellar:
+          type: object
+          properties:
+            network:
+              type: string
+            networkPassphrase:
+              type: string
+            sorobanRpcUrl:
+              type: string
+            horizonUrl:
+              type: string
+            explorerUrl:
+              type: string
+        contracts:
+          type: object
+          properties:
+            rewards:
+              type: string
+              nullable: true
+            campaign:
+              type: string
+              nullable: true
+
+    ExplorerResponse:
+      type: object
+      required:
+        - network
+        - explorerUrl
+      properties:
+        network:
+          type: string
+        explorerUrl:
+          type: string
+
+    AuditLogListResponse:
+      type: object
+      required:
+        - data
+        - pagination
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditLog'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    AuditLog:
+      type: object
+      required:
+        - id
+        - actor
+        - action
+        - entity
+        - entityId
+        - timestamp
+      properties:
+        id:
+          type: string
+        actor:
+          type: string
+        action:
+          type: string
+        entity:
+          type: string
+        entityId:
+          type: string
+        diff:
+          type: object
+        timestamp:
+          type: string
+          format: date-time
+
+    IndexerCursorState:
+      type: object
+      required:
+        - cursor
+        - updatedAt
+        - source
+      properties:
+        cursor:
+          type: string
+          nullable: true
+        updatedAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+
+    IndexerCursorUpdate:
+      type: object
+      required:
+        - cursor
+      properties:
+        cursor:
+          type: string
+          minLength: 1
+
+    ApiKeyMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        active:
+          type: boolean
+
+    Error:
+      type: object
+      required:
+        - error
+        - code
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+
+    ValidationError:
+      type: object
+      required:
+        - error
+        - code
+        - details
+      properties:
+        error:
+          type: string
+          description: Error message
+        code:
+          type: string
+          description: Error code
+        details:
+          type: array
+          items:
+            type: string
+          description: Validation error details

@@ -1,0 +1,133 @@
+.tx-status {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  background: var(--bg-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-strong);
+  border-radius: 16px;
+  animation: slideUp 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tx-status-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.tx-status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--success);
+  color: #fff;
+  border-radius: 50%;
+  font-size: 0.85rem;
+  font-weight: bold;
+}
+
+.tx-status-label {
+  font-weight: 600;
+  font-size: 1.1rem;
+  color: var(--success);
+}
+
+.tx-status-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.tx-hash-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tx-hash-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.tx-hash-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--bg-elevated);
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.tx-hash-value {
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 0.9rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tx-copy-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.tx-copy-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.tx-copy-btn.copied {
+  color: var(--success);
+}
+
+.tx-explorer-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--accent);
+  transition: color 0.2s ease;
+  width: fit-content;
+}
+
+.tx-explorer-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.tx-explorer-link svg {
+  transition: transform 0.2s ease;
+}
+
+.tx-explorer-link:hover svg {
+  transform: translate(1px, -1px);
+}

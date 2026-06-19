@@ -1,0 +1,23 @@
+[package]
+name = "rewards-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+# Isolate this crate from the parent workspace so it does not participate in
+# normal `cargo test` / `cargo build` runs.
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+trivela-rewards-contract = { path = "..", features = ["testutils"] }
+soroban-sdk = { version = "25.1", features = ["testutils"] }
+
+[[bin]]
+name = "fuzz_balance"
+path = "fuzz_targets/fuzz_balance.rs"
+test = false
+doc = false
