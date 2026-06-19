@@ -5,7 +5,7 @@ import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
 import StatusBadge from './components/StatusBadge';
 import PageMeta from './components/PageMeta';
-import { useCampaignPolling } from './hooks/useCampaignPolling';
+import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
 import './CampaignDetail.css';
 
 export default function CampaignDetail({
@@ -26,7 +26,7 @@ export default function CampaignDetail({
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { campaign, onChainState, isPolling, isPaused, lastUpdated, stateToast, error, refresh } =
-    useCampaignPolling({ campaignId: id, enabled: Boolean(id) });
+    useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
 
   const [referralCount, setReferralCount] = useState(0);
   const [bonusEarned, setBonusEarned] = useState(0);
