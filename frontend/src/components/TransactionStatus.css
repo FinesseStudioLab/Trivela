@@ -131,3 +131,39 @@
 .tx-explorer-link:hover svg {
   transform: translate(1px, -1px);
 }
+
+/* ── Lifecycle variants (optimistic UI) ─────────────────────────────────── */
+
+.tx-status--pending .tx-status-icon {
+  background: var(--warning, #d97706);
+  animation: txPulse 1.2s ease-in-out infinite;
+}
+
+.tx-status--pending .tx-status-label {
+  color: var(--warning, #d97706);
+}
+
+.tx-status--error .tx-status-icon {
+  background: var(--error, #dc2626);
+}
+
+.tx-status--error .tx-status-label {
+  color: var(--error, #dc2626);
+}
+
+.tx-status-message {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--text-secondary, #4b5563);
+}
+
+@keyframes txPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}

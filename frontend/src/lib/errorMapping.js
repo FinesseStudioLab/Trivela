@@ -32,6 +32,128 @@ export const ERROR_MESSAGES = {
 };
 
 /**
+ * Coarse error classes used to give register/claim failures distinct messaging
+ * and to decide how the optimistic UI should recover (see useOptimisticAction).
+ *
+ * - `contract`   — the contract reverted with a known/mapped error code.
+ * - `wallet`     — the user rejected/closed the signing prompt.
+ * - `network`    — request never reached the chain (offline, DNS, timeout).
+ * - `rpc`        — Soroban RPC / Horizon reachable but failing (5xx, simulate).
+ * - `validation` — client-side input problem.
+ * - `unknown`    — anything we can't confidently bucket.
+ */
+export const ERROR_CLASS = {
+  CONTRACT: 'contract',
+  WALLET: 'wallet',
+  NETWORK: 'network',
+  RPC: 'rpc',
+  VALIDATION: 'validation',
+  UNKNOWN: 'unknown',
+};
+
+/** Per-class fallback copy used when no specific contract message applies. */
+const CLASS_MESSAGES = {
+  [ERROR_CLASS.WALLET]: 'Signing was cancelled in your wallet. Nothing was submitted.',
+  [ERROR_CLASS.NETWORK]:
+    'Network problem reaching the blockchain — your action was not submitted. Check your connection and try again.',
+  [ERROR_CLASS.RPC]:
+    'The Soroban network is temporarily unavailable. Your action was not applied; please try again in a moment.',
+  [ERROR_CLASS.VALIDATION]: 'Please check your input and try again.',
+  [ERROR_CLASS.UNKNOWN]: 'An unexpected error occurred. Your action was not applied.',
+};
+
+/**
+ * Extract a numeric contract/HTTP error code from any error shape.
+ * @param {Error|number|string|object} error
+ * @returns {number|null}
+ */
+export function extractErrorCode(error) {
+  if (error === null || error === undefined) return null;
+  if (typeof error === 'number') return Number.isFinite(error) ? error : null;
+  if (typeof error === 'string') {
+    const fromString = error.match(/(?:Error\(Contract,\s*#|contract.*?#|code[:\s]+)(\d+)/i);
+    return fromString ? Number(fromString[1]) : null;
+  }
+  if (typeof error.code === 'number') return error.code;
+  if (typeof error.status === 'number') return error.status;
+  const text = error.message || error.toString?.() || '';
+  const match = text.match(/(?:Error\(Contract,\s*#|contract.*?#|code[:\s]+)(\d+)/i);
+  return match ? Number(match[1]) : null;
+}
+
+/**
+ * Classify an error so the UI can show class-specific messaging and decide
+ * recovery. Order matters: a contract revert with a real code is the most
+ * specific signal, a rejected wallet prompt next, then transport problems.
+ * @param {Error|number|string|object} error
+ * @returns {string} one of ERROR_CLASS
+ */
+export function classifyError(error) {
+  if (!error) return ERROR_CLASS.UNKNOWN;
+
+  const code = extractErrorCode(error);
+  const text = (
+    typeof error === 'string' ? error : error.message || error.toString?.() || ''
+  ).toLowerCase();
+
+  // A decoded contract revert (e.g. `Error(Contract, #103)`) is unambiguous.
+  if (/error\(contract|contract.*?#\d+/i.test(text)) return ERROR_CLASS.CONTRACT;
+
+  // User-driven wallet rejections must not look like a system failure.
+  if (
+    /user (rejected|declined)|reject|declin|denied|cancel|freighter|wallet|not allowed/.test(text)
+  )
+    return ERROR_CLASS.WALLET;
+
+  // Transport: never reached the chain.
+  if (
+    /failed to fetch|networkerror|offline|timeout|timed out|enotfound|econnrefused|etimedout|dns/.test(
+      text,
+    )
+  )
+    return ERROR_CLASS.NETWORK;
+
+  // RPC/Horizon reachable but erroring.
+  if (/rpc|simulat|soroban|horizon|gateway|bad gateway|service unavailable|50[023]/.test(text))
+    return ERROR_CLASS.RPC;
+
+  if (/invalid|required|must be|too large|not a number/.test(text)) return ERROR_CLASS.VALIDATION;
+
+  // A bare contract code with no transport hints is still a contract error.
+  if (typeof code === 'number' && code >= 1 && code <= 199) return ERROR_CLASS.CONTRACT;
+
+  return ERROR_CLASS.UNKNOWN;
+}
+
+/**
+ * Map any error to a structured, user-facing shape for the optimistic UI.
+ * @param {Error|number|string|object} error
+ * @returns {{ class: string, code: number|null, message: string, recovery: string|null, retryable: boolean }}
+ */
+export function mapError(error) {
+  const errorClass = classifyError(error);
+  const code = extractErrorCode(error);
+
+  // Contract reverts get the precise per-code copy; everything else uses the
+  // class-level message so network/RPC failures read differently from reverts.
+  const message =
+    errorClass === ERROR_CLASS.CONTRACT && code && ERROR_MESSAGES[code]
+      ? getErrorMessage(code)
+      : CLASS_MESSAGES[errorClass] || getErrorMessage(error);
+
+  return {
+    class: errorClass,
+    code: code ?? null,
+    message,
+    recovery: code ? getRecoverySuggestion(code) : null,
+    retryable:
+      errorClass === ERROR_CLASS.NETWORK ||
+      errorClass === ERROR_CLASS.RPC ||
+      (code ? isRetryableError(code) : false),
+  };
+}
+
+/**
  * Get user-friendly error message from error object or code
  * @param {Error|number|string} error - Error object, code, or status
  * @returns {string} User-friendly error message
