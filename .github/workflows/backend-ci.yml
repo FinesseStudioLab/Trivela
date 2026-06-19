@@ -1,0 +1,49 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run backend lint (if available)
+        run: |
+          if npm --workspace=backend run | rg -q "  lint"; then
+            npm run lint --workspace=backend
+          else
+            echo "No backend lint script found; skipping."
+          fi
+
+      - name: Run backend typecheck (if available)
+        run: |
+          if npm --workspace=backend run | rg -q "  typecheck"; then
+            npm run typecheck --workspace=backend
+          else
+            echo "No backend typecheck script found; skipping."
+          fi
+
+      - name: Test backend (unit tests via Turborepo)
+        run: npx turbo run test --filter=backend
+
+      - name: Test backend (integration tests)
+        run: npm run test:integration --workspace=backend
+        timeout-minutes: 1

@@ -1,0 +1,77 @@
+[
+  {
+    "name": "area: backend",
+    "color": "1d76db",
+    "description": "Backend API, data access, and server behavior"
+  },
+  {
+    "name": "area: frontend",
+    "color": "1d76db",
+    "description": "Frontend UI, Vite app, and browser behavior"
+  },
+  {
+    "name": "area: smart-contract",
+    "color": "1d76db",
+    "description": "Soroban Rust contracts and on-chain logic"
+  },
+  {
+    "name": "area: documentation",
+    "color": "0e8a16",
+    "description": "Docs, READMEs, and contributor guidance"
+  },
+  {
+    "name": "area: ci",
+    "color": "5319e7",
+    "description": "GitHub Actions, automation, and release workflows"
+  },
+  {
+    "name": "difficulty: easy",
+    "color": "0e8a16",
+    "description": "Small, well-bounded change"
+  },
+  {
+    "name": "difficulty: medium",
+    "color": "fbca04",
+    "description": "Moderate scope or cross-file change"
+  },
+  {
+    "name": "difficulty: hard",
+    "color": "d93f0b",
+    "description": "Large, subtle, or cross-stack change"
+  },
+  {
+    "name": "good first issue",
+    "color": "7057ff",
+    "description": "Great entry point for new contributors"
+  },
+  {
+    "name": "help wanted",
+    "color": "008672",
+    "description": "Maintainers welcome outside contributions"
+  },
+  {
+    "name": "security",
+    "color": "b60205",
+    "description": "Security-sensitive improvements or hardening"
+  },
+  {
+    "name": "type: bug",
+    "color": "d73a4a",
+    "description": "Fixes incorrect or broken behavior"
+  },
+  {
+    "name": "type: feature",
+    "color": "a2eeef",
+    "description": "Adds new product or developer capability"
+  },
+  {
+    "name": "type: chore",
+    "color": "c5def5",
+    "description": "Maintenance, tooling, or housekeeping work"
+  },
+  {
+    "name": "type: test",
+    "color": "bfdadc",
+    "description": "Test coverage, reliability, or verification work"
+  }
+]
