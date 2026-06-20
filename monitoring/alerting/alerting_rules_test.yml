@@ -16,7 +16,7 @@ tests:
   - interval: 1m
     input_series:
       - series: 'trivela_request_errors_total{job="trivela-backend"}'
-        values: '0+6x10'  # 6 errors/min = 0.1 errors/s
+        values: '0+6x10' # 6 errors/min = 0.1 errors/s
       - series: 'trivela_requests_total{job="trivela-backend"}'
         values: '0+60x10' # 60 req/min = 1 req/s → error rate = 10%
 
@@ -32,7 +32,7 @@ tests:
   - interval: 1m
     input_series:
       - series: 'trivela_request_errors_total{job="trivela-backend"}'
-        values: '0+1x10'   # 1 error/min = 1.7%
+        values: '0+1x10' # 1 error/min = 1.7%
       - series: 'trivela_requests_total{job="trivela-backend"}'
         values: '0+60x10'
 
@@ -50,7 +50,7 @@ tests:
       - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="1000"}'
         values: '0+11x20'
       - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="+Inf"}'
-        values: '0+100x20'  # 89 out of 100 requests > 1000ms → p95 > 1000
+        values: '0+100x20' # 89 out of 100 requests > 1000ms → p95 > 1000
 
     alert_rule_test:
       - eval_time: 6m
@@ -106,7 +106,7 @@ tests:
   - interval: 1m
     input_series:
       - series: 'trivela_dlq_size_total{job="trivela-backend"}'
-        values: '0+2x20'  # +2 per minute → +10 per 5m, +20 per 15m — exceeds threshold of 10
+        values: '0+2x20' # +2 per minute → +10 per 5m, +20 per 15m — exceeds threshold of 10
 
     alert_rule_test:
       - eval_time: 20m

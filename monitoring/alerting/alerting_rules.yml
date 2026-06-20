@@ -18,8 +18,8 @@ groups:
         annotations:
           summary: 'Trivela backend 5xx error rate above 5%'
           description: >-
-            Error rate is {{ $value | humanizePercentage }} over the last 5 minutes.
-            Investigate backend logs immediately.
+            Error rate is {{ $value | humanizePercentage }} over the last 5 minutes. Investigate
+            backend logs immediately.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#backend-restart'
 
       # p95 request latency > 1 second (SLO breach)
@@ -36,8 +36,8 @@ groups:
         annotations:
           summary: 'Trivela p95 request latency above 1 second'
           description: >-
-            The 95th-percentile request latency is {{ $value | humanizeDuration }} —
-            above the 1 s SLO target. Identify slow routes in Grafana → Trivela API dashboard.
+            The 95th-percentile request latency is {{ $value | humanizeDuration }} — above the 1 s
+            SLO target. Identify slow routes in Grafana → Trivela API dashboard.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#latency-investigation'
 
       # Backend process restarted
@@ -62,7 +62,8 @@ groups:
           team: backend
         annotations:
           summary: 'Trivela backend is unreachable'
-          description: 'Prometheus cannot scrape the backend /metrics endpoint. Service may be down.'
+          description:
+            'Prometheus cannot scrape the backend /metrics endpoint. Service may be down.'
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#backend-restart'
 
       # Auth brute-force spike
@@ -76,8 +77,8 @@ groups:
         annotations:
           summary: 'Spike in failed authentication attempts'
           description: >-
-            Failed auth attempts averaging {{ $value | humanize }}/s — possible
-            brute-force or credential-stuffing. Check trivela_auth_lockouts_total and backend logs.
+            Failed auth attempts averaging {{ $value | humanize }}/s — possible brute-force or
+            credential-stuffing. Check trivela_auth_lockouts_total and backend logs.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#auth-brute-force-lockout'
 
       # Auth lockout actively firing
@@ -108,8 +109,8 @@ groups:
         annotations:
           summary: 'All Soroban RPC endpoints are unhealthy'
           description: >-
-            Every endpoint in the RPC pool is marked unhealthy. Contract interactions
-            will fail or fall back to the first endpoint. Check RPC node health.
+            Every endpoint in the RPC pool is marked unhealthy. Contract interactions will fail or
+            fall back to the first endpoint. Check RPC node health.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#rpc-failover'
 
       # RPC pool saturation: callers waiting for a slot
@@ -122,9 +123,9 @@ groups:
         annotations:
           summary: 'RPC pool is saturated — callers waiting'
           description: >-
-            {{ $value }} caller(s) are queued waiting for an RPC pool slot.
-            Requests beyond the acquire timeout will receive 503 POOL_SATURATED.
-            Consider increasing PG_POOL_MAX or scaling the RPC tier.
+            {{ $value }} caller(s) are queued waiting for an RPC pool slot. Requests beyond the
+            acquire timeout will receive 503 POOL_SATURATED. Consider increasing PG_POOL_MAX or
+            scaling the RPC tier.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#rpc-pool-saturation'
 
       # RPC health check endpoint down
@@ -155,8 +156,8 @@ groups:
         annotations:
           summary: 'Trivela event indexer appears stalled'
           description: >-
-            No events have been processed in the last 10 minutes while the indexer is
-            reported running. The cursor may be stuck or the RPC connection lost.
+            No events have been processed in the last 10 minutes while the indexer is reported
+            running. The cursor may be stuck or the RPC connection lost.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#indexer-lag'
 
   # ── Contracts ────────────────────────────────────────────────────────────────
@@ -203,8 +204,8 @@ groups:
         annotations:
           summary: 'Dead-letter queue is growing'
           description: >-
-            {{ $value }} jobs added to the DLQ in the last 15 minutes. Background
-            jobs are failing repeatedly. Review failed job logs for root cause.
+            {{ $value }} jobs added to the DLQ in the last 15 minutes. Background jobs are failing
+            repeatedly. Review failed job logs for root cause.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#dlq-investigation'
 
   # ── Operator ─────────────────────────────────────────────────────────────────
@@ -214,7 +215,7 @@ groups:
       # Operator wallet balance low (issue #650 — operator low-balance alert)
       - alert: OperatorLowBalance
         expr: |
-          trivela_operator_xlm_balance_stroops{job="trivela-backend"} < 50_000_000
+          trivela_operator_xlm_balance_stroops{job="trivela-backend"} < 50000000
         for: 5m
         labels:
           severity: warning
@@ -222,8 +223,8 @@ groups:
         annotations:
           summary: 'Operator wallet balance is low'
           description: >-
-            Operator XLM balance is {{ $value | humanize }} stroops (< 5 XLM). Transaction
-            fees may fail. Top up the operator wallet immediately.
+            Operator XLM balance is {{ $value | humanize }} stroops (< 5 XLM). Transaction fees may
+            fail. Top up the operator wallet immediately.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#operator-wallet-topup'
 
   # ── Synthetic canary ─────────────────────────────────────────────────────────
@@ -241,8 +242,8 @@ groups:
         annotations:
           summary: 'Synthetic canary journey failed'
           description: >-
-            The register→credit→claim canary on testnet has not succeeded for 5 minutes.
-            Core user journey is broken. Check canary logs and RPC/contract health.
+            The register→credit→claim canary on testnet has not succeeded for 5 minutes. Core user
+            journey is broken. Check canary logs and RPC/contract health.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#canary-failure'
 
       # Canary latency above 30 seconds
@@ -256,6 +257,6 @@ groups:
         annotations:
           summary: 'Synthetic canary journey is slow'
           description: >-
-            The register→credit→claim canary is taking {{ $value | humanizeDuration }},
-            above the 30 s SLO. The Soroban RPC or contract may be degraded.
+            The register→credit→claim canary is taking {{ $value | humanizeDuration }}, above the 30
+            s SLO. The Soroban RPC or contract may be degraded.
           runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#canary-failure'

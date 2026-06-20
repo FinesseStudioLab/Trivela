@@ -1631,10 +1631,7 @@ export async function startServer(options = {}) {
   //   3. Send "Connection: close / will-reconnect" hint to open SSE/WS streams.
   //   4. Flush OTel spans.
   //   5. Exit 0 once everything is drained (or force-exit after the grace window).
-  const SHUTDOWN_GRACE_MS = normalizePositiveInteger(
-    process.env.SHUTDOWN_GRACE_MS,
-    15_000,
-  );
+  const SHUTDOWN_GRACE_MS = normalizePositiveInteger(process.env.SHUTDOWN_GRACE_MS, 15_000);
 
   let shuttingDown = false;
 
@@ -1654,9 +1651,7 @@ export async function startServer(options = {}) {
     await new Promise((resolve) => server.close(resolve));
 
     // Flush OTel exporter.
-    await shutdownTracing().catch((err) =>
-      log.warn({ err }, 'OTel shutdown warning'),
-    );
+    await shutdownTracing().catch((err) => log.warn({ err }, 'OTel shutdown warning'));
 
     log.info('graceful shutdown complete');
     clearTimeout(forceTimer);

@@ -54,7 +54,7 @@ jobs:
         run: |
           timeout 10 node scripts/canary.mjs || true
         env:
-          CANARY_API_URL: http://localhost:9999  # unreachable → fast fail
+          CANARY_API_URL: http://localhost:9999 # unreachable → fast fail
           CANARY_TIMEOUT_MS: 2000
 
   # ── Backend tests (timeout middleware + rpcPool) ────────────────────────────

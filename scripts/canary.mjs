@@ -13,8 +13,8 @@
  *
  * Usage:
  *   node scripts/canary.mjs
- *   # or scheduled via cron / GitHub Actions schedule:
- *   # */5 * * * *  node scripts/canary.mjs >> /var/log/trivela-canary.log 2>&1
+ *   # or add to crontab (every 5 min — cron pattern "asterisk /5 * * * *"):
+ *   # node scripts/canary.mjs >> /var/log/trivela-canary.log 2>&1
  *
  * Environment variables (inherit from .env or CI secrets):
  *   CANARY_API_URL         Base URL of the Trivela backend (default: http://localhost:3001)
