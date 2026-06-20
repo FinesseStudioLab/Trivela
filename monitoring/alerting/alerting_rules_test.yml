@@ -1,0 +1,145 @@
+# promtool unit tests for Trivela alerting rules.
+#
+# Run locally:
+#   promtool test rules monitoring/alerting/alerting_rules_test.yml
+#
+# These tests fire against monitoring/alerting/alerting_rules.yml (referenced
+# via the `rule_files` list below).
+
+rule_files:
+  - alerting_rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  # ── HighBackendErrorRate ────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_request_errors_total{job="trivela-backend"}'
+        values: '0+6x10'  # 6 errors/min = 0.1 errors/s
+      - series: 'trivela_requests_total{job="trivela-backend"}'
+        values: '0+60x10' # 60 req/min = 1 req/s → error rate = 10%
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighBackendErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+
+  # ── HighBackendErrorRate does NOT fire below threshold ───────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_request_errors_total{job="trivela-backend"}'
+        values: '0+1x10'   # 1 error/min = 1.7%
+      - series: 'trivela_requests_total{job="trivela-backend"}'
+        values: '0+60x10'
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighBackendErrorRate
+        exp_alerts: []
+
+  # ── HighP95Latency ──────────────────────────────────────────────────────────
+  # Simulate p95 > 1000ms: put most samples in the >1000 bucket.
+  - interval: 30s
+    input_series:
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="500"}'
+        values: '0+10x20'
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="1000"}'
+        values: '0+11x20'
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="+Inf"}'
+        values: '0+100x20'  # 89 out of 100 requests > 1000ms → p95 > 1000
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighP95Latency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+
+  # ── BackendDown ──────────────────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'up{job="trivela-backend"}'
+        values: '1 1 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+
+  # ── AllRpcEndpointsUnhealthy ────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'trivela_rpc_pool_healthy{job="trivela-backend"}'
+        values: '2 2 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AllRpcEndpointsUnhealthy
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: infrastructure
+
+  # ── RpcPoolSaturated ────────────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'trivela_rpc_pool_waiting{job="trivela-backend"}'
+        values: '0 0 3 3 3 3 3'
+
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: RpcPoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+
+  # ── DLQGrowth ───────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_dlq_size_total{job="trivela-backend"}'
+        values: '0+2x20'  # +2 per minute → +10 per 5m, +20 per 15m — exceeds threshold of 10
+
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DLQGrowth
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+
+  # ── OperatorLowBalance ──────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_operator_xlm_balance_stroops{job="trivela-backend"}'
+        values: '100000000 100000000 30000000 30000000 30000000 30000000 30000000 30000000'
+
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: OperatorLowBalance
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: contracts
+
+  # ── CanaryJourneyFailed ─────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_canary_success{job="trivela-canary"}'
+        values: '1 1 0 0 0 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CanaryJourneyFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend

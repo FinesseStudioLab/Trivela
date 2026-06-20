@@ -1,0 +1,48 @@
+**/.git
+**/.gitignore
+**/.dockerignore
+**/Dockerfile
+
+# Local & editor state
+**/.DS_Store
+**/.idea
+**/.vscode
+**/*.log
+**/.env
+**/.env.*
+!**/.env.example
+
+# Workspaces / build artifacts that don't need to be in the build context
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.cache
+**/.turbo
+**/.next
+**/.parcel-cache
+
+# Rust contracts — not needed for the backend image.
+contracts
+target
+Cargo.lock
+**/test_snapshots
+
+# Tests & fixtures
+**/__tests__
+**/*.test.js
+**/*.spec.js
+
+# Frontend — not part of the backend image. The manifest is whitelisted
+# because npm needs it to validate the workspaces config.
+frontend
+!frontend/package.json
+
+# Misc
+**/*.md
+!backend/README.md
+docs
+scripts
+test-results
+playwright-report
+storybook-static

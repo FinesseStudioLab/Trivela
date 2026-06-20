@@ -1,0 +1,105 @@
+name: Testnet Integration Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_contracts:
+        description: Deploy contracts to testnet
+        required: false
+        default: 'false'
+        type: boolean
+      run_smoke_tests:
+        description: Run smoke tests after deployment
+        required: false
+        default: 'true'
+        type: boolean
+
+concurrency:
+  group: testnet-integration
+  cancel_in_progress: false
+
+jobs:
+  testnet-integration:
+    name: Deploy to testnet and run smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      STELLAR_NETWORK: testnet
+      SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+      HORIZON_URL: https://horizon-testnet.stellar.org
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Set up Rust
+        if: inputs.deploy_contracts == true
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Validate environment
+        run: npm run env:validate
+
+      - name: Build contracts
+        if: inputs.deploy_contracts == true
+        run: npm run build:contracts
+
+      - name: Deploy contracts to testnet
+        if: inputs.deploy_contracts == true
+        run: |
+          bash ./scripts/deploy-testnet.sh
+        env:
+          SOROBAN_TESTNET_ACCOUNT_SECRET: ${{ secrets.SOROBAN_TESTNET_ACCOUNT_SECRET }}
+
+      - name: Build backend
+        run: npm run build:backend
+
+      - name: Build frontend
+        run: npm run build:frontend
+
+      - name: Run backend tests
+        run: npm run test:backend
+
+      - name: Install Playwright browsers
+        if: inputs.run_smoke_tests == true
+        run: npx playwright install --with-deps chromium
+
+      - name: Run frontend smoke tests
+        if: inputs.run_smoke_tests == true
+        run: npm run test:frontend
+        env:
+          VITE_API_URL: http://localhost:3001
+          VITE_STELLAR_NETWORK: testnet
+
+      - name: Upload test artifacts on failure
+        if: failure() && inputs.run_smoke_tests == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: testnet-integration-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Report deployment success
+        if: inputs.deploy_contracts == true && success()
+        run: |
+          echo "✓ Successfully deployed to testnet"
+          echo "Contract IDs available in deployment artifacts"
+
+      - name: Report test success
+        if: inputs.run_smoke_tests == true && success()
+        run: |
+          echo "✓ All smoke tests passed"
+          echo "Ready for manual verification on testnet"

@@ -1,0 +1,66 @@
+name: Security Headers Check
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+jobs:
+  security-headers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci --workspace=backend
+
+      - name: Start backend server
+        run: |
+          npm run start --workspace=backend &
+          echo $! > /tmp/backend.pid
+          timeout 30 bash -c 'until curl -sf http://localhost:3001/health; do sleep 1; done'
+        env:
+          PORT: 3001
+          STELLAR_NETWORK: testnet
+          SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+          HORIZON_URL: https://horizon-testnet.stellar.org
+          NODE_ENV: test
+
+      - name: Check security headers are present
+        run: |
+          HEADERS=$(curl -s -I http://localhost:3001/health)
+          echo "$HEADERS"
+
+          check_header() {
+            local name="$1"
+            if echo "$HEADERS" | grep -qi "$name"; then
+              echo "PASS: $name header present"
+            else
+              echo "FAIL: $name header missing"
+              exit 1
+            fi
+          }
+
+          check_header "x-content-type-options"
+          check_header "x-frame-options"
+          check_header "referrer-policy"
+          check_header "permissions-policy"
+          check_header "content-security-policy"
+
+      - name: Stop backend server
+        if: always()
+        run: |
+          if [ -f /tmp/backend.pid ]; then
+            kill $(cat /tmp/backend.pid) 2>/dev/null || true
+          fi

@@ -1,0 +1,14 @@
+# Global fallback
+* @FinesseStudioLab/maintainers
+
+# Backend
+/backend/ @FinesseStudioLab/backend
+
+# Frontend
+/frontend/ @FinesseStudioLab/frontend
+
+# Contracts
+/contracts/ @FinesseStudioLab/contracts
+
+# CI / repo config
+/.github/ @FinesseStudioLab/maintainers
