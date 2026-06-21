@@ -41,7 +41,8 @@ jobs:
       - name: Build frontend (via Turborepo)
         run: npx turbo run build --filter=frontend
 
-      # Optional: add a Lighthouse CI step targeting PWA score >= 90 on production builds.
+      - name: Bundle size budget gate
+        run: node scripts/check-bundle-size.mjs
 
       - name: Upload frontend build artifact
         if: success()
@@ -66,6 +67,17 @@ jobs:
       - name: Test frontend (via Turborepo)
         if: steps.scripts.outputs.has_test == 'true'
         run: npx turbo run test --filter=frontend
+
+      - name: Coverage gate — unit tests with thresholds
+        run: npm run test:coverage --workspace=frontend
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
 
       - name: Upload Playwright artifacts on failure
         if: failure() && steps.scripts.outputs.has_test == 'true'

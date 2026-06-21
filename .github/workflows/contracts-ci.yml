@@ -40,6 +40,34 @@ jobs:
       - name: Run contract tests
         run: cargo test --workspace
 
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Coverage gate — Rust contracts (≥ 60 % line coverage)
+        run: |
+          cargo llvm-cov --workspace \
+            --exclude integration \
+            --ignore-filename-regex "test|mock|fuzz" \
+            --json --output-path /tmp/coverage.json
+          python3 - <<'PYEOF'
+          import json, sys
+          data = json.load(open("/tmp/coverage.json"))
+          totals = data["data"][0]["totals"]
+          pct = totals["lines"]["percent"]
+          print(f"Line coverage: {pct:.1f}%")
+          if pct < 60:
+              print(f"ERROR: Line coverage {pct:.1f}% is below the 60% threshold.", file=sys.stderr)
+              sys.exit(1)
+          PYEOF
+
+      - name: Upload Rust coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-coverage
+          path: /tmp/coverage.json
+          if-no-files-found: ignore
+
       - name: Check public documentation completeness
         run: |
           cargo doc --document-private-items --no-deps 2>&1 | tee /tmp/cargo-doc-check.txt

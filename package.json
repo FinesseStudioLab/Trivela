@@ -26,7 +26,8 @@
     "docs:contracts": "cargo doc --package trivela-campaign-contract --package trivela-rewards-contract --no-deps && rm -rf docs/contract-api && cp -r target/doc docs/contract-api",
     "format": "prettier --write \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
     "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
-    "merkle:generate": "node scripts/generate-merkle.mjs"
+    "merkle:generate": "node scripts/generate-merkle.mjs",
+    "check:bundle": "node scripts/check-bundle-size.mjs"
   },
   "workspaces": [
     "backend",

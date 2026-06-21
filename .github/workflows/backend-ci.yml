@@ -47,3 +47,7 @@ jobs:
       - name: Test backend (integration tests)
         run: npm run test:integration --workspace=backend
         timeout-minutes: 1
+
+      - name: Test backend (OpenAPI contract tests)
+        run: npm run test:contract --workspace=backend
+        timeout-minutes: 1

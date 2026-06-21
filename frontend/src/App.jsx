@@ -1,16 +1,19 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Landing from './Landing';
-import CampaignDetail from './CampaignDetail';
-import CampaignLeaderboard from './CampaignLeaderboard';
-import CampaignAnalytics from './CampaignAnalytics';
-import AdminCampaigns from './AdminCampaigns';
-import About from './About';
 import PageMeta from './components/PageMeta';
-import TransactionHistory from './TransactionHistory';
-import EmbedCampaign from './pages/EmbedCampaign';
 import WalletModal from './components/WalletModal';
 import RequireAdmin from './components/RequireAdmin';
+
+// Route-level lazy loading — each chunk is fetched only when the user
+// navigates to that route, keeping the initial bundle small.
+const CampaignDetail = lazy(() => import('./CampaignDetail'));
+const CampaignLeaderboard = lazy(() => import('./CampaignLeaderboard'));
+const CampaignAnalytics = lazy(() => import('./CampaignAnalytics'));
+const AdminCampaigns = lazy(() => import('./AdminCampaigns'));
+const About = lazy(() => import('./About'));
+const TransactionHistory = lazy(() => import('./TransactionHistory'));
+const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -151,6 +154,7 @@ export default function App() {
   return (
     <>
       <PageMeta path={defaultPath} />
+      <Suspense fallback={<div className="route-loading" aria-live="polite">Loading…</div>}>
       <Routes>
         <Route
           path="/"
@@ -296,6 +300,7 @@ export default function App() {
         />
         <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
       </Routes>
+      </Suspense>
       <WalletModal
         isOpen={showWalletModal}
         onClose={() => setShowWalletModal(false)}
