@@ -1,0 +1,73 @@
+name: Visual Regression Tests
+
+on:
+  pull_request:
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/.storybook/**'
+      - 'frontend/tests/visual/**'
+      - 'frontend/package*.json'
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend/src/**'
+      - 'frontend/.storybook/**'
+      - 'frontend/tests/visual/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  visual-tests:
+    name: Visual Regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install root dependencies
+        run: npm install
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Run visual regression tests
+        working-directory: frontend
+        run: npm run test:visual
+        continue-on-error: true
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-report
+          path: frontend/playwright-report-visual/
+          retention-days: 30
+
+      - name: Upload diff images
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-regression-diffs
+          path: |
+            frontend/tests/visual/__snapshots__/**/*-diff.png
+            frontend/tests/visual/__snapshots__/**/*-actual.png
+          retention-days: 30
+          if-no-files-found: ignore

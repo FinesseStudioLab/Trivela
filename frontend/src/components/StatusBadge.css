@@ -1,0 +1,65 @@
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid transparent;
+  width: fit-content;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Active Status - Green */
+.status-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-color: var(--border);
+}
+
+.status-active .status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+/* Upcoming Status - Blue/Yellow */
+.status-upcoming {
+  background: rgba(255, 171, 0, 0.1);
+  color: #ffab00;
+  border-color: rgba(255, 171, 0, 0.2);
+}
+
+.status-upcoming .status-dot {
+  background: #ffab00;
+}
+
+/* Ended Status - Gray */
+.status-ended {
+  background: rgba(150, 176, 214, 0.1);
+  color: var(--text-muted);
+  border-color: var(--border);
+}
+
+.status-ended .status-dot {
+  background: var(--text-muted);
+}
+
+/* Light mode overrides for better contrast if needed */
+:root[data-theme='light'] .status-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+:root[data-theme='light'] .status-upcoming {
+  background: rgba(255, 171, 0, 0.12);
+  color: #b37700;
+}
