@@ -658,3 +658,6 @@ fn do_deregister(env: &Env, participant: Address) -> bool {
 
 #[cfg(test)]
 mod test;
+
+#[cfg(test)]
+mod fuzz_test;
