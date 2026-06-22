@@ -64,6 +64,28 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // Vendor code splitting — keeps the initial bundle lean by hoisting
+        // stable third-party packages into separately cacheable chunks.
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/react-router')) {
+            return 'vendor-router';
+          }
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) {
+            return 'vendor-charts';
+          }
+          if (id.includes('node_modules/@stellar')) {
+            return 'vendor-stellar';
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {
