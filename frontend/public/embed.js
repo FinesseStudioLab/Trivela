@@ -44,7 +44,9 @@
         var u = new URL(scriptEl.src);
         return u.origin;
       }
-    } catch (_) { /* invalid URL — fall through to default */ }
+    } catch (_) {
+      /* invalid URL — fall through to default */
+    }
     return 'https://trivela.app';
   })();
 
@@ -127,7 +129,9 @@
     }
     var handlers = this._listeners[event];
     if (!handlers) return this;
-    this._listeners[event] = handlers.filter(function (h) { return h !== handler; });
+    this._listeners[event] = handlers.filter(function (h) {
+      return h !== handler;
+    });
     return this;
   };
 
@@ -135,7 +139,11 @@
   TrivelaWidget.prototype._emit = function (event, data) {
     var handlers = this._listeners[event] || [];
     for (var i = 0; i < handlers.length; i++) {
-      try { handlers[i](data); } catch (_) { /* isolate subscriber errors */ }
+      try {
+        handlers[i](data);
+      } catch (_) {
+        /* isolate subscriber errors */
+      }
     }
   };
 
@@ -186,10 +194,7 @@
     // Sandbox: minimal permissions required for the widget to function.
     // allow-same-origin is needed for postMessage to carry the Trivela origin.
     // allow-popups is needed so the "Register" link opens in a new tab.
-    iframe.setAttribute(
-      'sandbox',
-      'allow-scripts allow-same-origin allow-popups allow-forms'
-    );
+    iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin allow-popups allow-forms');
     iframe.style.cssText = [
       'display:block',
       'width:100%',

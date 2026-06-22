@@ -171,9 +171,7 @@ export default function EmbedCampaign() {
 
   // Build the register URL with partner attribution when available.
   const baseUrl = `${window.location.origin}/campaign/${id}`;
-  const registerUrl = partner
-    ? `${baseUrl}?ref=${encodeURIComponent(partner)}`
-    : baseUrl;
+  const registerUrl = partner ? `${baseUrl}?ref=${encodeURIComponent(partner)}` : baseUrl;
 
   const handleRegisterClick = () => {
     postToParent('trivela:register_click', { campaignId: id, partner });
