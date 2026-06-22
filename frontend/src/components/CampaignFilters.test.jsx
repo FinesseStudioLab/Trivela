@@ -2,7 +2,7 @@
 // Follows the existing vitest convention from src/lib/config.test.js — the
 // frontend repo wires vitest separately from the Playwright e2e suite.
 
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import CampaignFilters, { sortKeyToApiParams } from './CampaignFilters';
 
@@ -42,12 +42,10 @@ describe('CampaignFilters', () => {
       const input = screen.getByLabelText(/search campaigns/i);
 
       act(() => {
-        input.value = 'air';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        fireEvent.change(input, { target: { value: 'air' } });
       });
       act(() => {
-        input.value = 'airdrop';
-        input.dispatchEvent(new Event('input', { bubbles: true }));
+        fireEvent.change(input, { target: { value: 'airdrop' } });
       });
 
       // Still inside the debounce window — must not have fired yet.
@@ -83,8 +81,7 @@ describe('CampaignFilters', () => {
     expect(onActiveOnlyChange).toHaveBeenCalledWith(true);
 
     const sortSelect = screen.getByLabelText(/sort/i);
-    sortSelect.value = 'reward_desc';
-    sortSelect.dispatchEvent(new Event('change', { bubbles: true }));
+    fireEvent.change(sortSelect, { target: { value: 'reward_desc' } });
     expect(onSortKeyChange).toHaveBeenCalledWith('reward_desc');
   });
 });
