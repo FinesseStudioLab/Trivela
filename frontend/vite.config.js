@@ -38,6 +38,8 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 3_000_000,
+        // Web Push handlers (issue #619) — imported into the generated SW.
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
             urlPattern: ({ request }) =>

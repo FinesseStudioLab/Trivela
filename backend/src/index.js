@@ -53,6 +53,8 @@ import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
 import { createCohortRoutes } from './routes/cohorts.js';
 import { createCohortService } from './services/cohortService.js';
+import { createPushRoutes } from './routes/push.js';
+import { createWebPushService } from './services/webPushService.js';
 import { requestTimeout } from './middleware/timeout.js';
 import { PoolSaturatedError } from './rpcPool.js';
 
@@ -241,6 +243,7 @@ export async function createApp(options = {}) {
   const referralRepository = dal.referrals;
   const variantRepository = dal.variants;
   const cohortRepository = dal.cohorts;
+  const pushSubscriptionRepository = dal.pushSubscriptions;
   const apiKeyRepository = dal.apiKeys;
   const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const allowlistRepository = dal.allowlists;
@@ -258,6 +261,15 @@ export async function createApp(options = {}) {
   });
   const variantService = createVariantService({ variantRepo: variantRepository });
   const cohortService = createCohortService({ cohortRepo: cohortRepository });
+  const webPushService = createWebPushService({
+    repository: pushSubscriptionRepository,
+    vapid: {
+      publicKey: process.env.VAPID_PUBLIC_KEY,
+      privateKey: process.env.VAPID_PRIVATE_KEY,
+      subject: process.env.VAPID_SUBJECT,
+    },
+    logger: log,
+  });
   const shortCacheTtlMs = normalizePositiveInteger(
     /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
     DEFAULT_SHORT_CACHE_TTL_MS,
@@ -1600,6 +1612,13 @@ export async function createApp(options = {}) {
       campaignRepo: campaignRepository,
     });
     app.use(prefix, rateLimiter, requireApiKey, cohortRouter);
+
+    // Web Push subscription routes (Issue #619)
+    const pushRouter = createPushRoutes({
+      repository: pushSubscriptionRepository,
+      service: webPushService,
+    });
+    app.use(prefix, rateLimiter, requireApiKey, pushRouter);
   }
 
   registerApiRoutes(API_V1_PREFIX);
