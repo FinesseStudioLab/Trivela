@@ -6,8 +6,9 @@
  * the total budget.
  *
  * Budgets (uncompressed, before gzip):
- *   Per chunk : 600 KB   — prevents any single lazy route from bloating
- *   Total JS  : 2 000 KB — guards against total payload growth
+ *   Per chunk        : 600 KB   — prevents any single lazy route from bloating
+ *   vendor-stellar   : 1 800 KB — Stellar SDK ships as one large chunk by design
+ *   Total JS         : 2 500 KB — guards against total payload growth
  *
  * Usage (after `npm run build --workspace=frontend`):
  *   node scripts/check-bundle-size.mjs [--dist frontend/dist]
@@ -17,7 +18,9 @@ import { readdirSync, statSync } from 'node:fs';
 import { join, extname, basename } from 'node:path';
 
 const CHUNK_BUDGET_KB = 600;
-const TOTAL_BUDGET_KB = 2000;
+// The Stellar SDK ships as a single large vendor chunk (~1.6 MB uncompressed).
+const STELLAR_VENDOR_BUDGET_KB = 1800;
+const TOTAL_BUDGET_KB = 2500;
 
 const args = process.argv.slice(2);
 const distFlag = args.indexOf('--dist');
@@ -50,7 +53,8 @@ console.log('\nBundle size report\n' + '─'.repeat(60));
 for (const { name, size } of files) {
   const kb = size / 1024;
   totalBytes += size;
-  const over = kb > CHUNK_BUDGET_KB;
+  const limit = name.startsWith('vendor-stellar') ? STELLAR_VENDOR_BUDGET_KB : CHUNK_BUDGET_KB;
+  const over = kb > limit;
   const marker = over ? '✗ OVER BUDGET' : '✓';
   console.log(`  ${marker.padEnd(14)} ${name.padEnd(40)} ${kb.toFixed(1)} KB`);
   if (over) failures++;
