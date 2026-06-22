@@ -1,0 +1,78 @@
+name: Frontend CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate env examples
+        run: npm run env:validate
+
+      - name: Detect optional frontend scripts
+        id: scripts
+        run: |
+          node --input-type=module <<'EOF'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('./frontend/package.json', 'utf8'));
+          const out = process.env.GITHUB_OUTPUT;
+          fs.appendFileSync(out, 'has_lint=' + (pkg.scripts?.lint ? 'true' : 'false') + '\n');
+          fs.appendFileSync(out, 'has_format_check=' + (pkg.scripts?.['format:check'] ? 'true' : 'false') + '\n');
+          fs.appendFileSync(out, 'has_test=' + (pkg.scripts?.test ? 'true' : 'false') + '\n');
+          EOF
+
+      - name: Build frontend (via Turborepo)
+        run: npx turbo run build --filter=frontend
+
+      # Optional: add a Lighthouse CI step targeting PWA score >= 90 on production builds.
+
+      - name: Upload frontend build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+      - name: Install Playwright browsers
+        if: steps.scripts.outputs.has_test == 'true'
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Lint frontend (via Turborepo)
+        if: steps.scripts.outputs.has_lint == 'true'
+        run: npx turbo run lint --filter=frontend
+
+      - name: Check frontend formatting
+        if: steps.scripts.outputs.has_format_check == 'true'
+        run: npm run format:check --workspace=frontend
+
+      - name: Test frontend (via Turborepo)
+        if: steps.scripts.outputs.has_test == 'true'
+        run: npx turbo run test --filter=frontend
+
+      - name: Upload Playwright artifacts on failure
+        if: failure() && steps.scripts.outputs.has_test == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore

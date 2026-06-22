@@ -1,0 +1,76 @@
+name: Observability CI
+
+# Validates the Prometheus alert rules and synthetic canary on every PR/push.
+# Fails fast if alerting rules are invalid or unit tests regress.
+
+on:
+  pull_request:
+    paths:
+      - 'monitoring/**'
+      - 'scripts/canary.mjs'
+      - '.github/workflows/observability-ci.yml'
+  push:
+    branches: [main]
+
+jobs:
+  # ── promtool: validate + unit-test alert rules ──────────────────────────────
+  alert-rules:
+    name: promtool — lint & test alert rules
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Prometheus (for promtool)
+        run: |
+          PROM_VERSION=2.51.0
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROM_VERSION}/prometheus-${PROM_VERSION}.linux-amd64.tar.gz" \
+            | tar xz --strip-components=1 -C /tmp "prometheus-${PROM_VERSION}.linux-amd64/promtool"
+          sudo mv /tmp/promtool /usr/local/bin/promtool
+          promtool --version
+
+      - name: Validate alert rule syntax
+        run: promtool check rules monitoring/alerting/alerting_rules.yml
+
+      - name: Run alert rule unit tests
+        run: promtool test rules monitoring/alerting/alerting_rules_test.yml
+
+  # ── Canary script: syntax check (no live testnet in CI) ────────────────────
+  canary-lint:
+    name: Canary script lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Check canary script syntax
+        run: node --check scripts/canary.mjs
+
+      - name: Dry-run canary (no network, expect fast fail)
+        run: |
+          timeout 10 node scripts/canary.mjs || true
+        env:
+          CANARY_API_URL: http://localhost:9999 # unreachable → fast fail
+          CANARY_TIMEOUT_MS: 2000
+
+  # ── Backend tests (timeout middleware + rpcPool) ────────────────────────────
+  backend-reliability:
+    name: Backend reliability unit tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Run backend unit tests
+        run: npx turbo run test --filter=backend

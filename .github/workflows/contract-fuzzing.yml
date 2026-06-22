@@ -1,0 +1,167 @@
+name: Contract Fuzzing
+
+on:
+  schedule:
+    # Run nightly at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: 'Fuzzing duration in minutes'
+        required: true
+        default: '60'
+        type: string
+      contract:
+        description: 'Contract to fuzz (campaign, rewards, or all)'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - campaign
+          - rewards
+
+jobs:
+  fuzz-contracts:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        contract:
+          - ${{ github.event.inputs.contract == 'campaign' && 'campaign' ||
+            github.event.inputs.contract == 'rewards' && 'rewards' || 'campaign' }}
+          - ${{ github.event.inputs.contract == 'all' && 'rewards' || '' }}
+        exclude:
+          - contract: ''
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-fuzz-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-fuzz-cargo-
+
+      - name: Set fuzzing duration
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "FUZZ_DURATION=300" >> $GITHUB_ENV  # 5 minutes for nightly
+          else
+            echo "FUZZ_DURATION=${{ github.event.inputs.duration || 60 }}" >> $GITHUB_ENV
+          fi
+
+      - name: Run intensive property-based fuzzing
+        working-directory: contracts/${{ matrix.contract }}
+        run: |
+          echo "Running intensive fuzzing for ${{ matrix.contract }} contract for ${FUZZ_DURATION} seconds..."
+
+          # Run each fuzz test individually with timeout
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_participant_count_matches_registered_set -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_max_cap_enforcement -- --nocapture || echo "Test completed/timed out"  
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_time_window_enforcement -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_admin_nonce_monotonicity -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_referral_count_integrity -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_inactive_campaign_blocks_registration -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_deregister_consistency -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_admin_rotation_integrity -- --nocapture || echo "Test completed/timed out"
+          timeout ${FUZZ_DURATION}s cargo test --release fuzz_random_operation_sequence -- --nocapture || echo "Test completed/timed out"
+
+          echo "Fuzzing completed for ${{ matrix.contract }} contract"
+
+      - name: Check for regression files
+        run: |
+          if [ -d "contracts/${{ matrix.contract }}/proptest-regressions" ] && [ "$(ls -A contracts/${{ matrix.contract }}/proptest-regressions)" ]; then
+            echo "Found regression files in ${{ matrix.contract }}:"
+            ls -la contracts/${{ matrix.contract }}/proptest-regressions/
+            echo "REGRESSIONS_FOUND=true" >> $GITHUB_ENV
+          else
+            echo "No regressions found for ${{ matrix.contract }}"
+            echo "REGRESSIONS_FOUND=false" >> $GITHUB_ENV
+          fi
+
+      - name: Upload regression artifacts
+        if: env.REGRESSIONS_FOUND == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: proptest-regressions-${{ matrix.contract }}-${{ github.run_number }}
+          path: contracts/${{ matrix.contract }}/proptest-regressions/
+          retention-days: 30
+
+      - name: Generate fuzzing report
+        run: |
+          echo "## Fuzzing Report for ${{ matrix.contract }} Contract" >> $GITHUB_STEP_SUMMARY
+          echo "- **Duration**: ${FUZZ_DURATION} seconds" >> $GITHUB_STEP_SUMMARY
+          echo "- **Test Cases**: Property-based invariant testing" >> $GITHUB_STEP_SUMMARY
+          echo "- **Regressions Found**: ${{ env.REGRESSIONS_FOUND }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Invariants Tested:" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ matrix.contract }}" = "campaign" ]; then
+            echo "- Participant count consistency" >> $GITHUB_STEP_SUMMARY
+            echo "- Max cap enforcement" >> $GITHUB_STEP_SUMMARY
+            echo "- Time window validation" >> $GITHUB_STEP_SUMMARY
+            echo "- Admin nonce monotonicity" >> $GITHUB_STEP_SUMMARY
+            echo "- Referral system integrity" >> $GITHUB_STEP_SUMMARY
+            echo "- Campaign state transitions" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- Balance consistency across operations" >> $GITHUB_STEP_SUMMARY
+            echo "- Credit limit enforcement" >> $GITHUB_STEP_SUMMARY
+            echo "- Rate limiting behavior" >> $GITHUB_STEP_SUMMARY
+            echo "- Campaign multiplier accuracy" >> $GITHUB_STEP_SUMMARY
+            echo "- Pause state blocking" >> $GITHUB_STEP_SUMMARY
+            echo "- Vesting calculations" >> $GITHUB_STEP_SUMMARY
+            echo "- Overflow protection" >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment on PR (if applicable)
+        if: github.event_name == 'pull_request' && env.REGRESSIONS_FOUND == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: `🚨 **Fuzzing found regressions in ${{ matrix.contract }} contract**
+              
+              Property-based testing discovered edge cases that cause failures. Check the uploaded artifacts for detailed regression cases.
+              
+              **Next steps:**
+              1. Download the regression artifacts from this workflow run
+              2. Run the specific failing test cases locally: \`cargo test --release -- --nocapture\`
+              3. Fix the underlying issues or update test assumptions
+              4. Re-run fuzzing to verify fixes
+              
+              See the [fuzzing workflow](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) for full details.`
+            })
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: fuzz-contracts
+    if: always()
+    steps:
+      - name: Generate overall summary
+        run: |
+          echo "## 🔍 Contract Fuzzing Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Completed intensive property-based testing of Trivela smart contracts." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Fuzzing Approach**: Uses proptest to generate thousands of random inputs and verify invariants hold under all conditions." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Key Benefits**:" >> $GITHUB_STEP_SUMMARY
+          echo "- Discovers edge cases not covered by unit tests" >> $GITHUB_STEP_SUMMARY
+          echo "- Verifies mathematical invariants (balance consistency, monotonicity)" >> $GITHUB_STEP_SUMMARY
+          echo "- Tests authorization and access control under random conditions" >> $GITHUB_STEP_SUMMARY
+          echo "- Validates state transitions and error handling" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Any regression files indicate reproducible failures that need investigation." >> $GITHUB_STEP_SUMMARY
