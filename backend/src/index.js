@@ -592,7 +592,23 @@ export async function createApp(options = {}) {
 
   const siteOrigin =
     process.env.SITE_ORIGIN ?? allowedOrigins.find((origin) => origin !== '*') ?? '';
-  app.get('/embed/campaign/:id', createEmbedRoute(campaignRepository, siteOrigin));
+
+  // Embed endpoints use a tighter per-IP rate limit (30 req/min) to guard
+  // against scraping while still allowing reasonable widget traffic.
+  const embedRateLimiter = createRateLimiter({
+    windowMs: rateLimitWindowMs,
+    maxRequests: Math.min(30, rateLimitMaxRequests),
+    timeProvider: /** @type {any} */ (options.rateLimit)?.timeProvider,
+    store: rateLimitStore,
+  });
+
+  app.get(
+    '/embed/campaign/:id',
+    embedRateLimiter,
+    createEmbedRoute(campaignRepository, siteOrigin, {
+      embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+    }),
+  );
 
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
