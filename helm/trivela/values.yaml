@@ -1,0 +1,76 @@
+# Default values for trivela Helm chart.
+# Override these values using -f my-values.yaml or --set key=value.
+
+# ─── Global ───────────────────────────────────────────────────────────────────
+nameOverride: ''
+fullnameOverride: ''
+
+# ─── Backend ─────────────────────────────────────────────────────────────────
+backend:
+  image:
+    repository: trivela-backend
+    tag: latest
+    pullPolicy: Always
+  replicaCount: 2
+  port: 3001
+  resources:
+    requests:
+      cpu: '100m'
+      memory: '128Mi'
+    limits:
+      cpu: '500m'
+      memory: '512Mi'
+  livenessProbe:
+    path: /health
+    initialDelaySeconds: 15
+    periodSeconds: 20
+  readinessProbe:
+    path: /health
+    initialDelaySeconds: 5
+    periodSeconds: 10
+
+# ─── Frontend ────────────────────────────────────────────────────────────────
+frontend:
+  image:
+    repository: nginx
+    tag: 1.25-alpine
+    pullPolicy: IfNotPresent
+  replicaCount: 2
+  port: 80
+  resources:
+    requests:
+      cpu: '50m'
+      memory: '64Mi'
+    limits:
+      cpu: '200m'
+      memory: '256Mi'
+
+# ─── Ingress ─────────────────────────────────────────────────────────────────
+ingress:
+  enabled: true
+  className: nginx
+  host: trivela.example.com
+  tls:
+    enabled: true
+    secretName: trivela-tls
+    clusterIssuer: letsencrypt-prod
+
+# ─── HPA ─────────────────────────────────────────────────────────────────────
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# ─── Config (non-secret env vars) ────────────────────────────────────────────
+config:
+  nodeEnv: production
+  logLevel: info
+  corsOrigin: 'https://trivela.example.com'
+
+# ─── Secrets (provide real values at deploy time; never commit real data) ────
+secrets:
+  databaseUrl: 'postgresql://trivela_user:CHANGE_ME@postgres:5432/trivela_db'
+  jwtSecret: 'CHANGE_ME_USE_A_STRONG_RANDOM_SECRET'
+  sorobanRpcUrl: 'https://soroban-testnet.stellar.org'
