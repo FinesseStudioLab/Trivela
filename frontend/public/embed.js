@@ -27,7 +27,6 @@
  *   - No credentials, API keys, or wallet secrets are ever exposed in the snippet.
  */
 
-/* global window, document */
 (function (global) {
   'use strict';
 
@@ -45,7 +44,7 @@
         var u = new URL(scriptEl.src);
         return u.origin;
       }
-    } catch (_) {}
+    } catch (_) { /* invalid URL — fall through to default */ }
     return 'https://trivela.app';
   })();
 
@@ -136,7 +135,7 @@
   TrivelaWidget.prototype._emit = function (event, data) {
     var handlers = this._listeners[event] || [];
     for (var i = 0; i < handlers.length; i++) {
-      try { handlers[i](data); } catch (_) {}
+      try { handlers[i](data); } catch (_) { /* isolate subscriber errors */ }
     }
   };
 

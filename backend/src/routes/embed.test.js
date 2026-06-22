@@ -57,9 +57,17 @@ function makeRes() {
     _status: 200,
     _headers: {},
     _body: '',
-    status(code) { this._status = code; return this; },
-    setHeader(name, value) { this._headers[name.toLowerCase()] = value; },
-    send(body) { this._body = body; return this; },
+    status(code) {
+      this._status = code;
+      return this;
+    },
+    setHeader(name, value) {
+      this._headers[name.toLowerCase()] = value;
+    },
+    send(body) {
+      this._body = body;
+      return this;
+    },
   };
   return res;
 }
@@ -151,7 +159,7 @@ describe('createEmbedRoute', () => {
     // These must NOT result in ?ref=<value> appearing in the register URL.
     const invalidPartners = [
       '<script>alert(1)</script>',
-      'partner id',   // space
+      'partner id', // space
       'a'.repeat(65), // too long
       'partner/path', // slash
     ];
@@ -211,7 +219,10 @@ describe('createEmbedRoute', () => {
       handler(req, res);
 
       if (color) {
-        assert.ok(!res._body.includes(`background: ${color}`), `invalid color "${color}" must not appear as background`);
+        assert.ok(
+          !res._body.includes(`background: ${color}`),
+          `invalid color "${color}" must not appear as background`,
+        );
       }
     }
   });
@@ -352,7 +363,10 @@ describe('verifyAttributionToken', () => {
   });
 
   test('returns false for a tampered token', () => {
-    assert.equal(verifyAttributionToken('c1', 'p1', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'secret'), false);
+    assert.equal(
+      verifyAttributionToken('c1', 'p1', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'secret'),
+      false,
+    );
   });
 
   test('returns false for empty token or secret', () => {
