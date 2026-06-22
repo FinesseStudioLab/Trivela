@@ -70,9 +70,7 @@ function createTestApp(options = {}) {
   resetFactorySequence();
   return createApp({
     dbPath: ':memory:',
-    campaigns: [
-      makeCampaignInput({ name: 'Contract Test Campaign', rewardPerAction: 50 }),
-    ],
+    campaigns: [makeCampaignInput({ name: 'Contract Test Campaign', rewardPerAction: 50 })],
     disableJobs: true,
     skipEnvValidation: true,
     ...options,
@@ -106,8 +104,14 @@ test('GET /api/v1/campaigns conforms to CampaignListResponse schema', async () =
   assert.ok(typeof res.body.pagination === 'object', 'pagination is object');
 
   const requiredPaginationFields = [
-    'total', 'count', 'page', 'limit', 'offset', 'totalPages',
-    'hasPreviousPage', 'hasNextPage',
+    'total',
+    'count',
+    'page',
+    'limit',
+    'offset',
+    'totalPages',
+    'hasPreviousPage',
+    'hasNextPage',
   ];
   for (const field of requiredPaginationFields) {
     assert.ok(field in res.body.pagination, `pagination.${field} present`);

@@ -154,79 +154,126 @@ export default function App() {
   return (
     <>
       <PageMeta path={defaultPath} />
-      <Suspense fallback={<div className="route-loading" aria-live="polite">Loading…</div>}>
-      <Routes>
-        <Route
-          path="/"
-          element={
-            <Landing
-              runtimeConfig={runtimeConfig}
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
-              walletAddress={walletAddress}
-              walletBalance={walletBalance}
-              rewardsPoints={rewardsPoints}
-              isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              isRewardsPointsLoading={isRewardsPointsLoading}
-              walletError={walletError}
-              onConnectWallet={openWalletModal}
-              onDisconnectWallet={disconnectWallet}
-              onRefreshPoints={() => loadWalletBalance(walletAddress)}
-            />
-          }
-        />
-        <Route
-          path="/campaign/:id"
-          element={
-            <CampaignDetail
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
-              walletAddress={walletAddress}
-              walletBalance={walletBalance}
-              rewardsPoints={rewardsPoints}
-              isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              isRewardsPointsLoading={isRewardsPointsLoading}
-              onConnectWallet={openWalletModal}
-              onDisconnectWallet={disconnectWallet}
-              onRefreshPoints={() => loadWalletBalance(walletAddress)}
-            />
-          }
-        />
-        <Route
-          path="/campaign/:id/leaderboard"
-          element={
-            <CampaignLeaderboard
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
-              walletAddress={walletAddress}
-              walletBalance={walletBalance}
-              rewardsPoints={rewardsPoints}
-              isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              isRewardsPointsLoading={isRewardsPointsLoading}
-              onConnectWallet={openWalletModal}
-              onDisconnectWallet={disconnectWallet}
-              onRefreshPoints={() => loadWalletBalance(walletAddress)}
-            />
-          }
-        />
-        <Route
-          path="/admin/campaigns/:id/analytics"
-          element={
-            <RequireAdmin
-              walletAddress={walletAddress}
-              onConnectWallet={openWalletModal}
-              isWalletLoading={isWalletLoading}
-            >
-              <CampaignAnalytics
+      <Suspense
+        fallback={
+          <div className="route-loading" aria-live="polite">
+            Loading…
+          </div>
+        }
+      >
+        <Routes>
+          <Route
+            path="/"
+            element={
+              <Landing
+                runtimeConfig={runtimeConfig}
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                rewardsPoints={rewardsPoints}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                isRewardsPointsLoading={isRewardsPointsLoading}
+                walletError={walletError}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+                onRefreshPoints={() => loadWalletBalance(walletAddress)}
+              />
+            }
+          />
+          <Route
+            path="/campaign/:id"
+            element={
+              <CampaignDetail
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                rewardsPoints={rewardsPoints}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                isRewardsPointsLoading={isRewardsPointsLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+                onRefreshPoints={() => loadWalletBalance(walletAddress)}
+              />
+            }
+          />
+          <Route
+            path="/campaign/:id/leaderboard"
+            element={
+              <CampaignLeaderboard
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                rewardsPoints={rewardsPoints}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                isRewardsPointsLoading={isRewardsPointsLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+                onRefreshPoints={() => loadWalletBalance(walletAddress)}
+              />
+            }
+          />
+          <Route
+            path="/admin/campaigns/:id/analytics"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <CampaignAnalytics
+                  theme={theme}
+                  onToggleTheme={toggleTheme}
+                  stellarNetwork={runtimeConfig.stellar.network}
+                  onChangeStellarNetwork={handleChangeStellarNetwork}
+                  walletAddress={walletAddress}
+                  walletBalance={walletBalance}
+                  isWalletLoading={isWalletLoading}
+                  isWalletBalanceLoading={isWalletBalanceLoading}
+                  onConnectWallet={openWalletModal}
+                  onDisconnectWallet={disconnectWallet}
+                />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <AdminCampaigns
+                  theme={theme}
+                  onToggleTheme={toggleTheme}
+                  stellarNetwork={runtimeConfig.stellar.network}
+                  onChangeStellarNetwork={handleChangeStellarNetwork}
+                  walletAddress={walletAddress}
+                  walletBalance={walletBalance}
+                  isWalletLoading={isWalletLoading}
+                  isWalletBalanceLoading={isWalletBalanceLoading}
+                  onConnectWallet={openWalletModal}
+                  onDisconnectWallet={disconnectWallet}
+                />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/about"
+            element={
+              <About
                 theme={theme}
                 onToggleTheme={toggleTheme}
                 stellarNetwork={runtimeConfig.stellar.network}
@@ -238,18 +285,12 @@ export default function App() {
                 onConnectWallet={openWalletModal}
                 onDisconnectWallet={disconnectWallet}
               />
-            </RequireAdmin>
-          }
-        />
-        <Route
-          path="/admin"
-          element={
-            <RequireAdmin
-              walletAddress={walletAddress}
-              onConnectWallet={openWalletModal}
-              isWalletLoading={isWalletLoading}
-            >
-              <AdminCampaigns
+            }
+          />
+          <Route
+            path="/history"
+            element={
+              <TransactionHistory
                 theme={theme}
                 onToggleTheme={toggleTheme}
                 stellarNetwork={runtimeConfig.stellar.network}
@@ -261,45 +302,10 @@ export default function App() {
                 onConnectWallet={openWalletModal}
                 onDisconnectWallet={disconnectWallet}
               />
-            </RequireAdmin>
-          }
-        />
-        <Route
-          path="/about"
-          element={
-            <About
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
-              walletAddress={walletAddress}
-              walletBalance={walletBalance}
-              isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={openWalletModal}
-              onDisconnectWallet={disconnectWallet}
-            />
-          }
-        />
-        <Route
-          path="/history"
-          element={
-            <TransactionHistory
-              theme={theme}
-              onToggleTheme={toggleTheme}
-              stellarNetwork={runtimeConfig.stellar.network}
-              onChangeStellarNetwork={handleChangeStellarNetwork}
-              walletAddress={walletAddress}
-              walletBalance={walletBalance}
-              isWalletLoading={isWalletLoading}
-              isWalletBalanceLoading={isWalletBalanceLoading}
-              onConnectWallet={openWalletModal}
-              onDisconnectWallet={disconnectWallet}
-            />
-          }
-        />
-        <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
-      </Routes>
+            }
+          />
+          <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
+        </Routes>
       </Suspense>
       <WalletModal
         isOpen={showWalletModal}

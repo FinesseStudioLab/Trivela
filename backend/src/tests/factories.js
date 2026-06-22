@@ -31,8 +31,14 @@ export function makeCampaign(overrides = {}) {
     maxParticipants: 100,
     startDate: '2025-01-01T00:00:00.000Z',
     endDate: '2025-12-31T23:59:59.000Z',
-    createdAt: `2025-01-0${n > 9 ? n : '0' + n}T00:00:00.000Z`.replace('00', String(n).padStart(2, '0')),
-    updatedAt: `2025-01-0${n > 9 ? n : '0' + n}T00:00:00.000Z`.replace('00', String(n).padStart(2, '0')),
+    createdAt: `2025-01-0${n > 9 ? n : '0' + n}T00:00:00.000Z`.replace(
+      '00',
+      String(n).padStart(2, '0'),
+    ),
+    updatedAt: `2025-01-0${n > 9 ? n : '0' + n}T00:00:00.000Z`.replace(
+      '00',
+      String(n).padStart(2, '0'),
+    ),
     imageUrl: null,
     tags: [],
     category: null,

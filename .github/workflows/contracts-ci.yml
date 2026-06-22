@@ -74,7 +74,7 @@ jobs:
           echo "Running proptest-based fuzzing for campaign contract..."
           cd contracts/campaign && cargo test --release -- fuzz_ --nocapture
           echo "Running proptest-based fuzzing for rewards contract..."
-          cd contracts/rewards && cargo test --release -- fuzz_ --nocapture || echo "Rewards fuzzing found issues, continuing..." 
+          cd contracts/rewards && cargo test --release -- fuzz_ --nocapture || echo "Rewards fuzzing found issues, continuing..."
 
       - name: Check public documentation completeness
         run: |

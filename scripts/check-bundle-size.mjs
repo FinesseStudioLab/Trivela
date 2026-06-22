@@ -66,9 +66,7 @@ console.log(
 console.log();
 
 if (totalOver) {
-  console.error(
-    `Total JS ${totalKb.toFixed(1)} KB exceeds the ${TOTAL_BUDGET_KB} KB budget.`,
-  );
+  console.error(`Total JS ${totalKb.toFixed(1)} KB exceeds the ${TOTAL_BUDGET_KB} KB budget.`);
   failures++;
 }
 
