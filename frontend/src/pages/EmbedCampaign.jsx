@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
 import { apiUrl } from '../config';
 
@@ -10,18 +10,48 @@ const SIZE_MAP = {
   lg: { width: 520, height: 340 },
 };
 
+// Strict validation matching the backend's PARTNER_PATTERN.
+const PARTNER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+const COLOR_PATTERN = /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+
 function truncate(text, maxLen) {
   if (!text || text.length <= maxLen) return text || '';
-  return text.slice(0, maxLen - 1) + '\u2026';
+  return text.slice(0, maxLen - 1) + '…';
+}
+
+/**
+ * Post a trivela-widget postMessage event to the parent frame.
+ * The target origin is `window.location.origin` by default; in sandboxed
+ * iframes the parent sets `allow-same-origin`, so `'*'` is the safe fallback.
+ */
+function postToParent(type, payload) {
+  try {
+    const msg = { source: 'trivela-widget', type, payload };
+    window.parent.postMessage(msg, window.location.origin || '*');
+  } catch (_) {
+    // Non-sandboxed cross-origin parents will block this — that's expected.
+  }
 }
 
 export default function EmbedCampaign() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
+  const readyFired = useRef(false);
 
   const theme = searchParams.get('theme') === 'light' ? 'light' : 'dark';
   const sizeKey = SIZE_MAP[searchParams.get('size')] ? searchParams.get('size') : 'md';
   const { width, height } = SIZE_MAP[sizeKey];
+
+  // Partner attribution: validate before accepting.
+  const rawPartner = searchParams.get('partner') ?? '';
+  const partner = PARTNER_PATTERN.test(rawPartner) ? rawPartner : '';
+
+  // Optional org branding.
+  const orgName = (searchParams.get('org') ?? '').slice(0, 48);
+
+  // Optional primary colour override (e.g. for org branding).
+  const rawColor = searchParams.get('color') ?? '';
+  const customColor = COLOR_PATTERN.test(rawColor) ? rawColor : '';
 
   const [campaign, setCampaign] = useState(null);
   const [error, setError] = useState(null);
@@ -43,7 +73,18 @@ export default function EmbedCampaign() {
     return () => clearInterval(timer);
   }, [fetchCampaign]);
 
+  // Fire trivela:ready once the campaign data has loaded.
+  useEffect(() => {
+    if (campaign && !readyFired.current) {
+      readyFired.current = true;
+      postToParent('trivela:ready', { campaignId: id, partner });
+    }
+  }, [campaign, id, partner]);
+
   const isDark = theme === 'dark';
+  const defaultBtnColor = '#6366f1';
+  const btnColor = customColor || defaultBtnColor;
+
   const styles = {
     container: {
       width,
@@ -90,7 +131,7 @@ export default function EmbedCampaign() {
     btn: {
       display: 'inline-block',
       padding: '8px 16px',
-      background: '#6366f1',
+      background: btnColor,
       color: '#ffffff',
       borderRadius: '8px',
       fontSize: '13px',
@@ -98,6 +139,12 @@ export default function EmbedCampaign() {
       textDecoration: 'none',
       textAlign: 'center',
       marginTop: 'auto',
+    },
+    powered: {
+      textAlign: 'center',
+      fontSize: '10px',
+      color: isDark ? '#475569' : '#94a3b8',
+      marginTop: '4px',
     },
   };
 
@@ -121,7 +168,16 @@ export default function EmbedCampaign() {
   const participantCount = campaign.participantCount ?? campaign.participant_count ?? 0;
   const capacity = campaign.capacity ?? campaign.maxParticipants ?? null;
   const remaining = capacity != null ? capacity - participantCount : null;
-  const campaignUrl = `${window.location.origin}/campaign/${id}`;
+
+  // Build the register URL with partner attribution when available.
+  const baseUrl = `${window.location.origin}/campaign/${id}`;
+  const registerUrl = partner ? `${baseUrl}?ref=${encodeURIComponent(partner)}` : baseUrl;
+
+  const handleRegisterClick = () => {
+    postToParent('trivela:register_click', { campaignId: id, partner });
+  };
+
+  const poweredLabel = orgName ? `Powered by ${orgName} via Trivela` : 'Powered by Trivela';
 
   return (
     <div style={styles.container}>
@@ -140,9 +196,17 @@ export default function EmbedCampaign() {
         {capacity != null && <span>of {capacity.toLocaleString()}</span>}
         {campaign.rewardPerAction != null && <span>{campaign.rewardPerAction} pts/action</span>}
       </div>
-      <a href={campaignUrl} target="_blank" rel="noopener noreferrer" style={styles.btn}>
+      <a
+        href={registerUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={styles.btn}
+        onClick={handleRegisterClick}
+        data-testid="register-link"
+      >
         Register on Trivela
       </a>
+      <p style={styles.powered}>{poweredLabel}</p>
     </div>
   );
 }
