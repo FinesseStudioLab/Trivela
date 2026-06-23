@@ -11,16 +11,16 @@ jobs:
     name: Backend — lint, typecheck, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
 
       - name: Restore node_modules cache
         id: nm-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -55,16 +55,16 @@ jobs:
     name: Frontend — build, lint, test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
 
       - name: Restore node_modules cache
         id: nm-cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             node_modules
@@ -102,7 +102,7 @@ jobs:
     name: Contracts — fmt, clippy, test, build WASM
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -110,7 +110,7 @@ jobs:
           targets: wasm32-unknown-unknown
 
       - name: Restore cargo cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
