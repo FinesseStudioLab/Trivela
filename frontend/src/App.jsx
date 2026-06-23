@@ -14,6 +14,7 @@ const AdminCampaigns = lazy(() => import('./AdminCampaigns'));
 const About = lazy(() => import('./About'));
 const TransactionHistory = lazy(() => import('./TransactionHistory'));
 const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
+const PublicProfile = lazy(() => import('./pages/PublicProfile'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -305,6 +306,7 @@ export default function App() {
             }
           />
           <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
+          <Route path="/u/:address" element={<PublicProfile />} />
         </Routes>
       </Suspense>
       <WalletModal
