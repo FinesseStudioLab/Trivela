@@ -4,7 +4,7 @@ import { requireApiKey, requirePermission } from '../middleware/apiKeyAuth.js';
 
 /**
  * Organization-scoped audit log API routes
- * 
+ *
  * Route summary:
  *   GET    /orgs/:orgId/audit                    – get org audit logs    (audit:read)
  *   GET    /orgs/:orgId/audit/export/csv         – export audit as CSV   (audit:read)
@@ -22,54 +22,49 @@ export function createAuditRouter({ auditLogService }) {
   const router = Router();
 
   // ── Get org audit logs ───────────────────────────────────────────────────
-  
-  router.get(
-    '/orgs/:orgId/audit',
-    requireApiKey,
-    requirePermission('audit:read'),
-    (req, res) => {
-      // Security: users can only access audit logs for their own org
-      if (req.auth?.orgId && req.auth.orgId !== req.params.orgId) {
-        return res.status(403).json({ error: 'Forbidden', code: 'WRONG_ORG' });
-      }
 
-      const { orgId } = req.params;
-      const {
+  router.get('/orgs/:orgId/audit', requireApiKey, requirePermission('audit:read'), (req, res) => {
+    // Security: users can only access audit logs for their own org
+    if (req.auth?.orgId && req.auth.orgId !== req.params.orgId) {
+      return res.status(403).json({ error: 'Forbidden', code: 'WRONG_ORG' });
+    }
+
+    const { orgId } = req.params;
+    const {
+      actor,
+      action,
+      entity,
+      entityId,
+      startDate,
+      endDate,
+      page = 1,
+      pageSize = 50,
+    } = req.query;
+
+    try {
+      const result = auditLogService.getOrgAuditLogs(orgId, {
         actor,
         action,
         entity,
         entityId,
         startDate,
         endDate,
-        page = 1,
-        pageSize = 50,
-      } = req.query;
+        page: parseInt(page, 10),
+        pageSize: parseInt(pageSize, 10),
+      });
 
-      try {
-        const result = auditLogService.getOrgAuditLogs(orgId, {
-          actor,
-          action,
-          entity,
-          entityId,
-          startDate,
-          endDate,
-          page: parseInt(page, 10),
-          pageSize: parseInt(pageSize, 10),
-        });
-
-        return res.json({
-          success: true,
-          ...result,
-        });
-      } catch (error) {
-        console.error('Error fetching audit logs:', error);
-        return res.status(500).json({
-          error: 'Internal server error',
-          code: 'AUDIT_FETCH_ERROR',
-        });
-      }
-    },
-  );
+      return res.json({
+        success: true,
+        ...result,
+      });
+    } catch (error) {
+      console.error('Error fetching audit logs:', error);
+      return res.status(500).json({
+        error: 'Internal server error',
+        code: 'AUDIT_FETCH_ERROR',
+      });
+    }
+  });
 
   // ── Export audit logs as CSV ─────────────────────────────────────────────
 
@@ -98,7 +93,7 @@ export function createAuditRouter({ auditLogService }) {
 
         res.setHeader('Content-Type', exportResult.mimeType);
         res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
-        
+
         return res.send(exportResult.content);
       } catch (error) {
         console.error('Error exporting audit logs as CSV:', error);
@@ -137,7 +132,7 @@ export function createAuditRouter({ auditLogService }) {
 
         res.setHeader('Content-Type', exportResult.mimeType);
         res.setHeader('Content-Disposition', `attachment; filename="${exportResult.filename}"`);
-        
+
         return res.send(exportResult.content);
       } catch (error) {
         console.error('Error exporting audit logs as JSON:', error);

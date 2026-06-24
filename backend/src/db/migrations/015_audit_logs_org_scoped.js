@@ -4,10 +4,10 @@ export const version = 15;
 
 /**
  * Migration 015: Add org_id to audit_logs for organization-scoped audit logging
- * 
- * This migration adds org_id column to audit_logs table to enable 
+ *
+ * This migration adds org_id column to audit_logs table to enable
  * organization-scoped audit log queries and activity feeds.
- * 
+ *
  * @param {import('better-sqlite3').Database} db
  */
 export function up(db) {

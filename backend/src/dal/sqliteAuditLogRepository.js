@@ -14,7 +14,15 @@ function rowToAuditLog(row) {
 }
 
 export function createSqliteAuditLogRepository({ db }) {
-  function create({ actor, action, entity, entityId = null, diff = null, orgId = null, timestamp = null }) {
+  function create({
+    actor,
+    action,
+    entity,
+    entityId = null,
+    diff = null,
+    orgId = null,
+    timestamp = null,
+  }) {
     const createdAt = timestamp ?? new Date().toISOString();
     const diffJson = diff ? JSON.stringify(diff) : null;
     const info = db
@@ -26,7 +34,17 @@ export function createSqliteAuditLogRepository({ db }) {
     return rowToAuditLog(row);
   }
 
-  function list({ entity, entityId, action, orgId, actor, startDate, endDate, limit = 100, offset = 0 } = {}) {
+  function list({
+    entity,
+    entityId,
+    action,
+    orgId,
+    actor,
+    startDate,
+    endDate,
+    limit = 100,
+    offset = 0,
+  } = {}) {
     const filters = [];
     const values = [];
 
@@ -61,7 +79,7 @@ export function createSqliteAuditLogRepository({ db }) {
 
     const where = filters.length > 0 ? `WHERE ${filters.join(' AND ')}` : '';
     const limitClause = `LIMIT ${limit} OFFSET ${offset}`;
-    
+
     return db
       .prepare(`SELECT * FROM audit_logs ${where} ORDER BY id DESC ${limitClause}`)
       .all(...values)

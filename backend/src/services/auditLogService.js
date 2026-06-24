@@ -76,7 +76,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
    */
   function getActivityFeed(orgId, options = {}) {
     const { limit = 20, since } = options;
-    
+
     const filters = {
       orgId,
       limit: Math.min(limit, 50), // Cap at 50 for activity feed
@@ -86,7 +86,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
     const logs = auditLogRepository.list(filters);
 
     // Enhance logs with human-readable descriptions
-    const activities = logs.map(log => ({
+    const activities = logs.map((log) => ({
       ...log,
       description: generateActivityDescription(log),
       timestamp: log.timestamp,
@@ -112,9 +112,9 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
 
     // CSV headers
     const headers = ['ID', 'Actor', 'Action', 'Entity', 'Entity ID', 'Timestamp', 'Changes'];
-    
+
     // Convert logs to CSV rows
-    const rows = logs.map(log => [
+    const rows = logs.map((log) => [
       log.id,
       log.actor,
       log.action,
@@ -126,7 +126,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
 
     // Combine headers and rows
     const csvContent = [headers, ...rows]
-      .map(row => row.map(field => `"${String(field).replace(/"/g, '""')}"`).join(','))
+      .map((row) => row.map((field) => `"${String(field).replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
     return {
@@ -179,10 +179,10 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
     const filters = { orgId, startDate, endDate };
 
     const totalActions = auditLogRepository.count(filters);
-    
+
     // Get action breakdown
     const allLogs = auditLogRepository.list({ ...filters, limit: 10000, offset: 0 });
-    
+
     const actionStats = allLogs.reduce((acc, log) => {
       acc[log.action] = (acc[log.action] || 0) + 1;
       return acc;
@@ -203,7 +203,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
       actionBreakdown: actionStats,
       entityBreakdown: entityStats,
       topActors: Object.entries(actorStats)
-        .sort(([,a], [,b]) => b - a)
+        .sort(([, a], [, b]) => b - a)
         .slice(0, 10)
         .map(([actor, count]) => ({ actor, count })),
     };
@@ -226,9 +226,9 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
  */
 function generateActivityDescription(log) {
   const { actor, action, entity, entityId, diff } = log;
-  
+
   const entityName = entityId ? `${entity} "${entityId}"` : entity;
-  
+
   switch (action) {
     case 'create':
       return `${actor} created ${entityName}`;
