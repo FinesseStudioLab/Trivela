@@ -804,6 +804,32 @@ export async function createApp(options = {}) {
       expiresAt: Date.now() + shortCacheTtlMs,
       payload,
     });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    return res.set('x-cache', 'MISS').json(payload);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getTrendingCampaigns(req, res) {
+    const limitRaw = Number.parseInt(String(req.query.limit ?? '6'), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 50 ? limitRaw : 6;
+
+    const cacheKey = `trending:${limit}`;
+    const cached = shortCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+      return res.set('x-cache', 'HIT').json(cached.payload);
+    }
+
+    const all = campaignRepository.list({
+      active: true,
+      sort: 'reward_per_action',
+      order: 'desc',
+    });
+    const data = all.slice(0, limit);
+    const payload = { data, total: data.length };
+
+    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -1437,6 +1463,7 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
     app.get(`${prefix}/categories`, rateLimiter, listCategories);
     app.get(`${prefix}/tags`, rateLimiter, listTags);
+    app.get(`${prefix}/campaigns/trending`, rateLimiter, getTrendingCampaigns);
     app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/campaigns/:id/stats`, rateLimiter, getCampaignStats);
@@ -1653,6 +1680,33 @@ export async function createApp(options = {}) {
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
+
+  // Dynamic sitemap.xml for SEO — lists all public (non-hidden, active) campaign pages
+  app.get('/sitemap.xml', rateLimiter, (req, res) => {
+    const siteUrl =
+      (process.env.SITE_URL || '').replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;
+
+    const staticPaths = ['/', '/explore', '/about'];
+    const campaigns = campaignRepository.list({ active: true });
+
+    const urlEntries = [
+      ...staticPaths.map(
+        (p) =>
+          `<url><loc>${siteUrl}${p}</loc><changefreq>daily</changefreq><priority>${p === '/' || p === '/explore' ? '1.0' : '0.7'}</priority></url>`,
+      ),
+      ...campaigns.map(
+        (c) =>
+          `<url><loc>${siteUrl}/campaign/${encodeURIComponent(c.id)}</loc><lastmod>${c.updatedAt ? new Date(c.updatedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`,
+      ),
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries.join('\n')}\n</urlset>`;
+
+    res
+      .set('Content-Type', 'application/xml; charset=utf-8')
+      .set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400')
+      .send(xml);
+  });
 
   // Central error handler — must be registered after all routes
   app.use(errorHandler);

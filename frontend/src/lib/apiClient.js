@@ -166,6 +166,29 @@ async function getConfig() {
   return request(apiUrl('/api/v1/config'));
 }
 
+// ── Explore / discovery endpoints ─────────────────────────────────────────────
+
+/** @param {{ limit?: number }} [params] */
+async function getTrendingCampaigns(params = {}) {
+  const qs = new URLSearchParams();
+  qs.set('limit', String(params.limit ?? 6));
+  const url = apiUrl('/api/v1/campaigns/trending') + `?${qs}`;
+  return /** @type {Promise<{ data: any[] }>} */ (request(url));
+}
+
+/**
+ * @param {{ limit?: number }} [params]
+ */
+async function getNewCampaigns(params = {}) {
+  return getCampaigns({
+    active: true,
+    sort: 'created_at',
+    order: 'desc',
+    limit: params.limit ?? 6,
+    page: 1,
+  });
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 export const apiClient = {
@@ -179,6 +202,8 @@ export const apiClient = {
   getCampaignLeaderboard,
   getParticipantRank,
   getConfig,
+  getTrendingCampaigns,
+  getNewCampaigns,
 };
 
 export { ApiError };

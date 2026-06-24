@@ -9,6 +9,7 @@ function truncateWalletAddress(walletAddress) {
 
 const NAV_LINKS = [
   { href: '/', label: 'Campaigns' },
+  { href: '/explore', label: 'Explore' },
   { href: '/about', label: 'About' },
   { href: '/admin', label: 'Admin' },
 ];
