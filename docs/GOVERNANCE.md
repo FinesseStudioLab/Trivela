@@ -1,6 +1,7 @@
 # Trivela Governance
 
-This document outlines the governance process for proposing and approving changes to the Trivela protocol, API, and architecture.
+This document outlines the governance process for proposing and approving changes to the Trivela
+protocol, API, and architecture.
 
 ## Decision Types
 
@@ -8,10 +9,12 @@ This document outlines the governance process for proposing and approving change
 
 An RFC is required for the following types of changes:
 
-- **Protocol changes**: Modifications to smart contract interfaces, storage layouts, or upgrade mechanisms
+- **Protocol changes**: Modifications to smart contract interfaces, storage layouts, or upgrade
+  mechanisms
 - **New contracts**: Addition of new Soroban smart contracts to the protocol
 - **API breaking changes**: Changes to public API endpoints that would break existing integrations
-- **Major architectural shifts**: Significant changes to the system architecture (e.g., switching from SQLite to PostgreSQL, changing the RPC pool strategy)
+- **Major architectural shifts**: Significant changes to the system architecture (e.g., switching
+  from SQLite to PostgreSQL, changing the RPC pool strategy)
 
 ### ADR Required (Architecture Decision Record)
 
@@ -39,6 +42,7 @@ The following changes can be made via a standard pull request without an RFC or 
 ### 1. Raise a GitHub Discussion
 
 Create a new GitHub Discussion in the **RFC** category with:
+
 - A clear title describing the proposed change
 - A link to the RFC document in `docs/rfcs/`
 - A brief summary of the proposal
@@ -48,6 +52,7 @@ The RFC document should follow the template in `docs/rfcs/0000-template.md`.
 ### 2. 7-Day Feedback Window
 
 The RFC is open for community feedback for a minimum of **7 days**. During this period:
+
 - Anyone can comment on the RFC
 - Core team members may ask clarifying questions
 - The proposal may be revised based on feedback
@@ -55,6 +60,7 @@ The RFC is open for community feedback for a minimum of **7 days**. During this 
 ### 3. Core Team Decision
 
 After the feedback window closes, the core team will:
+
 - Review all feedback
 - Vote on the RFC (see Voting section below)
 - Announce the decision in the GitHub Discussion
@@ -63,6 +69,7 @@ After the feedback window closes, the core team will:
 ### 4. Implementation
 
 If accepted:
+
 - The RFC author (or assignee) implements the change via a pull request
 - The PR references the RFC discussion and document
 - The RFC document is updated with implementation notes
@@ -71,13 +78,13 @@ If accepted:
 
 The current core team members and their areas of responsibility:
 
-| GitHub Username | Area of Responsibility |
-|-----------------|------------------------|
+| GitHub Username   | Area of Responsibility                                 |
+| ----------------- | ------------------------------------------------------ |
 | @FinesseStudioLab | Protocol design, smart contracts, overall architecture |
-| @FinesseStudioLab | Backend API, database, infrastructure |
-| @FinesseStudioLab | Frontend, UX, integration |
+| @FinesseStudioLab | Backend API, database, infrastructure                  |
+| @FinesseStudioLab | Frontend, UX, integration                              |
 
-*Note: This is an initial list. The core team will be updated as the project grows.*
+_Note: This is an initial list. The core team will be updated as the project grows._
 
 ## Voting
 

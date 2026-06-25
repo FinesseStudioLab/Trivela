@@ -1,5 +1,3 @@
-// @ts-check
-//
 // PostgreSQL migration runner (issue #284).
 //
 // Reads `*.sql` files from `migrations/`, runs each one inside a single

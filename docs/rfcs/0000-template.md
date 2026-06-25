@@ -24,6 +24,7 @@ Describe the proposed solution in detail.
 ### Changes to Smart Contracts
 
 If applicable, describe changes to Soroban contracts:
+
 - Contract interface changes
 - Storage layout changes
 - Function additions/modifications
@@ -32,6 +33,7 @@ If applicable, describe changes to Soroban contracts:
 ### Changes to Backend API
 
 If applicable, describe changes to the backend:
+
 - New endpoints or modifications to existing endpoints
 - Database schema changes
 - Breaking changes for API consumers
@@ -40,6 +42,7 @@ If applicable, describe changes to the backend:
 ### Changes to Frontend
 
 If applicable, describe changes to the frontend:
+
 - UI/UX changes
 - New components or pages
 - Breaking changes for frontend integrations
@@ -81,4 +84,5 @@ If accepted, what are the steps to implement this RFC?
 1. [ ] Step 1
 2. [ ] Step 2
 3. [ ] Step 3
+
 - ...

@@ -41,9 +41,10 @@ function stripJpegExif(buffer) {
     }
 
     const segmentLength = buffer.readUInt16BE(offset + 2);
-    const isExifApp1 = marker === 0xe1
-      && segmentLength >= 8
-      && buffer.subarray(offset + 4, offset + 8).toString('ascii') === 'Exif';
+    const isExifApp1 =
+      marker === 0xe1 &&
+      segmentLength >= 8 &&
+      buffer.subarray(offset + 4, offset + 8).toString('ascii') === 'Exif';
 
     if (!isExifApp1) {
       parts.push(buffer.subarray(offset, offset + 2 + segmentLength));

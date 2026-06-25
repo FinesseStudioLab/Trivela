@@ -1,8 +1,8 @@
 ﻿# Mainnet Launch Readiness Checklist
 
-This checklist must be completed and reviewed before Trivela launches on mainnet.
-Each item should be checked off by a responsible contributor and linked to evidence
-(PR, audit report, deployment tx, etc.) before the launch is approved.
+This checklist must be completed and reviewed before Trivela launches on mainnet. Each item should
+be checked off by a responsible contributor and linked to evidence (PR, audit report, deployment tx,
+etc.) before the launch is approved.
 
 ---
 

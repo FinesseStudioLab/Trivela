@@ -7,6 +7,7 @@ export default function PageMeta({
   path = '/',
   image = DEFAULT_OG_IMAGE,
   type = 'website',
+  jsonLd = null,
 }) {
   const canonicalUrl = `${SITE_URL}${path.startsWith('/') ? path : `/${path}`}`;
   const imageUrl = image.startsWith('http') ? image : `${SITE_URL}${image}`;
@@ -26,6 +27,7 @@ export default function PageMeta({
       <meta name="twitter:title" content={title} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={imageUrl} />
+      {jsonLd && <script type="application/ld+json">{JSON.stringify(jsonLd)}</script>}
     </Helmet>
   );
 }

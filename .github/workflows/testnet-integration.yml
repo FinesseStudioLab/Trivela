@@ -16,7 +16,7 @@ on:
 
 concurrency:
   group: testnet-integration
-  cancel_in_progress: false
+  cancel-in-progress: false
 
 jobs:
   testnet-integration:

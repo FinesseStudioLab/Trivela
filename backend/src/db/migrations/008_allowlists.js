@@ -22,4 +22,3 @@ export function up(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS uq_allowlists_campaign_address ON allowlists(campaign_id, address);
   `);
 }
-

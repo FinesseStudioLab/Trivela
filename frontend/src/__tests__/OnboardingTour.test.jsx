@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
+import { driver } from 'driver.js';
 import OnboardingTour from '../components/OnboardingTour';
 
 const mockDrive = vi.fn();
@@ -45,11 +46,15 @@ describe('OnboardingTour', () => {
   });
 
   it('sets localStorage on tour completion', () => {
-    const { driver } = require('driver.js');
     let onDestroyedCallback;
     driver.mockImplementation((config) => {
       onDestroyedCallback = config.onDestroyed;
-      return { drive: mockDrive, destroy: mockDestroy, moveNext: mockMoveNext, movePrevious: mockMovePrevious };
+      return {
+        drive: mockDrive,
+        destroy: mockDestroy,
+        moveNext: mockMoveNext,
+        movePrevious: mockMovePrevious,
+      };
     });
 
     render(<OnboardingTour />);

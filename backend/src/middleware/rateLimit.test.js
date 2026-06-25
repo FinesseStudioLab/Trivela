@@ -17,12 +17,11 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  createRateLimiter,
-  createMemoryStore,
-  createRedisStore,
-} from './rateLimit.js';
+import { createRateLimiter, createMemoryStore, createRedisStore } from './rateLimit.js';
 
+/**
+ * @param {{ apiKey?: string; ip?: string; method?: string }} [opts]
+ */
 function makeReqRes({ apiKey, ip = '1.1.1.1', method = 'GET' } = {}) {
   const headers = {};
   if (apiKey) headers['x-api-key'] = apiKey;
@@ -50,16 +49,15 @@ test('rateLimit attaches RFC-style X-RateLimit-* headers on every response', asy
   const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 5 });
   const { req, res } = makeReqRes();
   let called = false;
-  await limiter(req, res, () => { called = true; });
+  await limiter(req, res, () => {
+    called = true;
+  });
   assert.equal(called, true);
   assert.equal(res.headersOut['X-RateLimit-Limit'], '5');
   assert.equal(res.headersOut['X-RateLimit-Remaining'], '4');
   assert.ok(Number(res.headersOut['X-RateLimit-Reset']) > 0);
   assert.equal(res.headersOut['RateLimit-Policy'], '5;w=60');
-  assert.match(
-    res.headersOut['RateLimit'],
-    /limit=5, remaining=4, reset=\d+/,
-  );
+  assert.match(res.headersOut['RateLimit'], /limit=5, remaining=4, reset=\d+/);
 });
 
 test('rateLimit returns 429 + Retry-After once the bucket is exhausted', async () => {
@@ -71,7 +69,9 @@ test('rateLimit returns 429 + Retry-After once the bucket is exhausted', async (
   }
   const { req, res } = makeReqRes();
   let nextCalled = false;
-  await limiter(req, res, () => { nextCalled = true; });
+  await limiter(req, res, () => {
+    nextCalled = true;
+  });
   assert.equal(nextCalled, false, 'next() must not run after the bucket is empty');
   assert.equal(res.statusCode, 429);
   assert.equal(res.body.code, 'RATE_LIMIT_EXCEEDED');
@@ -140,9 +140,13 @@ test('rateLimit forwards store errors via next(err) instead of crashing the requ
   };
   const limiter = createRateLimiter({ windowMs: 60_000, maxRequests: 5, store: explodingStore });
   const { req, res } = makeReqRes();
+  /** @type {Error | undefined} */
   let captured;
-  await limiter(req, res, (err) => { captured = err; });
-  assert.equal(captured?.message, 'store unavailable');
+  await limiter(req, res, (err) => {
+    captured = err;
+  });
+  assert.ok(captured instanceof Error, 'store error must be forwarded');
+  assert.equal(captured.message, 'store unavailable');
   assert.equal(res.statusCode, 200, 'must not 429 on store failure');
 });
 
@@ -157,8 +161,14 @@ function makeFakeRedis() {
     multi() {
       const tx = { ops: [] };
       const self = this;
-      tx.incr = (k) => { tx.ops.push(['incr', k]); return tx; };
-      tx.pttl = (k) => { tx.ops.push(['pttl', k]); return tx; };
+      tx.incr = (k) => {
+        tx.ops.push(['incr', k]);
+        return tx;
+      };
+      tx.pttl = (k) => {
+        tx.ops.push(['pttl', k]);
+        return tx;
+      };
       tx.exec = async () => {
         const out = [];
         for (const [op, k] of tx.ops) {
@@ -199,14 +209,20 @@ test('createRedisStore: throws when the multi() pipeline reports an error', asyn
   const failingRedis = {
     multi() {
       return {
-        incr() { return this; },
-        pttl() { return this; },
+        incr() {
+          return this;
+        },
+        pttl() {
+          return this;
+        },
         async exec() {
           return [[new Error('READONLY')], null];
         },
       };
     },
-    async pexpire() { return 1; },
+    async pexpire() {
+      return 1;
+    },
   };
   const store = createRedisStore(failingRedis);
   await assert.rejects(() => store.increment('k', 5000), /Redis rate limit increment failed/);

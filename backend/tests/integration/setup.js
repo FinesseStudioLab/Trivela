@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { runMigrations } from '../../src/db/migrate.js';
 import { createSqliteCampaignRepository } from '../../src/dal/sqliteCampaignRepository.js';
 import { createSqliteAuditLogRepository } from '../../src/dal/sqliteAuditLogRepository.js';
+import { createSqliteOrgMemberRepository } from '../../src/dal/sqliteOrgMemberRepository.js';
 
 /**
  * Create an in-memory SQLite database with all migrations applied.
@@ -17,11 +18,13 @@ export function createIntegrationTestEnv() {
   // Create repositories backed by the real SQLite DB
   const campaigns = createSqliteCampaignRepository({ db });
   const auditLogs = createSqliteAuditLogRepository({ db });
+  const orgMembers = createSqliteOrgMemberRepository({ db });
 
   return {
     db,
     campaigns,
     auditLogs,
+    orgMembers,
     /** Clean up after test */
     destroy() {
       db.close();
@@ -61,6 +64,7 @@ export function seedAuditLogs(auditLogs, data = []) {
       action: item.action,
       entity: item.entity,
       entityId: item.entityId,
+      orgId: item.orgId ?? null,
       diff: item.diff ?? null,
       timestamp: item.timestamp ?? new Date().toISOString(),
     }),

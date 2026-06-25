@@ -36,7 +36,7 @@ CREATE INDEX IF NOT EXISTS idx_campaigns_name_lower ON campaigns(LOWER(name));
 CREATE INDEX IF NOT EXISTS idx_campaigns_tags_gin   ON campaigns USING GIN (tags);
 
 -- audit_logs schema matches the column set the legacy SQLite repository writes
--- to: (actor, action, entity, entity_id, diff, created_at). The legacy
+-- to: (actor, action, entity, entity_id, diff, created_at, org_id). The legacy
 -- migration `001_initial_schema.js` declares a different shape, but the
 -- repository INSERT is the source of truth callers depend on; we follow the
 -- code, not the drift-y SQLite migration.
@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     entity      TEXT        NOT NULL,
     entity_id   TEXT,
     diff        JSONB,
+    org_id      TEXT,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -54,3 +55,6 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_entity     ON audit_logs(entity);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity_id  ON audit_logs(entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action     ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org_id     ON audit_logs(org_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org_entity ON audit_logs(org_id, entity);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_org_action ON audit_logs(org_id, action);

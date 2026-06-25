@@ -9,7 +9,7 @@ import './AdminControlPanel.css';
 
 /**
  * AdminControlPanel - On-chain campaign administration interface
- * 
+ *
  * Provides admin controls for:
  * - set_active: Enable/disable campaign registration
  * - set_window: Set registration time window
@@ -23,7 +23,7 @@ export default function AdminControlPanel({ contractId: propContractId }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [txHash, setTxHash] = useState('');
-  
+
   // Campaign state
   const [campaignState, setCampaignState] = useState({
     isActive: false,
@@ -31,7 +31,7 @@ export default function AdminControlPanel({ contractId: propContractId }) {
     maxCap: 0n,
     merkleRoot: null,
     participantCount: 0n,
-    adminNonce: 0n
+    adminNonce: 0n,
   });
 
   // Form states
@@ -63,14 +63,15 @@ export default function AdminControlPanel({ contractId: propContractId }) {
         contractId,
       });
 
-      const [isActive, window, maxCap, merkleRoot, participantCount, adminNonce] = await Promise.all([
-        client.is_active().then(tx => tx.simulate()),
-        client.get_window().then(tx => tx.simulate()),
-        client.get_max_cap().then(tx => tx.simulate()),
-        client.get_merkle_root().then(tx => tx.simulate()),
-        client.get_participant_count().then(tx => tx.simulate()),
-        client.admin_nonce().then(tx => tx.simulate())
-      ]);
+      const [isActive, window, maxCap, merkleRoot, participantCount, adminNonce] =
+        await Promise.all([
+          client.is_active().then((tx) => tx.simulate()),
+          client.get_window().then((tx) => tx.simulate()),
+          client.get_max_cap().then((tx) => tx.simulate()),
+          client.get_merkle_root().then((tx) => tx.simulate()),
+          client.get_participant_count().then((tx) => tx.simulate()),
+          client.admin_nonce().then((tx) => tx.simulate()),
+        ]);
 
       const state = {
         isActive,
@@ -78,18 +79,29 @@ export default function AdminControlPanel({ contractId: propContractId }) {
         maxCap,
         merkleRoot,
         participantCount,
-        adminNonce
+        adminNonce,
       };
 
       setCampaignState(state);
-      
+
       // Update form values
       setActiveToggle(isActive);
-      setWindowStart(window[0] === 0n ? '' : new Date(Number(window[0]) * 1000).toISOString().slice(0, 16));
-      setWindowEnd(window[1] === 18446744073709551615n ? '' : new Date(Number(window[1]) * 1000).toISOString().slice(0, 16));
+      setWindowStart(
+        window[0] === 0n ? '' : new Date(Number(window[0]) * 1000).toISOString().slice(0, 16),
+      );
+      setWindowEnd(
+        window[1] === 18446744073709551615n
+          ? ''
+          : new Date(Number(window[1]) * 1000).toISOString().slice(0, 16),
+      );
       setMaxCapInput(maxCap === 0n ? '' : maxCap.toString());
-      setMerkleRootInput(merkleRoot ? Array.from(merkleRoot).map(b => b.toString(16).padStart(2, '0')).join('') : '');
-
+      setMerkleRootInput(
+        merkleRoot
+          ? Array.from(merkleRoot)
+              .map((b) => b.toString(16).padStart(2, '0'))
+              .join('')
+          : '',
+      );
     } catch (err) {
       setError(`Failed to load campaign state: ${err.message}`);
     } finally {
@@ -154,7 +166,7 @@ export default function AdminControlPanel({ contractId: propContractId }) {
       const client = createClient();
       const tx = await transactionFn(client);
       await tx.signAndSend();
-      
+
       const hash = tx.signed.hash().toString('hex');
       setTxHash(hash);
       setSuccess(successMessage);
@@ -163,7 +175,6 @@ export default function AdminControlPanel({ contractId: propContractId }) {
       setTimeout(() => {
         loadCampaignState();
       }, 2000);
-
     } catch (err) {
       setError(err.message || 'Transaction failed');
     } finally {
@@ -174,24 +185,27 @@ export default function AdminControlPanel({ contractId: propContractId }) {
   // Admin action handlers
   const handleSetActive = async () => {
     await executeAdminTransaction(
-      (client) => client.set_active({
-        admin: walletAddress,
-        nonce: campaignState.adminNonce,
-        active: activeToggle
-      }),
-      `Campaign ${activeToggle ? 'activated' : 'deactivated'} successfully`
+      (client) =>
+        client.set_active({
+          admin: walletAddress,
+          nonce: campaignState.adminNonce,
+          active: activeToggle,
+        }),
+      `Campaign ${activeToggle ? 'activated' : 'deactivated'} successfully`,
     );
 
-    logSafeEvent('admin_set_active', { 
-      contractId, 
+    logSafeEvent('admin_set_active', {
+      contractId,
       active: activeToggle,
-      walletAddress 
+      walletAddress,
     });
   };
 
   const handleSetWindow = async () => {
     const start = windowStart ? Math.floor(new Date(windowStart).getTime() / 1000) : 0;
-    const end = windowEnd ? Math.floor(new Date(windowEnd).getTime() / 1000) : Number.MAX_SAFE_INTEGER;
+    const end = windowEnd
+      ? Math.floor(new Date(windowEnd).getTime() / 1000)
+      : Number.MAX_SAFE_INTEGER;
 
     if (start > end) {
       setError('Start time must be before end time');
@@ -199,20 +213,21 @@ export default function AdminControlPanel({ contractId: propContractId }) {
     }
 
     await executeAdminTransaction(
-      (client) => client.set_window({
-        admin: walletAddress,
-        nonce: campaignState.adminNonce,
-        start: BigInt(start),
-        end: BigInt(end)
-      }),
-      'Registration window updated successfully'
+      (client) =>
+        client.set_window({
+          admin: walletAddress,
+          nonce: campaignState.adminNonce,
+          start: BigInt(start),
+          end: BigInt(end),
+        }),
+      'Registration window updated successfully',
     );
 
-    logSafeEvent('admin_set_window', { 
-      contractId, 
-      start, 
+    logSafeEvent('admin_set_window', {
+      contractId,
+      start,
       end,
-      walletAddress 
+      walletAddress,
     });
   };
 
@@ -220,24 +235,25 @@ export default function AdminControlPanel({ contractId: propContractId }) {
     const maxCap = maxCapInput ? BigInt(maxCapInput) : 0n;
 
     await executeAdminTransaction(
-      (client) => client.set_max_cap({
-        admin: walletAddress,
-        nonce: campaignState.adminNonce,
-        max_cap: maxCap
-      }),
-      `Maximum participant cap ${maxCap === 0n ? 'removed' : `set to ${maxCap}`}`
+      (client) =>
+        client.set_max_cap({
+          admin: walletAddress,
+          nonce: campaignState.adminNonce,
+          max_cap: maxCap,
+        }),
+      `Maximum participant cap ${maxCap === 0n ? 'removed' : `set to ${maxCap}`}`,
     );
 
-    logSafeEvent('admin_set_max_cap', { 
-      contractId, 
+    logSafeEvent('admin_set_max_cap', {
+      contractId,
       maxCap: maxCap.toString(),
-      walletAddress 
+      walletAddress,
     });
   };
 
   const handleSetMerkleRoot = async () => {
     let rootBytes;
-    
+
     if (!merkleRootInput.trim()) {
       // Empty root (disable allowlist)
       rootBytes = new Uint8Array(32);
@@ -248,9 +264,9 @@ export default function AdminControlPanel({ contractId: propContractId }) {
         setError('Merkle root must be 32 bytes (64 hex characters)');
         return;
       }
-      
+
       try {
-        rootBytes = new Uint8Array(hex.match(/.{2}/g).map(byte => parseInt(byte, 16)));
+        rootBytes = new Uint8Array(hex.match(/.{2}/g).map((byte) => parseInt(byte, 16)));
       } catch (err) {
         setError('Invalid hex format for Merkle root');
         return;
@@ -258,18 +274,19 @@ export default function AdminControlPanel({ contractId: propContractId }) {
     }
 
     await executeAdminTransaction(
-      (client) => client.set_merkle_root({
-        admin: walletAddress,
-        nonce: campaignState.adminNonce,
-        root: rootBytes
-      }),
-      merkleRootInput.trim() ? 'Merkle root allowlist enabled' : 'Merkle root allowlist disabled'
+      (client) =>
+        client.set_merkle_root({
+          admin: walletAddress,
+          nonce: campaignState.adminNonce,
+          root: rootBytes,
+        }),
+      merkleRootInput.trim() ? 'Merkle root allowlist enabled' : 'Merkle root allowlist disabled',
     );
 
-    logSafeEvent('admin_set_merkle_root', { 
-      contractId, 
+    logSafeEvent('admin_set_merkle_root', {
+      contractId,
       hasRoot: !!merkleRootInput.trim(),
-      walletAddress 
+      walletAddress,
     });
   };
 
@@ -281,7 +298,9 @@ export default function AdminControlPanel({ contractId: propContractId }) {
 
   const formatMerkleRoot = (root) => {
     if (!root) return 'None (open registration)';
-    const hex = Array.from(root).map(b => b.toString(16).padStart(2, '0')).join('');
+    const hex = Array.from(root)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
     return `0x${hex.slice(0, 8)}...${hex.slice(-8)}`;
   };
 
@@ -340,10 +359,10 @@ export default function AdminControlPanel({ contractId: propContractId }) {
       )}
 
       {txHash && (
-        <TransactionStatus 
-          hash={txHash} 
-          network={getSorobanRpcUrl().includes('testnet') ? 'testnet' : 'mainnet'} 
-          status="Success" 
+        <TransactionStatus
+          hash={txHash}
+          network={getSorobanRpcUrl().includes('testnet') ? 'testnet' : 'mainnet'}
+          status="Success"
         />
       )}
 
@@ -364,12 +383,15 @@ export default function AdminControlPanel({ contractId: propContractId }) {
             </div>
             <div className="status-item">
               <label>Max Cap</label>
-              <span>{campaignState.maxCap === 0n ? 'Unlimited' : campaignState.maxCap.toString()}</span>
+              <span>
+                {campaignState.maxCap === 0n ? 'Unlimited' : campaignState.maxCap.toString()}
+              </span>
             </div>
             <div className="status-item">
               <label>Registration Window</label>
               <span>
-                {formatTimestamp(campaignState.window.start)} - {formatTimestamp(campaignState.window.end)}
+                {formatTimestamp(campaignState.window.start)} -{' '}
+                {formatTimestamp(campaignState.window.end)}
               </span>
             </div>
             <div className="status-item">
@@ -381,12 +403,8 @@ export default function AdminControlPanel({ contractId: propContractId }) {
               <span>{campaignState.adminNonce.toString()}</span>
             </div>
           </div>
-          
-          <button 
-            onClick={loadCampaignState}
-            disabled={isLoading}
-            className="btn btn-secondary"
-          >
+
+          <button onClick={loadCampaignState} disabled={isLoading} className="btn btn-secondary">
             {isLoading ? 'Refreshing...' : 'Refresh Status'}
           </button>
         </section>

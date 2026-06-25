@@ -32,7 +32,7 @@ function rowToFailedJob(row) {
  * Backed by the `failed_jobs` table (migration 007). Used by the job runner
  * for `record()` calls and by the admin API for inspection / requeue.
  *
- * @param {{ db: import('better-sqlite3').Database }} params
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} params
  */
 export function createSqliteFailedJobRepository({ db }) {
   const insertStmt = db.prepare(`
@@ -67,9 +67,7 @@ export function createSqliteFailedJobRepository({ db }) {
   function record(entry) {
     const id = entry.id ?? randomUUID();
     const payload =
-      entry.payload === undefined || entry.payload === null
-        ? null
-        : JSON.stringify(entry.payload);
+      entry.payload === undefined || entry.payload === null ? null : JSON.stringify(entry.payload);
     insertStmt.run(
       id,
       entry.type,

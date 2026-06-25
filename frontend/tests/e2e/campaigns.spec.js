@@ -12,6 +12,15 @@ import { test, expect } from '@playwright/test';
  */
 
 test.describe('Campaigns page', () => {
+  test.beforeEach(async ({ page }) => {
+    // Suppress the onboarding tour overlay (driver.js) — it auto-starts on
+    // first load and intercepts pointer events on underlying UI elements,
+    // which makes clicks on things like the theme toggle flaky/fail.
+    await page.addInitScript(() => {
+      window.localStorage.setItem('trivela:tour_completed', 'true');
+    });
+  });
+
   test('page loads with the correct title and hero heading', async ({ page }) => {
     await page.goto('/');
 

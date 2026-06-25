@@ -51,13 +51,7 @@ const DANGEROUS_PATTERNS = [
 ];
 
 // Patterns that indicate proper security practices
-const SECURE_PATTERNS = [
-  /sanitize|escape/i,
-  /DOMPurify/,
-  /validator\./,
-  /zod.*parse/,
-  /safeParse/,
-];
+const SECURE_PATTERNS = [/sanitize|escape/i, /DOMPurify/, /validator\./, /zod.*parse/, /safeParse/];
 
 /**
  * Recursively read all JS/TS files from a directory
@@ -76,21 +70,18 @@ function getAllJsFiles(dir) {
 
         // Skip node_modules, dist, build, etc.
         if (
-          entry.name.startsWith('.')
-          || entry.name === 'node_modules'
-          || entry.name === 'dist'
-          || entry.name === 'build'
-          || entry.name === 'coverage'
+          entry.name.startsWith('.') ||
+          entry.name === 'node_modules' ||
+          entry.name === 'dist' ||
+          entry.name === 'build' ||
+          entry.name === 'coverage'
         ) {
           continue;
         }
 
         if (entry.isDirectory()) {
           walk(fullPath);
-        } else if (
-          extname(entry.name) === '.js'
-          || extname(entry.name) === '.ts'
-        ) {
+        } else if (extname(entry.name) === '.js' || extname(entry.name) === '.ts') {
           files.push(fullPath);
         }
       }
@@ -185,7 +176,7 @@ function printResults() {
   console.log('  ✓ URL parameter sanitization');
   console.log('  ✓ Log injection prevention');
   console.log('  ✓ No dangerouslySetInnerHTML usage');
-  console.log('  ✓ Error messages don\'t reflect user input');
+  console.log("  ✓ Error messages don't reflect user input");
   console.log('='.repeat(60) + '\n');
 
   return ISSUES.length > 0 ? 1 : 0;

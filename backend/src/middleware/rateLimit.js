@@ -14,13 +14,10 @@ function createMemoryStore() {
   const buckets = new Map();
 
   return {
-    async increment(key, windowMs) {
-      const now = Date.now();
+    async increment(key, windowMs, now = Date.now()) {
       const existing = buckets.get(key);
       const bucket =
-        existing && existing.resetAt > now
-          ? existing
-          : { count: 0, resetAt: now + windowMs };
+        existing && existing.resetAt > now ? existing : { count: 0, resetAt: now + windowMs };
 
       bucket.count += 1;
       buckets.set(key, bucket);
@@ -35,16 +32,11 @@ function createMemoryStore() {
 
 function createRedisStore(redisClient) {
   return {
-    async increment(key, windowMs) {
+    async increment(key, windowMs, now = Date.now()) {
       const redisKey = `ratelimit:${key}`;
-      const now = Date.now();
       const resetAt = now + windowMs;
 
-      const results = await redisClient
-        .multi()
-        .incr(redisKey)
-        .pttl(redisKey)
-        .exec();
+      const results = await redisClient.multi().incr(redisKey).pttl(redisKey).exec();
 
       if (!results || results[0]?.[0]) {
         throw new Error('Redis rate limit increment failed');
@@ -80,7 +72,7 @@ export function createRateLimiter({
       const now = timeProvider();
       const key = keyGenerator(req);
 
-      const { count, resetAt } = await rateLimitStore.increment(key, windowMs);
+      const { count, resetAt } = await rateLimitStore.increment(key, windowMs, now);
 
       const remaining = Math.max(maxRequests - count, 0);
       const resetSeconds = Math.max(1, Math.ceil((resetAt - now) / 1000));

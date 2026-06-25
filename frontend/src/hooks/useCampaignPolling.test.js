@@ -92,9 +92,7 @@ describe('useCampaignPolling', () => {
       json: async () => ({ id: '1', name: 'Test' }),
     });
 
-    const { result } = renderHook(() =>
-      useCampaignPolling({ campaignId: '1', enabled: true }),
-    );
+    const { result } = renderHook(() => useCampaignPolling({ campaignId: '1', enabled: true }));
 
     await waitFor(() => expect(result.current.campaign).toBeTruthy());
 

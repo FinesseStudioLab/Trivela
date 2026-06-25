@@ -2,27 +2,28 @@
 
 ## Overview
 
-This document describes the cross-browser testing matrix and browser compatibility for the Trivela frontend.
+This document describes the cross-browser testing matrix and browser compatibility for the Trivela
+frontend.
 
 ## Supported Browsers
 
-| Browser | Version | Status | Notes |
-|---------|---------|--------|-------|
-| Chrome | Latest | ✅ Fully Supported | Primary development browser |
-| Firefox | Latest | ✅ Fully Supported | Desktop users |
-| Safari | Latest | ✅ Fully Supported | macOS and iOS users |
-| Brave | Latest | ✅ Fully Supported | Chromium-based (Wallet API compatible) |
-| Edge | Latest | ✅ Fully Supported | Chromium-based |
+| Browser | Version | Status             | Notes                                  |
+| ------- | ------- | ------------------ | -------------------------------------- |
+| Chrome  | Latest  | ✅ Fully Supported | Primary development browser            |
+| Firefox | Latest  | ✅ Fully Supported | Desktop users                          |
+| Safari  | Latest  | ✅ Fully Supported | macOS and iOS users                    |
+| Brave   | Latest  | ✅ Fully Supported | Chromium-based (Wallet API compatible) |
+| Edge    | Latest  | ✅ Fully Supported | Chromium-based                         |
 
 ## Browser-Specific Wallets
 
 ### Stellar Wallet Support
 
-| Wallet | Chrome | Firefox | Safari | Notes |
-|--------|--------|---------|--------|-------|
-| Freighter | ✅ | ✅ | ⚠️ | Safari support limited; use WalletConnect |
-| Ledger | ✅ | ✅ | ✅ | Hardware wallet extension |
-| LOBSTR | ✅ | ✅ | ✅ | Mobile preferred |
+| Wallet    | Chrome | Firefox | Safari | Notes                                     |
+| --------- | ------ | ------- | ------ | ----------------------------------------- |
+| Freighter | ✅     | ✅      | ⚠️     | Safari support limited; use WalletConnect |
+| Ledger    | ✅     | ✅      | ✅     | Hardware wallet extension                 |
+| LOBSTR    | ✅     | ✅      | ✅     | Mobile preferred                          |
 
 ## Testing Infrastructure
 
@@ -36,7 +37,7 @@ projects: [
   { name: 'chromium', use: devices['Desktop Chrome'] },
   { name: 'firefox', use: devices['Desktop Firefox'] },
   { name: 'webkit', use: devices['Desktop Safari'] },
-]
+];
 ```
 
 ### Running Tests
@@ -62,6 +63,7 @@ npx playwright test --ui --project=firefox
 File: `frontend/tests/e2e/cross-browser.spec.ts`
 
 Tests verify:
+
 - ✅ **Wallet Modal**: Connection modal renders correctly in all browsers
 - ✅ **Grid Layout**: Campaign grid displays properly across browsers
 - ✅ **Theme Toggle**: Light/dark mode works correctly
@@ -75,18 +77,21 @@ Tests verify:
 ### Browser-Specific Issues
 
 #### Safari/WebKit
+
 - **Smooth Scroll**: `scroll-behavior: smooth` support varies
 - **CSS Grid**: Full support, minor rendering differences
 - **Wallet Extension**: Limited Freighter support; recommend WalletConnect fallback
 - **CSS-in-JS**: Generally compatible with standard CSS
 
 #### Firefox
+
 - **Form Rendering**: Standard form elements render consistently
 - **Grid Layout**: Full support
 - **Wallet Extension**: Freighter fully supported
 - **Performance**: Similar to Chrome
 
 #### Chromium (Chrome, Brave, Edge)
+
 - **DevTools Protocol**: Enhanced debugging available
 - **Wallet Extensions**: Full Freighter support
 - **Performance**: Baseline for performance metrics
@@ -104,9 +109,8 @@ Tests verify:
 //    → Use WalletConnect or Ledger Live instead
 
 // Workaround: Feature detection
-const supportsWebP = document.createElement('canvas')
-  .toDataURL('image/webp')
-  .indexOf('image/webp') === 0;
+const supportsWebP =
+  document.createElement('canvas').toDataURL('image/webp').indexOf('image/webp') === 0;
 ```
 
 ### Firefox Specific
@@ -166,13 +170,13 @@ jobs:
         with:
           node-version: 20
           cache: npm
-      
+
       - run: npm ci --workspace=frontend
       - run: npm run build --workspace=frontend
-      
+
       - run: npx playwright install
       - run: npm run test:e2e --workspace=frontend -- --project=${{ matrix.browser }}
-      
+
       - uses: actions/upload-artifact@v3
         if: always()
         with:
@@ -205,12 +209,12 @@ if (!caps.supportsFreighterWallet) {
 
 ### Expected Performance
 
-| Metric | Chrome | Firefox | Safari |
-|--------|--------|---------|--------|
-| First Contentful Paint | <1s | <1s | <1s |
-| Largest Contentful Paint | <2s | <2s | <2s |
-| Cumulative Layout Shift | <0.1 | <0.1 | <0.1 |
-| Time to Interactive | <2s | <2s | <2.5s |
+| Metric                   | Chrome | Firefox | Safari |
+| ------------------------ | ------ | ------- | ------ |
+| First Contentful Paint   | <1s    | <1s     | <1s    |
+| Largest Contentful Paint | <2s    | <2s     | <2s    |
+| Cumulative Layout Shift  | <0.1   | <0.1    | <0.1   |
+| Time to Interactive      | <2s    | <2s     | <2.5s  |
 
 ### Testing Performance
 
@@ -252,7 +256,7 @@ export default defineConfig({
     { name: 'chromium', use: devices['Desktop Chrome'] },
     { name: 'firefox', use: devices['Desktop Firefox'] },
     { name: 'webkit', use: devices['Desktop Safari'] },
-    
+
     // Mobile browsers
     { name: 'iPhone 12', use: devices['iPhone 12'] },
     { name: 'Pixel 5', use: devices['Pixel 5'] },
@@ -267,7 +271,7 @@ test('wallet connection on mobile', async ({ page, browserName }) => {
   if (!page.context().isMobile?.()) {
     test.skip();
   }
-  
+
   // Mobile-specific test
   await page.goto('/');
   const connectBtn = page.getByRole('button', { name: /connect/i });
@@ -280,12 +284,14 @@ test('wallet connection on mobile', async ({ page, browserName }) => {
 ### Chrome/Chromium
 
 **Issue**: Extension blocked or not loading
+
 ```bash
 # Solution: Run without extensions
 npx playwright test --project=chromium
 ```
 
 **Issue**: DevTools protocol errors
+
 ```bash
 # Solution: Disable debugging
 PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npx playwright test
@@ -294,6 +300,7 @@ PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npx playwright test
 ### Firefox
 
 **Issue**: Timeout waiting for browser
+
 ```bash
 # Solution: Increase timeout
 npx playwright test --timeout=60000
@@ -302,6 +309,7 @@ npx playwright test --timeout=60000
 ### Safari/WebKit
 
 **Issue**: CSS not rendering correctly
+
 ```bash
 # Workaround: Use CSS grid fallbacks
 @supports (display: grid) {
@@ -360,4 +368,3 @@ npx playwright --version
 **Test Added**: `frontend/tests/e2e/cross-browser.spec.ts`  
 **Config Updated**: `frontend/playwright.config.js` (added Firefox, WebKit)  
 **Status**: ✅ Cross-browser testing infrastructure complete
-

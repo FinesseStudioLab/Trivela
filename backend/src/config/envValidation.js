@@ -82,6 +82,13 @@ export function validateBackendEnv(env = process.env) {
   record(() => normalizePositiveInteger(env.RATE_LIMIT_WINDOW_MS, 'RATE_LIMIT_WINDOW_MS'));
   record(() => normalizePositiveInteger(env.RATE_LIMIT_MAX_REQUESTS, 'RATE_LIMIT_MAX_REQUESTS'));
   record(() => normalizePositiveInteger(env.SHORT_CACHE_TTL_MS, 'SHORT_CACHE_TTL_MS'));
+  record(() =>
+    normalizePositiveInteger(env.AUTH_LOCKOUT_SOFT_THRESHOLD, 'AUTH_LOCKOUT_SOFT_THRESHOLD'),
+  );
+  record(() =>
+    normalizePositiveInteger(env.AUTH_LOCKOUT_HARD_THRESHOLD, 'AUTH_LOCKOUT_HARD_THRESHOLD'),
+  );
+  record(() => normalizePositiveInteger(env.AUTH_LOCKOUT_BASE_MS, 'AUTH_LOCKOUT_BASE_MS'));
 
   record(() =>
     resolveStellarNetworkConfig({
@@ -94,6 +101,8 @@ export function validateBackendEnv(env = process.env) {
 
   record(() => validateCorsAllowedOrigins(env.CORS_ALLOWED_ORIGINS ?? env.CORS_ORIGIN));
   record(() => validateApiKeys({ apiKey: env.TRIVELA_API_KEY, apiKeys: env.TRIVELA_API_KEYS }));
+  record(() => normalizePositiveInteger(env.LOCK_TTL_MS, 'LOCK_TTL_MS'));
+  record(() => normalizePositiveInteger(env.EXPORT_RETENTION_DAYS, 'EXPORT_RETENTION_DAYS'));
 
   if (env.DB_PATH && typeof env.DB_PATH !== 'string') {
     errors.push('DB_PATH must be a string path');
@@ -110,4 +119,3 @@ export function validateBackendEnv(env = process.env) {
     throw new Error(message);
   }
 }
-

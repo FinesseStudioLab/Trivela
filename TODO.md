@@ -9,4 +9,3 @@
 - [ ] Wire on-chain `set_merkle_root` during import (single operation) using admin nonce
 - [ ] Update backend/openapi.yaml
 - [ ] Add minimal tests for import parsing/validation + proof fetch
-

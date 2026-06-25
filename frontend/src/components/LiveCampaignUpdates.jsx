@@ -97,7 +97,8 @@ export default function LiveCampaignUpdates({ campaignId }) {
 
       {participantCount > 0 && (
         <div className="participant-count">
-          <strong>{participantCount}</strong> new participant{participantCount !== 1 ? 's' : ''} since you joined
+          <strong>{participantCount}</strong> new participant{participantCount !== 1 ? 's' : ''}{' '}
+          since you joined
         </div>
       )}
 
@@ -106,9 +107,7 @@ export default function LiveCampaignUpdates({ campaignId }) {
           {updates.map((update) => (
             <li key={update.id} className={`update-item update-type-${update.type}`}>
               <span className="update-message">{update.message}</span>
-              <span className="update-time">
-                {new Date(update.timestamp).toLocaleTimeString()}
-              </span>
+              <span className="update-time">{new Date(update.timestamp).toLocaleTimeString()}</span>
             </li>
           ))}
         </ul>

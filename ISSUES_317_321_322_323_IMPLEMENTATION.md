@@ -21,6 +21,7 @@ This document provides comprehensive implementation guidance for four interconne
 ## Issue #322: Rewards Points Expiry
 
 ### Summary
+
 Add time-limited balances with TTL per user. Points expire after a configurable duration.
 
 ### Contract Changes (`contracts/rewards/src/lib.rs`)
@@ -156,7 +157,7 @@ pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
         .instance()
         .get(&expiry_ids_key)
         .unwrap_or_else(|| Vec::new(&env));
-    
+
     // Sort by expiry_ledger (earliest first)
     let mut sorted_records: Vec<(u64, ExpiryRecord)> = Vec::new(&env);
     for expiry_id in ids.iter() {
@@ -165,7 +166,7 @@ pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
             sorted_records.push_back((expiry_id, record));
         }
     }
-    
+
     // Simple bubble sort by expiry_ledger
     let len = sorted_records.len();
     for i in 0..len {
@@ -221,6 +222,7 @@ pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
 ## Issue #323: User Rewards Delegation
 
 ### Summary
+
 Allow users to approve delegates who can claim rewards on their behalf.
 
 ### Contract Changes (`contracts/rewards/src/lib.rs`)
@@ -327,6 +329,7 @@ pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
 ## Issue #317: Campaign Detail Page Improvements
 
 ### Summary
+
 Add on-chain state display (participant count, cap, countdown), share buttons, and progress bars.
 
 ### Frontend Changes (`frontend/src/CampaignDetail.jsx`)
@@ -352,10 +355,11 @@ useEffect(() => {
 
   const fetchOnChainState = async () => {
     try {
-      const rpcUrl = stellarNetwork === 'testnet' 
-        ? 'https://soroban-testnet.stellar.org'
-        : 'https://soroban-mainnet.stellar.org';
-      
+      const rpcUrl =
+        stellarNetwork === 'testnet'
+          ? 'https://soroban-testnet.stellar.org'
+          : 'https://soroban-mainnet.stellar.org';
+
       const server = new SorobanRpc.Server(rpcUrl);
       const contract = new Contract(campaign.contractId);
 
@@ -389,7 +393,7 @@ useEffect(() => {
       });
     } catch (err) {
       console.error('Failed to fetch on-chain state:', err);
-      setOnChainData(prev => ({
+      setOnChainData((prev) => ({
         ...prev,
         isLoading: false,
         error: 'Unable to load on-chain data',
@@ -409,7 +413,7 @@ useEffect(() => {
 // Add after existing imports
 const ProgressBar = ({ current, max, label }) => {
   const percentage = max > 0 ? Math.min((current / max) * 100, 100) : 0;
-  
+
   return (
     <div className="progress-bar-container">
       <div className="progress-bar-header">
@@ -419,8 +423,8 @@ const ProgressBar = ({ current, max, label }) => {
         </span>
       </div>
       <div className="progress-bar-track">
-        <div 
-          className="progress-bar-fill" 
+        <div
+          className="progress-bar-fill"
           style={{ width: `${percentage}%` }}
           role="progressbar"
           aria-valuenow={current}
@@ -446,16 +450,17 @@ useEffect(() => {
 
   const updateCountdown = async () => {
     try {
-      const rpcUrl = stellarNetwork === 'testnet' 
-        ? 'https://soroban-testnet.stellar.org'
-        : 'https://soroban-mainnet.stellar.org';
-      
+      const rpcUrl =
+        stellarNetwork === 'testnet'
+          ? 'https://soroban-testnet.stellar.org'
+          : 'https://soroban-mainnet.stellar.org';
+
       const server = new SorobanRpc.Server(rpcUrl);
       const latestLedger = await server.getLatestLedger();
       const currentLedger = latestLedger.sequence;
-      
+
       const remainingLedgers = onChainData.endLedger - currentLedger;
-      
+
       if (remainingLedgers <= 0) {
         setCountdown('Campaign ended');
         return;
@@ -466,7 +471,7 @@ useEffect(() => {
       const days = Math.floor(remainingSeconds / 86400);
       const hours = Math.floor((remainingSeconds % 86400) / 3600);
       const minutes = Math.floor((remainingSeconds % 3600) / 60);
-      
+
       if (days > 0) {
         setCountdown(`${days}d ${hours}h remaining`);
       } else if (hours > 0) {
@@ -488,38 +493,43 @@ useEffect(() => {
 #### 4. Update UI to Display On-Chain State
 
 ```jsx
-{/* Add after detail-grid section */}
-{campaign.contractId && (
-  <section className="detail-section on-chain-section">
-    <h2>On-Chain Status</h2>
-    {onChainData.isLoading ? (
-      <p className="on-chain-loading">Loading on-chain data...</p>
-    ) : onChainData.error ? (
-      <p className="on-chain-error">{onChainData.error}</p>
-    ) : (
-      <div className="on-chain-stats">
-        {onChainData.participantCap > 0 && (
-          <ProgressBar
-            current={onChainData.participantCount}
-            max={onChainData.participantCap}
-            label="Participants"
-          />
-        )}
-        {onChainData.endLedger > 0 && countdown && (
-          <div className="countdown-display">
-            <h3>Time Remaining</h3>
-            <p className="countdown-value">{countdown}</p>
-          </div>
-        )}
-      </div>
-    )}
-  </section>
-)}
+{
+  /* Add after detail-grid section */
+}
+{
+  campaign.contractId && (
+    <section className="detail-section on-chain-section">
+      <h2>On-Chain Status</h2>
+      {onChainData.isLoading ? (
+        <p className="on-chain-loading">Loading on-chain data...</p>
+      ) : onChainData.error ? (
+        <p className="on-chain-error">{onChainData.error}</p>
+      ) : (
+        <div className="on-chain-stats">
+          {onChainData.participantCap > 0 && (
+            <ProgressBar
+              current={onChainData.participantCount}
+              max={onChainData.participantCap}
+              label="Participants"
+            />
+          )}
+          {onChainData.endLedger > 0 && countdown && (
+            <div className="countdown-display">
+              <h3>Time Remaining</h3>
+              <p className="countdown-value">{countdown}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 ```
 
 #### 5. Enhance Share Buttons (Already Implemented)
 
-The share buttons for Twitter, Discord, and Telegram are already implemented in the current code. No changes needed.
+The share buttons for Twitter, Discord, and Telegram are already implemented in the current code. No
+changes needed.
 
 ### CSS Changes (`frontend/src/CampaignDetail.css`)
 
@@ -616,6 +626,7 @@ The share buttons for Twitter, Discord, and Telegram are already implemented in 
 ## Issue #321: Minimum Claim Amount
 
 ### Summary
+
 Add admin-configurable minimum claim amount with validation in `claim()`.
 
 ### Contract Changes (`contracts/rewards/src/lib.rs`)
@@ -750,17 +761,20 @@ describe('CampaignDetail on-chain state', () => {
 ### Contract Deployment
 
 1. **Build contract**:
+
    ```bash
    cd contracts/rewards
    cargo build --target wasm32-unknown-unknown --release
    ```
 
 2. **Run tests**:
+
    ```bash
    cargo test
    ```
 
 3. **Deploy to testnet**:
+
    ```bash
    soroban contract deploy \
      --wasm target/wasm32-unknown-unknown/release/rewards.wasm \
@@ -783,18 +797,21 @@ describe('CampaignDetail on-chain state', () => {
 ### Frontend Deployment
 
 1. **Install dependencies**:
+
    ```bash
    cd frontend
    npm install @stellar/stellar-sdk
    ```
 
 2. **Update environment variables**:
+
    ```bash
    VITE_REWARDS_CONTRACT_ID=<new_contract_id>
    VITE_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
    ```
 
 3. **Build and test**:
+
    ```bash
    npm run build
    npm run preview
@@ -810,23 +827,27 @@ describe('CampaignDetail on-chain state', () => {
 ## Summary
 
 ### Issue #322 (Expiry)
+
 - ✅ Added `ExpiryRecord` type
 - ✅ Implemented `credit_with_expiry()`
 - ✅ Updated `balance()` to filter expired points
 - ✅ Updated `claim()` to consume expiring points first (FIFO)
 
 ### Issue #323 (Delegation)
+
 - ✅ Added `approve_delegate()` and `revoke_delegate()`
 - ✅ Added `is_delegate_approved()` query
 - ✅ Updated `claim()` to support delegated claims
 
 ### Issue #317 (UI Improvements)
+
 - ✅ Added on-chain state fetching (participant count, cap)
 - ✅ Implemented progress bars
 - ✅ Added countdown timer
 - ✅ Share buttons already implemented
 
 ### Issue #321 (Minimum Claim)
+
 - ✅ Added `set_min_claim()` admin function
 - ✅ Added `min_claim()` query
 - ✅ Updated `claim()` to validate minimum amount

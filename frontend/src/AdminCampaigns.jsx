@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Header from './components/Header';
 import PageMeta from './components/PageMeta';
 import CreateCampaign from './CreateCampaign';
+import AuditLog from './components/AuditLog';
 import AdminControlPanel from './components/AdminControlPanel';
 import AllowlistUpload from './components/AllowlistUpload';
 import { apiClient } from './lib/apiClient';
@@ -96,7 +97,10 @@ export default function AdminCampaigns({
               <ul className="admin-analytics-list">
                 {campaigns.map((campaign) => (
                   <li key={campaign.id}>
-                    <Link to={`/admin/campaigns/${campaign.id}/analytics`} className="admin-analytics-link">
+                    <Link
+                      to={`/admin/campaigns/${campaign.id}/analytics`}
+                      className="admin-analytics-link"
+                    >
                       {campaign.name}
                     </Link>
                   </li>
@@ -130,27 +134,32 @@ export default function AdminCampaigns({
                 >
                   <option value="">Choose a campaign...</option>
                   {campaigns
-                    .filter(campaign => campaign.contractId)
+                    .filter((campaign) => campaign.contractId)
                     .map((campaign) => (
                       <option key={campaign.id} value={campaign.id}>
                         {campaign.name} ({campaign.contractId})
                       </option>
                     ))}
                 </select>
-                {campaigns.filter(c => c.contractId).length === 0 && (
+                {campaigns.filter((c) => c.contractId).length === 0 && (
                   <small className="campaign-selector-hint">
-                    No campaigns with contract IDs found. Create a campaign with a contract ID first.
+                    No campaigns with contract IDs found. Create a campaign with a contract ID
+                    first.
                   </small>
                 )}
               </div>
 
               {selectedCampaignId && (
-                <AdminControlPanel 
-                  contractId={campaigns.find(c => c.id === selectedCampaignId)?.contractId}
+                <AdminControlPanel
+                  contractId={campaigns.find((c) => c.id === selectedCampaignId)?.contractId}
                 />
               )}
             </section>
           )}
+        </section>
+
+        <section className="section" style={{ marginTop: 0, paddingTop: 0 }}>
+          <AuditLog />
         </section>
       </main>
     </div>
