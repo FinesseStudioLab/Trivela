@@ -140,10 +140,23 @@ export const listQuerySchema = z
   })
   .passthrough();
 
+/** Valid granular scopes for API keys (#611). */
+export const VALID_API_KEY_SCOPES = /** @type {const} */ ([
+  'campaigns:read',
+  'campaigns:write',
+  'allowlist:write',
+  'admin',
+]);
+
 /** Schema for creating an API key. */
 export const apiKeyCreateSchema = z.object({
   label: z.string().trim().max(128).optional(),
   expiresAt: isoDateOrNull.optional(),
+  orgId: z.string().trim().min(1).max(128).optional(),
+  scopes: z
+    .array(z.enum(VALID_API_KEY_SCOPES))
+    .min(1, 'scopes must contain at least one scope')
+    .optional(),
 });
 
 /** Schema for the indexer cursor update body. */
