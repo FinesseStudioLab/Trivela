@@ -57,6 +57,9 @@ import { createPushRoutes } from './routes/push.js';
 import { createOrgRoutes } from './routes/orgs.js';
 import { createAuditRouter } from './routes/audit.js';
 import { createAuditLogService } from './services/auditLogService.js';
+import { createBatchPayoutRouter } from './routes/batchPayout.js';
+import { createBatchPayoutService } from './services/batchPayoutService.js';
+import { createSqliteBatchJobRepository } from './dal/sqliteBatchJobRepository.js';
 import { createWebPushService } from './services/webPushService.js';
 import { createUsageMeteringService } from './services/usageMeteringService.js';
 import { createUsageMeteringMiddleware } from './middleware/usageMetering.js';
@@ -254,6 +257,7 @@ export async function createApp(options = {}) {
   const allowlistRepository = dal.allowlists;
   const orgMemberRepository = dal.orgMembers;
   const usageRepository = options.usageRepository ?? dal.usage;
+  const batchJobRepository = createSqliteBatchJobRepository({ db: dal.db });
 
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
@@ -281,6 +285,22 @@ export async function createApp(options = {}) {
     },
     logger: log,
   });
+  const batchPayoutService =
+    /** @type {any} */ (options.batchPayoutService) ??
+    createBatchPayoutService({
+      batchJobRepository,
+      sorobanAdapter: /** @type {any} */ (options.sorobanAdapter) ?? {
+        async buildAndSimulate(_from, _recipients) {
+          return { success: false, resourceExceeded: false };
+        },
+        async submit(_tx) {
+          throw new Error('No sorobanAdapter configured');
+        },
+      },
+      rpcPool,
+      logger: log,
+      operatorSecret: process.env.STELLAR_OPERATOR_SECRET,
+    });
   const shortCacheTtlMs = normalizePositiveInteger(
     /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
     DEFAULT_SHORT_CACHE_TTL_MS,
@@ -1752,6 +1772,15 @@ export async function createApp(options = {}) {
       service: webPushService,
     });
     app.use(prefix, rateLimiter, ...guard, pushRouter);
+
+    // Batch payout routes — Issue #553
+    const batchPayoutRouter = createBatchPayoutRouter({
+      batchPayoutService,
+      requireMasterKey,
+      rateLimiter,
+      log,
+    });
+    app.use(prefix, batchPayoutRouter);
   }
 
   registerApiRoutes(API_V1_PREFIX);
