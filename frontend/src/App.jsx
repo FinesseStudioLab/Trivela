@@ -7,6 +7,7 @@ import RequireAdmin from './components/RequireAdmin';
 
 // Route-level lazy loading — each chunk is fetched only when the user
 // navigates to that route, keeping the initial bundle small.
+const Explore = lazy(() => import('./Explore'));
 const CampaignDetail = lazy(() => import('./CampaignDetail'));
 const CampaignLeaderboard = lazy(() => import('./CampaignLeaderboard'));
 const CampaignAnalytics = lazy(() => import('./CampaignAnalytics'));
@@ -182,6 +183,23 @@ export default function App() {
                 onConnectWallet={openWalletModal}
                 onDisconnectWallet={disconnectWallet}
                 onRefreshPoints={() => loadWalletBalance(walletAddress)}
+              />
+            }
+          />
+          <Route
+            path="/explore"
+            element={
+              <Explore
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
               />
             }
           />

@@ -56,8 +56,12 @@ import { createCohortRoutes } from './routes/cohorts.js';
 import { createCohortService } from './services/cohortService.js';
 import { createPushRoutes } from './routes/push.js';
 import { createOrgRoutes } from './routes/orgs.js';
+import { createAuditRouter } from './routes/audit.js';
+import { createAuditLogService } from './services/auditLogService.js';
 import { createWebPushService } from './services/webPushService.js';
 import { createOrganizationRoutes } from './routes/organizations.js';
+import { createUsageMeteringService } from './services/usageMeteringService.js';
+import { createUsageMeteringMiddleware } from './middleware/usageMetering.js';
 import { requestTimeout } from './middleware/timeout.js';
 import { PoolSaturatedError } from './rpcPool.js';
 
@@ -251,6 +255,7 @@ export async function createApp(options = {}) {
   const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const allowlistRepository = dal.allowlists;
   const orgMemberRepository = dal.orgMembers;
+  const usageRepository = options.usageRepository ?? dal.usage;
 
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
@@ -265,6 +270,10 @@ export async function createApp(options = {}) {
   });
   const variantService = createVariantService({ variantRepo: variantRepository });
   const cohortService = createCohortService({ cohortRepo: cohortRepository });
+  const auditLogService = createAuditLogService({
+    auditLogRepository,
+    orgMemberRepository,
+  });
   const webPushService = createWebPushService({
     repository: pushSubscriptionRepository,
     vapid: {
@@ -384,6 +393,7 @@ export async function createApp(options = {}) {
   const requireAdminMasterKey = requireMasterKey;
 
   let rateLimitStore = null;
+  let usageRedisClient = null;
   const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
   if (redisUrl && !options.disableRedis) {
     try {
@@ -396,6 +406,7 @@ export async function createApp(options = {}) {
         log.error({ err }, 'Redis connection error');
       });
       rateLimitStore = createRedisStore(redisClient);
+      usageRedisClient = redisClient;
       log.info(
         { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
         'Rate limiter using Redis store',
@@ -407,6 +418,15 @@ export async function createApp(options = {}) {
       );
     }
   }
+
+  const usageMeteringService = createUsageMeteringService({
+    usageRepository,
+    redisClient: usageRedisClient ?? /** @type {any} */ (options.usageRedisClient) ?? null,
+    timeProvider: /** @type {any} */ (options.usageMeteringService)?.timeProvider,
+  });
+  const stopUsageFlush = usageMeteringService.startFlushInterval();
+
+  const usageMeteringMiddleware = createUsageMeteringMiddleware({ usageMeteringService });
 
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
@@ -583,6 +603,7 @@ export async function createApp(options = {}) {
         entity,
         entityId,
         diff,
+        orgId: req.auth?.orgId || null,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -719,6 +740,9 @@ export async function createApp(options = {}) {
         updateCampaign: `PUT ${API_V1_PREFIX}/campaigns/:id`,
         deleteCampaign: `DELETE ${API_V1_PREFIX}/campaigns/:id`,
         auditLogs: `GET ${API_V1_PREFIX}/audit-logs`,
+        usage: `GET ${API_V1_PREFIX}/usage`,
+        adminUsage: `GET ${API_V1_PREFIX}/admin/usage`,
+        adminUsageQuotas: `PUT ${API_V1_PREFIX}/admin/usage/quotas`,
         config: `GET ${API_V1_PREFIX}/config`,
         explorer: `GET ${API_V1_PREFIX}/explorer`,
       },
@@ -835,6 +859,32 @@ export async function createApp(options = {}) {
       expiresAt: Date.now() + shortCacheTtlMs,
       payload,
     });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    return res.set('x-cache', 'MISS').json(payload);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getTrendingCampaigns(req, res) {
+    const limitRaw = Number.parseInt(String(req.query.limit ?? '6'), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 50 ? limitRaw : 6;
+
+    const cacheKey = `trending:${limit}`;
+    const cached = shortCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+      return res.set('x-cache', 'HIT').json(cached.payload);
+    }
+
+    const all = campaignRepository.list({
+      active: true,
+      sort: 'reward_per_action',
+      order: 'desc',
+    });
+    const data = all.slice(0, limit);
+    const payload = { data, total: data.length };
+
+    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -1568,21 +1618,25 @@ export async function createApp(options = {}) {
 
   /** @param {string} prefix */
   function registerApiRoutes(prefix) {
+    // Shorthand: auth + per-tenant api_calls metering in one step.
+    const guard = [requireApiKey, usageMeteringMiddleware];
+
     app.get(prefix, rateLimiter, apiInfo);
     app.get(`${prefix}/config`, rateLimiter, getPublicConfig);
     app.get(`${prefix}/explorer`, rateLimiter, getExplorerLinks);
     app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
     app.get(`${prefix}/categories`, rateLimiter, listCategories);
     app.get(`${prefix}/tags`, rateLimiter, listTags);
+    app.get(`${prefix}/campaigns/trending`, rateLimiter, getTrendingCampaigns);
     app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/campaigns/:id/stats`, rateLimiter, getCampaignStats);
-    app.get(`${prefix}/audit-logs`, rateLimiter, requireApiKey, listAuditLogs);
+    app.get(`${prefix}/audit-logs`, rateLimiter, ...guard, listAuditLogs);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
-    app.post(`${prefix}/indexer/cursor`, rateLimiter, requireApiKey, setIndexerCursorState);
-    app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
-    app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, requireApiKey, cloneCampaign);
-    app.post(`${prefix}/campaigns/:id/image`, rateLimiter, requireApiKey, (req, res, next) => {
+    app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
+    app.post(`${prefix}/campaigns`, rateLimiter, ...guard, createCampaign);
+    app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, ...guard, cloneCampaign);
+    app.post(`${prefix}/campaigns/:id/image`, rateLimiter, ...guard, (req, res, next) => {
       imageUpload.single('image')(req, res, (err) => {
         if (err?.code === 'LIMIT_FILE_SIZE') {
           return res.status(400).json({
@@ -1598,6 +1652,8 @@ export async function createApp(options = {}) {
     app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, requireApiKey, publishCampaign);
     app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, requireApiKey, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, ...guard, updateCampaign);
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
     app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
@@ -1613,12 +1669,54 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
     app.get(`${prefix}/admin/campaigns`, rateLimiter, requireMasterKey, listAdminCampaigns);
 
+    // Tenant usage metering (Issue #574)
+    app.get(`${prefix}/usage`, rateLimiter, ...guard, (req, res) => {
+      const orgId = req.auth?.orgId;
+      if (!orgId) {
+        return res.status(403).json({
+          error: 'Usage data is scoped to org-linked API keys.',
+          code: 'NO_ORG_CONTEXT',
+        });
+      }
+      const usage = usageMeteringService.getOrgUsage(orgId);
+      return res.json({ orgId, usage });
+    });
+
+    app.get(`${prefix}/admin/usage`, rateLimiter, requireMasterKey, (_req, res) => {
+      const rows = usageMeteringService.adminExport();
+      return res.json({ usage: rows });
+    });
+
+    app.put(`${prefix}/admin/usage/quotas`, rateLimiter, requireMasterKey, (req, res) => {
+      const {
+        orgId,
+        resource,
+        softLimit = null,
+        hardLimit = null,
+        windowSeconds = 3600,
+      } = req.body ?? {};
+      if (!orgId || !resource) {
+        return res.status(400).json({
+          error: 'orgId and resource are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      const quota = usageRepository.upsertQuota({
+        orgId,
+        resource,
+        softLimit,
+        hardLimit,
+        windowSeconds,
+      });
+      return res.json(quota);
+    });
+
     // Job dead-letter inspection / requeue (Issue #286)
-    app.get(`${prefix}/jobs/failed`, rateLimiter, requireApiKey, listFailedJobsHandler);
-    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, requireApiKey, retryFailedJobHandler);
+    app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, listFailedJobsHandler);
+    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, ...guard, retryFailedJobHandler);
 
     // Webhook routes (Issue #287)
-    app.post(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+    app.post(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
       const { url, events, secret } = req.body;
       if (!url || !Array.isArray(events) || events.length === 0) {
         return res.status(400).json({
@@ -1637,12 +1735,12 @@ export async function createApp(options = {}) {
       return res.status(201).json(webhook);
     });
 
-    app.get(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
       const webhooks = webhookRepository.list();
       return res.json(paginateItems(webhooks, req.query));
     });
 
-    app.get(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -1650,7 +1748,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.put(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
       const { url, events, active } = req.body;
       const before = webhookRepository.getById(req.params.id);
       if (!before) {
@@ -1670,7 +1768,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.delete(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.delete(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
       const before = webhookRepository.getById(req.params.id);
       const deleted = webhookRepository.delete(req.params.id);
       if (!deleted) {
@@ -1685,7 +1783,7 @@ export async function createApp(options = {}) {
       return res.status(204).end();
     });
 
-    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, ...guard, (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -1767,20 +1865,27 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, orgRouter);
 
+    // Audit log routes for organization-scoped audit logging and activity feeds (Issue #612)
+    const auditRouter = createAuditRouter({
+      auditLogService,
+      requireApiKey,
+    });
+    app.use(prefix, rateLimiter, auditRouter);
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
       variantService,
       campaignRepo: campaignRepository,
     });
-    app.use(prefix, rateLimiter, requireApiKey, variantRouter);
+    app.use(prefix, rateLimiter, ...guard, variantRouter);
 
     // Cohort and retention analysis routes (Issue #623)
     const cohortRouter = createCohortRoutes({
       cohortService,
       campaignRepo: campaignRepository,
     });
-    app.use(prefix, rateLimiter, requireApiKey, cohortRouter);
+    app.use(prefix, rateLimiter, ...guard, cohortRouter);
 
     // Web Push subscription routes (Issue #619)
     const pushRouter = createPushRoutes({
@@ -1792,10 +1897,38 @@ export async function createApp(options = {}) {
     // Organization and team member invitation routes (Issue #609)
     const organizationRouter = createOrganizationRoutes(dal);
     app.use(`${prefix}/organizations`, rateLimiter, requireApiKey, organizationRouter);
+    app.use(prefix, rateLimiter, ...guard, pushRouter);
   }
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
+
+  // Dynamic sitemap.xml for SEO — lists all public (non-hidden, active) campaign pages
+  app.get('/sitemap.xml', rateLimiter, (req, res) => {
+    const siteUrl =
+      (process.env.SITE_URL || '').replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;
+
+    const staticPaths = ['/', '/explore', '/about'];
+    const campaigns = campaignRepository.list({ active: true });
+
+    const urlEntries = [
+      ...staticPaths.map(
+        (p) =>
+          `<url><loc>${siteUrl}${p}</loc><changefreq>daily</changefreq><priority>${p === '/' || p === '/explore' ? '1.0' : '0.7'}</priority></url>`,
+      ),
+      ...campaigns.map(
+        (c) =>
+          `<url><loc>${siteUrl}/campaign/${encodeURIComponent(c.id)}</loc><lastmod>${c.updatedAt ? new Date(c.updatedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`,
+      ),
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries.join('\n')}\n</urlset>`;
+
+    res
+      .set('Content-Type', 'application/xml; charset=utf-8')
+      .set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400')
+      .send(xml);
+  });
 
   // Central error handler — must be registered after all routes
   app.use(errorHandler);
@@ -1853,6 +1986,10 @@ export async function startServer(options = {}) {
 
     // Stop accepting new connections; drain in-flight HTTP requests.
     await new Promise((resolve) => server.close(resolve));
+
+    // Flush usage counters to DB before exiting.
+    stopUsageFlush();
+    await usageMeteringService.flushToDb().catch((err) => log.warn({ err }, 'usage flush warning'));
 
     // Flush OTel exporter.
     await shutdownTracing().catch((err) => log.warn({ err }, 'OTel shutdown warning'));

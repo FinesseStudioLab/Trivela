@@ -20,7 +20,14 @@ export const ROLES = /** @type {const} */ (['owner', 'admin', 'editor', 'viewer'
 export const ROLE_PERMISSIONS = {
   viewer: ['campaigns:read'],
   editor: ['campaigns:read', 'campaigns:write'],
-  admin: ['campaigns:read', 'campaigns:write', 'members:read', 'members:manage', 'apikeys:manage'],
+  admin: [
+    'campaigns:read',
+    'campaigns:write',
+    'members:read',
+    'members:manage',
+    'apikeys:manage',
+    'audit:read',
+  ],
   owner: [
     'campaigns:read',
     'campaigns:write',
@@ -29,6 +36,7 @@ export const ROLE_PERMISSIONS = {
     'apikeys:manage',
     'org:manage',
     'org:delete',
+    'audit:read',
   ],
 };
 

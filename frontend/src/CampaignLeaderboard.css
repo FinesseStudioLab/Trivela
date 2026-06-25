@@ -146,6 +146,14 @@
   backdrop-filter: blur(16px);
 }
 
+/* Scrollable viewport for the virtualized participant rows (issue #629).
+   A bounded height lets the windowing only render the visible rows, so large
+   leaderboards (thousands of participants) stay smooth without DOM bloat. */
+.lb-virtual-viewport {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
 .lb-row {
   display: grid;
   grid-template-columns: 72px 1fr 110px 110px 110px;

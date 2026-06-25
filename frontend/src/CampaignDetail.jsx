@@ -96,6 +96,36 @@ export default function CampaignDetail({
 
   const campaignImage = campaign?.imageUrl || DEFAULT_OG_IMAGE;
 
+  const campaignJsonLd = campaign
+    ? {
+        '@context': 'https://schema.org',
+        '@type': 'Event',
+        name: campaign.name,
+        description: campaign.description || '',
+        url: `${window.location.origin}/campaign/${id}`,
+        image: campaign.imageUrl || undefined,
+        startDate: campaign.startDate || undefined,
+        endDate: campaign.endDate || undefined,
+        eventStatus: campaign.active
+          ? 'https://schema.org/EventScheduled'
+          : 'https://schema.org/EventCancelled',
+        organizer: {
+          '@type': 'Organization',
+          name: 'Trivela',
+          url: window.location.origin,
+        },
+        offers: {
+          '@type': 'Offer',
+          name: `${campaign.rewardPerAction ?? 0} reward points per action`,
+          price: '0',
+          priceCurrency: 'USD',
+          availability: campaign.active
+            ? 'https://schema.org/InStock'
+            : 'https://schema.org/SoldOut',
+        },
+      }
+    : null;
+
   return (
     <div className="campaign-detail-page">
       <PageMeta
@@ -106,6 +136,7 @@ export default function CampaignDetail({
         }
         path={`/campaign/${id}`}
         image={campaignImage}
+        jsonLd={campaignJsonLd}
       />
       <Header
         theme={theme}

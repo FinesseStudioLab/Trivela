@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { apiUrl } from './config';
 import Header from './components/Header';
+import VirtualizedList from './components/VirtualizedList';
 import './CampaignLeaderboard.css';
 
 const PAGE_LIMIT = 20;
@@ -172,6 +173,15 @@ export default function CampaignLeaderboard({
     fetchLeaderboard(nextPage, false);
   };
 
+  // Infinite scroll: the virtualized list calls this as the user nears the end.
+  // Guarded so it only advances the cursor once per page.
+  const handleReachEnd = useCallback(() => {
+    if (!hasMore || isLoadingMore || isLoading) return;
+    const nextPage = page + 1;
+    setPage(nextPage);
+    fetchLeaderboard(nextPage, false);
+  }, [hasMore, isLoadingMore, isLoading, page, fetchLeaderboard]);
+
   const buildShareText = (rank) => {
     const name = campaign?.name ?? 'this campaign';
     const rankStr = rank != null ? `#${rank} of ${total}` : 'the top';
@@ -276,8 +286,13 @@ export default function CampaignLeaderboard({
           </div>
 
           {/* Table header */}
-          <div className="lb-table" role="table" aria-label="Campaign leaderboard">
-            <div className="lb-row lb-row-header" role="row">
+          <div
+            className="lb-table"
+            role="table"
+            aria-label="Campaign leaderboard"
+            aria-rowcount={total + 1}
+          >
+            <div className="lb-row lb-row-header" role="row" aria-rowindex={1}>
               <span className="lb-col-rank" role="columnheader">
                 Rank
               </span>
@@ -319,31 +334,40 @@ export default function CampaignLeaderboard({
                 </p>
               </div>
             ) : (
-              participants.map((p) => (
-                <div
-                  key={p.walletAddress ?? p.rank}
-                  className={`lb-row lb-row-data${isMyRow(p.walletAddress) ? ' lb-row-mine' : ''}`}
-                  role="row"
-                  aria-current={isMyRow(p.walletAddress) ? 'true' : undefined}
-                >
-                  <span className="lb-col-rank" role="cell">
-                    <RankMedal rank={p.rank} />
-                  </span>
-                  <span className="lb-col-address" role="cell" title={p.walletAddress}>
-                    {truncateAddress(p.walletAddress)}
-                    {isMyRow(p.walletAddress) && <span className="lb-you-badge">You</span>}
-                  </span>
-                  <span className="lb-col-points" role="cell">
-                    {(p.points ?? 0).toLocaleString()}
-                  </span>
-                  <span className="lb-col-claimed" role="cell">
-                    {(p.claimedPoints ?? 0).toLocaleString()}
-                  </span>
-                  <span className="lb-col-net" role="cell">
-                    {((p.points ?? 0) - (p.claimedPoints ?? 0)).toLocaleString()}
-                  </span>
-                </div>
-              ))
+              <VirtualizedList
+                items={participants}
+                getKey={(p) => p.walletAddress ?? p.rank}
+                estimateSize={56}
+                className="lb-virtual-viewport"
+                containerProps={{ role: 'rowgroup', 'aria-label': 'Leaderboard participants' }}
+                onReachEnd={handleReachEnd}
+                getItemProps={(p, i) => ({
+                  className: `lb-row lb-row-data${isMyRow(p.walletAddress) ? ' lb-row-mine' : ''}`,
+                  role: 'row',
+                  'aria-rowindex': i + 2,
+                  'aria-current': isMyRow(p.walletAddress) ? 'true' : undefined,
+                })}
+                renderItem={(p) => (
+                  <>
+                    <span className="lb-col-rank" role="cell">
+                      <RankMedal rank={p.rank} />
+                    </span>
+                    <span className="lb-col-address" role="cell" title={p.walletAddress}>
+                      {truncateAddress(p.walletAddress)}
+                      {isMyRow(p.walletAddress) && <span className="lb-you-badge">You</span>}
+                    </span>
+                    <span className="lb-col-points" role="cell">
+                      {(p.points ?? 0).toLocaleString()}
+                    </span>
+                    <span className="lb-col-claimed" role="cell">
+                      {(p.claimedPoints ?? 0).toLocaleString()}
+                    </span>
+                    <span className="lb-col-net" role="cell">
+                      {((p.points ?? 0) - (p.claimedPoints ?? 0)).toLocaleString()}
+                    </span>
+                  </>
+                )}
+              />
             )}
           </div>
 

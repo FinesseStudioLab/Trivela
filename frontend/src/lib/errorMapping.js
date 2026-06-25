@@ -1,7 +1,102 @@
 /**
- * Error code to user-friendly message mapping
+ * Error code to user-friendly message mapping + recovery action classification.
  * Maps contract error codes and HTTP status codes to clear, actionable messages
+ * and surfaces a typed recovery action for the TransactionStatus UI.
  */
+
+/**
+ * Recovery action types — each maps to a concrete UI button in TransactionStatus.
+ *
+ * RETRY          — re-submit the same transaction (network/RPC hiccup or expired).
+ * RE_SIGN        — re-open the wallet signing prompt (user cancelled).
+ * SWITCH_WALLET  — prompt the user to change their connected wallet/address.
+ * TOP_UP         — navigate the user to a fund/deposit flow (insufficient balance).
+ * VIEW_EXPLORER  — open the Stellar Expert link for the failed transaction.
+ * REPORT         — surface a "report this issue" link for truly unknown errors.
+ */
+export const RECOVERY_ACTION = {
+  RETRY: 'retry',
+  RE_SIGN: 're_sign',
+  SWITCH_WALLET: 'switch_wallet',
+  TOP_UP: 'top_up',
+  VIEW_EXPLORER: 'view_explorer',
+  REPORT: 'report',
+};
+
+/**
+ * Per-error-class default recovery actions.
+ * Code-level overrides in CODE_RECOVERY take precedence.
+ */
+const CLASS_RECOVERY = {
+  // User-rejected: re-prompt signing — do NOT say "error", say "cancelled".
+  wallet: [RECOVERY_ACTION.RE_SIGN],
+  // Transport failure: safe to retry without a new auth entry.
+  network: [RECOVERY_ACTION.RETRY],
+  // RPC/Horizon degraded: retry after a moment.
+  rpc: [RECOVERY_ACTION.RETRY],
+  // Validation: nothing to retry — user fixes input themselves.
+  validation: [],
+  // Contract reverts without a code-level override → show explorer.
+  contract: [RECOVERY_ACTION.VIEW_EXPLORER],
+  // Catch-all: retry + report.
+  unknown: [RECOVERY_ACTION.RETRY, RECOVERY_ACTION.REPORT],
+};
+
+/**
+ * Per error code recovery action overrides.
+ * These replace (not augment) the class-level default.
+ */
+const CODE_RECOVERY = {
+  // Insufficient rewards balance → top-up
+  2: [RECOVERY_ACTION.TOP_UP],
+  // Permission errors → switch wallet / account
+  100: [RECOVERY_ACTION.SWITCH_WALLET],
+  104: [RECOVERY_ACTION.SWITCH_WALLET],
+  3: [RECOVERY_ACTION.SWITCH_WALLET],
+  // Expired / already-processed → retry with a fresh tx
+  105: [RECOVERY_ACTION.RETRY],
+  106: [RECOVERY_ACTION.RETRY],
+  // Transient service issues
+  4: [RECOVERY_ACTION.RETRY],
+  429: [RECOVERY_ACTION.RETRY],
+  500: [RECOVERY_ACTION.RETRY, RECOVERY_ACTION.REPORT],
+  503: [RECOVERY_ACTION.RETRY],
+  // Campaign state errors: nothing the user can do except view status
+  101: [RECOVERY_ACTION.VIEW_EXPLORER],
+  102: [RECOVERY_ACTION.VIEW_EXPLORER],
+  103: [RECOVERY_ACTION.VIEW_EXPLORER],
+};
+
+/**
+ * Human-readable labels and descriptions for each recovery action,
+ * used by TransactionStatus to render the correct button text and aria-label.
+ */
+export const RECOVERY_ACTION_META = {
+  [RECOVERY_ACTION.RETRY]: {
+    label: 'Try again',
+    description: 'Resubmit the transaction',
+  },
+  [RECOVERY_ACTION.RE_SIGN]: {
+    label: 'Sign again',
+    description: 'Re-open your wallet to sign the transaction',
+  },
+  [RECOVERY_ACTION.SWITCH_WALLET]: {
+    label: 'Switch wallet',
+    description: 'Connect a different wallet or account',
+  },
+  [RECOVERY_ACTION.TOP_UP]: {
+    label: 'Add funds',
+    description: 'Add XLM or tokens to your wallet',
+  },
+  [RECOVERY_ACTION.VIEW_EXPLORER]: {
+    label: 'View on explorer',
+    description: 'Open the transaction on Stellar Expert',
+  },
+  [RECOVERY_ACTION.REPORT]: {
+    label: 'Report issue',
+    description: 'Open a support request for this error',
+  },
+};
 
 export const ERROR_MESSAGES = {
   // Campaign contract errors (100-106)
@@ -126,9 +221,29 @@ export function classifyError(error) {
 }
 
 /**
+ * Resolve the ordered list of recovery actions for a classified error.
+ * Code-level overrides win; class-level defaults are used otherwise.
+ *
+ * @param {string} errorClass - one of ERROR_CLASS values
+ * @param {number|null} code - extracted contract/HTTP code, or null
+ * @returns {string[]} ordered list of RECOVERY_ACTION values
+ */
+export function getRecoveryActions(errorClass, code) {
+  if (code !== null && CODE_RECOVERY[code]) return CODE_RECOVERY[code];
+  return CLASS_RECOVERY[errorClass] ?? CLASS_RECOVERY[ERROR_CLASS.UNKNOWN];
+}
+
+/**
  * Map any error to a structured, user-facing shape for the optimistic UI.
  * @param {Error|number|string|object} error
- * @returns {{ class: string, code: number|null, message: string, recovery: string|null, retryable: boolean }}
+ * @returns {{
+ *   class: string,
+ *   code: number|null,
+ *   message: string,
+ *   recovery: string|null,
+ *   recoveryActions: string[],
+ *   retryable: boolean
+ * }}
  */
 export function mapError(error) {
   const errorClass = classifyError(error);
@@ -141,11 +256,14 @@ export function mapError(error) {
       ? getErrorMessage(code)
       : CLASS_MESSAGES[errorClass] || getErrorMessage(error);
 
+  const recoveryActions = getRecoveryActions(errorClass, code ?? null);
+
   return {
     class: errorClass,
     code: code ?? null,
     message,
     recovery: code ? getRecoverySuggestion(code) : null,
+    recoveryActions,
     retryable:
       errorClass === ERROR_CLASS.NETWORK ||
       errorClass === ERROR_CLASS.RPC ||
