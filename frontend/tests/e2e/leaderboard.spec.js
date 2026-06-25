@@ -62,9 +62,12 @@ test.describe('Campaign Leaderboard page', () => {
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Leaderboard');
     await expect(page.locator('.lb-table')).toBeVisible();
 
-    // All four participant rows should appear
+    // All four participant rows should appear. Firefox can take noticeably
+    // longer than chromium/webkit to settle the debounced fetch + render
+    // cycle under CI load, so give this initial-load assertion more room
+    // than the 5s default before falling back to "0 elements".
     const rows = page.locator('.lb-row-data');
-    await expect(rows).toHaveCount(4);
+    await expect(rows).toHaveCount(4, { timeout: 15_000 });
   });
 
   test('displays gold, silver, bronze medals for top 3 ranks', async ({ page }) => {
@@ -73,9 +76,11 @@ test.describe('Campaign Leaderboard page', () => {
 
     await page.goto(LEADERBOARD_URL);
 
-    await expect(page.locator('.lb-row-data').nth(0)).toContainText('🥇');
-    await expect(page.locator('.lb-row-data').nth(1)).toContainText('🥈');
-    await expect(page.locator('.lb-row-data').nth(2)).toContainText('🥉');
+    const rows = page.locator('.lb-row-data');
+    await expect(rows).toHaveCount(4, { timeout: 15_000 });
+    await expect(rows.nth(0)).toContainText('🥇');
+    await expect(rows.nth(1)).toContainText('🥈');
+    await expect(rows.nth(2)).toContainText('🥉');
   });
 
   test('shows truncated wallet addresses', async ({ page }) => {
@@ -85,8 +90,9 @@ test.describe('Campaign Leaderboard page', () => {
     await page.goto(LEADERBOARD_URL);
 
     // First address GABC1234567890AAAA should be truncated to GABC12...AAAA
-    const firstRow = page.locator('.lb-row-data').first();
-    await expect(firstRow.locator('.lb-col-address')).toContainText('GABC12...AAAA');
+    const rows = page.locator('.lb-row-data');
+    await expect(rows).toHaveCount(4, { timeout: 15_000 });
+    await expect(rows.first().locator('.lb-col-address')).toContainText('GABC12...AAAA');
   });
 
   test('shows empty state when no participants', async ({ page }) => {

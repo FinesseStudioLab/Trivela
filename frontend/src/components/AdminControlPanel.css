@@ -167,7 +167,9 @@
   background: var(--bg-input);
   color: var(--text);
   font-size: 0.875rem;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .admin-input:focus {
@@ -198,12 +200,12 @@
   font-size: 0.875rem;
 }
 
-.admin-checkbox-label input[type="checkbox"] {
+.admin-checkbox-label input[type='checkbox'] {
   width: auto;
   margin: 0;
 }
 
-.admin-checkbox-label input[type="checkbox"]:disabled {
+.admin-checkbox-label input[type='checkbox']:disabled {
   cursor: not-allowed;
 }
 
@@ -259,15 +261,15 @@
     padding: 1rem;
     margin: 0 1rem;
   }
-  
+
   .admin-status-grid {
     grid-template-columns: 1fr;
   }
-  
+
   .admin-field-group {
     grid-template-columns: 1fr;
   }
-  
+
   .admin-section {
     padding: 1rem;
   }
@@ -279,12 +281,12 @@
     background: var(--bg-card-dark, #1a1a1a);
     border-color: var(--border-dark, #333);
   }
-  
+
   .admin-section {
     background: var(--bg-subtle-dark, #222);
     border-color: var(--border-subtle-dark, #333);
   }
-  
+
   .admin-input {
     background: var(--bg-input-dark, #2a2a2a);
     border-color: var(--border-dark, #444);

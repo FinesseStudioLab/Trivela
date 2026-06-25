@@ -13,15 +13,20 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test": "npm run test:unit && playwright test",
     "test:e2e": "playwright test",
     "test:e2e:lifecycle": "playwright test tests/e2e/campaign-lifecycle.test.ts",
+    "test:visual": "playwright test --config=playwright.visual.config.ts",
+    "test:visual:update": "playwright test --config=playwright.visual.config.ts --update-snapshots",
+    "test:visual:report": "playwright show-report playwright-report-visual",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
     "security:xss": "npm run lint && grep -r 'dangerouslySetInnerHTML' src/ || echo 'No dangerouslySetInnerHTML found - XSS audit passed'"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.0.0",
+    "@tanstack/react-virtual": "^3.14.3",
     "dompurify": "^3.1.0",
     "driver.js": "^1.3.1",
     "react": "^18.3.1",
@@ -29,7 +34,7 @@
     "react-helmet-async": "^2.0.5",
     "react-router-dom": "^7.13.2",
     "recharts": "^2.15.0",
-    "driver.js": "^1.3.1"
+    "qrcode.react": "^3.1.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",
@@ -37,18 +42,21 @@
     "@storybook/addon-a11y": "^8.6.18",
     "@storybook/addon-essentials": "^8.6.18",
     "@storybook/react-vite": "^8.6.18",
+    "@testing-library/dom": "^10.4.1",
     "@testing-library/react": "^16.0.1",
+    "@testing-library/user-event": "^14.5.2",
     "@vitejs/plugin-react": "^4.3.1",
+    "@vitest/coverage-v8": "^2.1.8",
     "eslint": "^9.39.0",
-    "jsdom": "^25.0.1",
-    "vite-plugin-pwa": "^0.21.1",
-    "vitest": "^2.1.8",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.24",
     "globals": "^16.5.0",
+    "jsdom": "^25.0.1",
     "prettier": "^3.6.2",
     "storybook": "^8.6.18",
-    "vite": "^5.4.2"
+    "vite": "^5.4.2",
+    "vite-plugin-pwa": "^0.21.1",
+    "vitest": "^2.1.8"
   }
 }

@@ -85,13 +85,17 @@ export async function initTracing() {
     });
     sdkInstance.start();
     // eslint-disable-next-line no-console
-    console.log(`[tracing] OpenTelemetry SDK started (service=${serviceName}, exporter=${endpoint || 'noop'})`);
+    console.log(
+      `[tracing] OpenTelemetry SDK started (service=${serviceName}, exporter=${endpoint || 'noop'})`,
+    );
     return sdkInstance;
   } catch (err) {
     // Soft-fail: the rest of the backend keeps running. `withSpan()`
     // falls through to a no-op tracer below.
     // eslint-disable-next-line no-console
-    console.warn(`[tracing] OpenTelemetry SDK not available (${err.message}); continuing without tracing`);
+    console.warn(
+      `[tracing] OpenTelemetry SDK not available (${err.message}); continuing without tracing`,
+    );
     sdkInstance = false;
     return null;
   }

@@ -144,6 +144,21 @@
   border-radius: 20px;
   overflow: hidden;
   backdrop-filter: blur(16px);
+  /* Horizontal scroll on narrow viewports (issue #519) */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lb-table-inner {
+  min-width: 520px;
+}
+
+/* Scrollable viewport for the virtualized participant rows (issue #629).
+   A bounded height lets the windowing only render the visible rows, so large
+   leaderboards (thousands of participants) stay smooth without DOM bloat. */
+.lb-virtual-viewport {
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
 .lb-row {
@@ -271,13 +286,24 @@
   height: 14px;
 }
 
-.lb-skeleton-sm { width: 40px; }
-.lb-skeleton-md { width: 70px; margin-left: auto; }
-.lb-skeleton-lg { width: 120px; }
+.lb-skeleton-sm {
+  width: 40px;
+}
+.lb-skeleton-md {
+  width: 70px;
+  margin-left: auto;
+}
+.lb-skeleton-lg {
+  width: 120px;
+}
 
 @keyframes lb-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* ── States ──────────────────────────────────────────────────────────────── */

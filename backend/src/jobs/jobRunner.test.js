@@ -66,11 +66,15 @@ test('jobRunner retries failing jobs up to maxAttempts and then dead-letters', a
     deadLetter,
   });
 
-  runner.enqueue('flaky', { id: 'x' }, {
-    maxAttempts: 3,
-    baseDelayMs: 1,
-    maxDelayMs: 5,
-  });
+  runner.enqueue(
+    'flaky',
+    { id: 'x' },
+    {
+      maxAttempts: 3,
+      baseDelayMs: 1,
+      maxDelayMs: 5,
+    },
+  );
 
   // The retry backoffs add up to <50ms; 200ms is plenty for all attempts.
   const deadline = Date.now() + 1_000;

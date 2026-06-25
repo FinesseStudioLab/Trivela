@@ -1,6 +1,7 @@
 # Trivela Helm Chart
 
-Deploy the full Trivela stack (backend API + nginx frontend + autoscaling) to any Kubernetes cluster using this Helm chart.
+Deploy the full Trivela stack (backend API + nginx frontend + autoscaling) to any Kubernetes cluster
+using this Helm chart.
 
 ## Prerequisites
 
@@ -32,19 +33,19 @@ helm uninstall trivela
 
 All configurable values are in [values.yaml](values.yaml). Key overrides:
 
-| Key | Default | Description |
-|-----|---------|-------------|
-| `backend.replicaCount` | `2` | Initial backend pod count |
-| `backend.image.repository` | `trivela-backend` | Backend image |
-| `backend.image.tag` | `latest` | Backend image tag |
-| `frontend.replicaCount` | `2` | Initial frontend pod count |
-| `ingress.host` | `trivela.example.com` | Public hostname |
-| `ingress.tls.enabled` | `true` | Enable TLS via cert-manager |
-| `autoscaling.minReplicas` | `2` | HPA minimum replicas |
-| `autoscaling.maxReplicas` | `10` | HPA maximum replicas |
-| `autoscaling.targetCPUUtilizationPercentage` | `70` | CPU threshold for scale-out |
-| `secrets.databaseUrl` | *(placeholder)* | PostgreSQL connection string |
-| `secrets.jwtSecret` | *(placeholder)* | JWT signing secret |
+| Key                                          | Default               | Description                  |
+| -------------------------------------------- | --------------------- | ---------------------------- |
+| `backend.replicaCount`                       | `2`                   | Initial backend pod count    |
+| `backend.image.repository`                   | `trivela-backend`     | Backend image                |
+| `backend.image.tag`                          | `latest`              | Backend image tag            |
+| `frontend.replicaCount`                      | `2`                   | Initial frontend pod count   |
+| `ingress.host`                               | `trivela.example.com` | Public hostname              |
+| `ingress.tls.enabled`                        | `true`                | Enable TLS via cert-manager  |
+| `autoscaling.minReplicas`                    | `2`                   | HPA minimum replicas         |
+| `autoscaling.maxReplicas`                    | `10`                  | HPA maximum replicas         |
+| `autoscaling.targetCPUUtilizationPercentage` | `70`                  | CPU threshold for scale-out  |
+| `secrets.databaseUrl`                        | _(placeholder)_       | PostgreSQL connection string |
+| `secrets.jwtSecret`                          | _(placeholder)_       | JWT signing secret           |
 
 ## Secrets Management
 
@@ -61,7 +62,8 @@ helm install trivela ./helm/trivela --set secrets.databaseUrl="postgresql://..."
 
 ## Autoscaling
 
-HPA is enabled by default.  The backend scales between 2 and 10 replicas based on CPU (70%) and memory (80%) utilisation.  Adjust via:
+HPA is enabled by default. The backend scales between 2 and 10 replicas based on CPU (70%) and
+memory (80%) utilisation. Adjust via:
 
 ```bash
 helm upgrade trivela ./helm/trivela \

@@ -38,9 +38,15 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
         maximumFileSizeToCacheInBytes: 3_000_000,
+        // Web Push handlers (issue #619) — imported into the generated SW.
+        importScripts: ['push-sw.js'],
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.destination === 'script' || request.destination === 'style' || request.destination === 'image' || request.destination === 'font',
+            urlPattern: ({ request }) =>
+              request.destination === 'script' ||
+              request.destination === 'style' ||
+              request.destination === 'image' ||
+              request.destination === 'font',
             handler: 'CacheFirst',
             options: {
               cacheName: 'static-assets',
@@ -58,6 +64,28 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        // Vendor code splitting — keeps the initial bundle lean by hoisting
+        // stable third-party packages into separately cacheable chunks.
+        manualChunks(id) {
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom')) {
+            return 'vendor-react';
+          }
+          if (id.includes('node_modules/react-router')) {
+            return 'vendor-router';
+          }
+          if (id.includes('node_modules/recharts') || id.includes('node_modules/d3-')) {
+            return 'vendor-charts';
+          }
+          if (id.includes('node_modules/@stellar')) {
+            return 'vendor-stellar';
+          }
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     proxy: {

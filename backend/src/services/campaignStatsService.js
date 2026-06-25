@@ -59,7 +59,13 @@ function resolveRange(query, campaign) {
   return { from, to };
 }
 
-export function buildCampaignStats({ db, campaign, referralRepository, indexerCursor, query = {} }) {
+export function buildCampaignStats({
+  db,
+  campaign,
+  referralRepository,
+  indexerCursor,
+  query = {},
+}) {
   const { from, to } = resolveRange(query, campaign);
   return buildCampaignStatsForRange({
     db,
@@ -161,8 +167,7 @@ export function buildCampaignStatsForRange({
 
   const totalParticipants = referrals.length;
   const totalPoints = totalCredited;
-  const claimRate =
-    totalCredited > 0 ? Math.round((totalClaimed / totalCredited) * 1000) / 10 : 0;
+  const claimRate = totalCredited > 0 ? Math.round((totalClaimed / totalCredited) * 1000) / 10 : 0;
 
   let timeRemainingMs = 0;
   if (campaign.endDate) {

@@ -1,0 +1,202 @@
+# promtool unit tests for Trivela alerting rules.
+#
+# Run locally:
+#   promtool test rules monitoring/alerting/alerting_rules_test.yml
+#
+# These tests fire against monitoring/alerting/alerting_rules.yml (referenced
+# via the `rule_files` list below).
+
+rule_files:
+  - alerting_rules.yml
+
+evaluation_interval: 30s
+
+tests:
+  # ── HighBackendErrorRate ────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_request_errors_total{job="trivela-backend"}'
+        values: '0+6x10' # 6 errors/min = 0.1 errors/s
+      - series: 'trivela_requests_total{job="trivela-backend"}'
+        values: '0+60x10' # 60 req/min = 1 req/s → error rate = 10%
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighBackendErrorRate
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: 'Trivela backend 5xx error rate above 5%'
+              description:
+                'Error rate is 10% over the last 5 minutes. Investigate backend logs immediately.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#backend-restart'
+
+  # ── HighBackendErrorRate does NOT fire below threshold ───────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_request_errors_total{job="trivela-backend"}'
+        values: '0+1x10' # 1 error/min = 1.7%
+      - series: 'trivela_requests_total{job="trivela-backend"}'
+        values: '0+60x10'
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighBackendErrorRate
+        exp_alerts: []
+
+  # ── HighP95Latency ──────────────────────────────────────────────────────────
+  # Simulate p95 > 1000ms. The highest finite bucket must be above the 1000ms
+  # threshold, otherwise histogram_quantile caps at le=1000 and the alert can
+  # never fire — so most samples land in the (1000, 2000] bucket.
+  - interval: 30s
+    input_series:
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="500"}'
+        values: '0+10x20'
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="1000"}'
+        values: '0+11x20'
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="2000"}'
+        values: '0+100x20'
+      - series: 'trivela_http_request_duration_ms_bucket{job="trivela-backend",le="+Inf"}'
+        values: '0+100x20' # p95 lands in (1000, 2000] → > 1000ms SLO breach
+
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HighP95Latency
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: 'Trivela p95 request latency above 1 second'
+              description:
+                'The 95th-percentile request latency is 32m 23s — above the 1 s SLO target. Identify
+                slow routes in Grafana → Trivela API dashboard.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#latency-investigation'
+
+  # ── BackendDown ──────────────────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'up{job="trivela-backend"}'
+        values: '1 1 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: BackendDown
+        exp_alerts:
+          - exp_labels:
+              job: trivela-backend
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: 'Trivela backend is unreachable'
+              description:
+                'Prometheus cannot scrape the backend /metrics endpoint. Service may be down.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#backend-restart'
+
+  # ── AllRpcEndpointsUnhealthy ────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'trivela_rpc_pool_healthy{job="trivela-backend"}'
+        values: '2 2 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: AllRpcEndpointsUnhealthy
+        exp_alerts:
+          - exp_labels:
+              job: trivela-backend
+              severity: critical
+              team: infrastructure
+            exp_annotations:
+              summary: 'All Soroban RPC endpoints are unhealthy'
+              description:
+                'Every endpoint in the RPC pool is marked unhealthy. Contract interactions will fail
+                or fall back to the first endpoint. Check RPC node health.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#rpc-failover'
+
+  # ── RpcPoolSaturated ────────────────────────────────────────────────────────
+  - interval: 30s
+    input_series:
+      - series: 'trivela_rpc_pool_waiting{job="trivela-backend"}'
+        values: '0 0 3 3 3 3 3'
+
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: RpcPoolSaturated
+        exp_alerts:
+          - exp_labels:
+              job: trivela-backend
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: 'RPC pool is saturated — callers waiting'
+              description:
+                '3 caller(s) are queued waiting for an RPC pool slot. Requests beyond the acquire
+                timeout will receive 503 POOL_SATURATED. Consider increasing PG_POOL_MAX or scaling
+                the RPC tier.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#rpc-pool-saturation'
+
+  # ── DLQGrowth ───────────────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_dlq_size_total{job="trivela-backend"}'
+        values: '0+2x20' # +2 per minute → +10 per 5m, +20 per 15m — exceeds threshold of 10
+
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: DLQGrowth
+        exp_alerts:
+          - exp_labels:
+              job: trivela-backend
+              severity: warning
+              team: backend
+            exp_annotations:
+              summary: 'Dead-letter queue is growing'
+              description:
+                '30 jobs added to the DLQ in the last 15 minutes. Background jobs are failing
+                repeatedly. Review failed job logs for root cause.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#dlq-investigation'
+
+  # ── OperatorLowBalance ──────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_operator_xlm_balance_stroops{job="trivela-backend"}'
+        values: '100000000 100000000 30000000 30000000 30000000 30000000 30000000 30000000'
+
+    alert_rule_test:
+      - eval_time: 8m
+        alertname: OperatorLowBalance
+        exp_alerts:
+          - exp_labels:
+              job: trivela-backend
+              severity: warning
+              team: contracts
+            exp_annotations:
+              summary: 'Operator wallet balance is low'
+              description:
+                'Operator XLM balance is 30M stroops (< 5 XLM). Transaction fees may fail. Top up
+                the operator wallet immediately.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#operator-wallet-topup'
+
+  # ── CanaryJourneyFailed ─────────────────────────────────────────────────────
+  - interval: 1m
+    input_series:
+      - series: 'trivela_canary_success{job="trivela-canary"}'
+        values: '1 1 0 0 0 0 0 0'
+
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: CanaryJourneyFailed
+        exp_alerts:
+          - exp_labels:
+              job: trivela-canary
+              severity: critical
+              team: backend
+            exp_annotations:
+              summary: 'Synthetic canary journey failed'
+              description:
+                'The register→credit→claim canary on testnet has not succeeded for 5 minutes. Core
+                user journey is broken. Check canary logs and RPC/contract health.'
+              runbook_url: 'https://github.com/FinesseStudioLab/Trivela/blob/main/docs/RUNBOOK.md#canary-failure'

@@ -14,7 +14,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Header from './components/Header';
-import { getHorizonUrl, getCampaignContractId, getRewardsContractId, getStellarNetwork } from './config';
+import {
+  getHorizonUrl,
+  getCampaignContractId,
+  getRewardsContractId,
+  getStellarNetwork,
+} from './config';
 import './Landing.css';
 
 const PAGE_SIZE = 20;
@@ -180,13 +185,9 @@ export default function TransactionHistory({
             Your past interactions with Trivela's rewards and campaign contracts.
           </p>
 
-          {!walletAddress && (
-            <p role="status">Connect a wallet to view your history.</p>
-          )}
+          {!walletAddress && <p role="status">Connect a wallet to view your history.</p>}
 
-          {walletAddress && loading && (
-            <p role="status">Loading history…</p>
-          )}
+          {walletAddress && loading && <p role="status">Loading history…</p>}
 
           {walletAddress && !loading && error && (
             <div role="alert" className="detail-error">
@@ -202,9 +203,7 @@ export default function TransactionHistory({
           )}
 
           {walletAddress && !loading && !error && items.length === 0 && (
-            <p role="status">
-              No Trivela transactions found for this wallet yet.
-            </p>
+            <p role="status">No Trivela transactions found for this wallet yet.</p>
           )}
 
           {walletAddress && !loading && !error && items.length > 0 && (
@@ -222,7 +221,9 @@ export default function TransactionHistory({
                   <tr key={row.id}>
                     <td>{new Date(row.date).toLocaleString()}</td>
                     <td>{row.kind}</td>
-                    <td><code>{row.method}</code></td>
+                    <td>
+                      <code>{row.method}</code>
+                    </td>
                     <td>
                       <a
                         href={explorerLink(row.txHash, network)}

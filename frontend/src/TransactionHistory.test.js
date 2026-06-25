@@ -30,9 +30,9 @@ describe('classifyOperation (#295)', () => {
   });
 
   it('classifies a campaign deregister and admin_deregister as Deregister', () => {
-    expect(
-      classifyOperation(invoke(CAMPAIGN_ID, 'deregister'), REWARDS_ID, CAMPAIGN_ID).kind,
-    ).toBe('Deregister');
+    expect(classifyOperation(invoke(CAMPAIGN_ID, 'deregister'), REWARDS_ID, CAMPAIGN_ID).kind).toBe(
+      'Deregister',
+    );
     expect(
       classifyOperation(invoke(CAMPAIGN_ID, 'admin_deregister'), REWARDS_ID, CAMPAIGN_ID).kind,
     ).toBe('Deregister');
@@ -48,7 +48,9 @@ describe('classifyOperation (#295)', () => {
   });
 
   it('returns null for non-Trivela contract calls', () => {
-    expect(classifyOperation(invoke('SOMETHIRDPARTY', 'whatever'), REWARDS_ID, CAMPAIGN_ID)).toBeNull();
+    expect(
+      classifyOperation(invoke('SOMETHIRDPARTY', 'whatever'), REWARDS_ID, CAMPAIGN_ID),
+    ).toBeNull();
   });
 
   it('returns null for non-invoke operations (payment, set_options, etc.)', () => {
@@ -56,9 +58,9 @@ describe('classifyOperation (#295)', () => {
   });
 
   it('falls back to "Campaign call" for unknown campaign methods', () => {
-    expect(
-      classifyOperation(invoke(CAMPAIGN_ID, 'set_window'), REWARDS_ID, CAMPAIGN_ID).kind,
-    ).toBe('Campaign call');
+    expect(classifyOperation(invoke(CAMPAIGN_ID, 'set_window'), REWARDS_ID, CAMPAIGN_ID).kind).toBe(
+      'Campaign call',
+    );
   });
 
   it('falls back to "Rewards call" for unknown rewards methods', () => {

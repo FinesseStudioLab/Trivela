@@ -1,8 +1,10 @@
 # API Migration Guide: v0 → v1
 
-> **Status:** Current API version is `0.1.0`. The v1 upgrade tracks [issue #32](https://github.com/FinesseStudioLab/Trivela/issues/32).
+> **Status:** Current API version is `0.1.0`. The v1 upgrade tracks
+> [issue #32](https://github.com/FinesseStudioLab/Trivela/issues/32).
 >
-> This document helps integrators migrate from the legacy `/api/*` routes to the versioned `/api/v1/*` API. Breaking changes and deprecation timelines are documented here.
+> This document helps integrators migrate from the legacy `/api/*` routes to the versioned
+> `/api/v1/*` API. Breaking changes and deprecation timelines are documented here.
 
 ---
 
@@ -20,82 +22,85 @@
 
 ### Route Prefix
 
-| Version | Prefix       | Example                    |
-|---------|--------------|----------------------------|
-| v0      | `/api`       | `GET /api/campaigns`       |
-| v1      | `/api/v1`    | `GET /api/v1/campaigns`    |
+| Version | Prefix    | Example                 |
+| ------- | --------- | ----------------------- |
+| v0      | `/api`    | `GET /api/campaigns`    |
+| v1      | `/api/v1` | `GET /api/v1/campaigns` |
 
-Legacy `/api/*` routes are still supported for backward compatibility but will be removed after the 90-day deprecation window (see [Breaking Change Policy](#breaking-change-policy)).
+Legacy `/api/*` routes are still supported for backward compatibility but will be removed after the
+90-day deprecation window (see [Breaking Change Policy](#breaking-change-policy)).
 
 ### Renamed Fields
 
 The following fields have been renamed in API responses. Old names will be removed in v1.
 
-| Endpoint | v0 Field      | v1 Field        | Notes |
-|----------|---------------|-----------------|-------|
-| `GET /api/v1` | `rpcUrl` | `sorobanRpcUrl` | Reflects that this is a Soroban RPC URL |
-| `GET /api/v1/config` | `rpcUrl` | `sorobanRpcUrl` | Consistent naming across endpoints |
-| `GET /api/v1/campaigns/:id` | `campaignId` (in stats) | `campaignId` → stays `campaignId` | No change, but verify your integration reads `id` for the campaign ID |
-| All | `timestamp` (event payloads) | `createdAt` / `updatedAt` | Context-dependent; timestamps now use descriptive field names |
-| `GET /health` | `service` (string) | `service` → stays `service` | No change |
-| `POST /api/v1/campaigns` | `imageUrl` in request body | `imageUrl` → stays `imageUrl` | No change, but validation added |
+| Endpoint                    | v0 Field                     | v1 Field                          | Notes                                                                 |
+| --------------------------- | ---------------------------- | --------------------------------- | --------------------------------------------------------------------- |
+| `GET /api/v1`               | `rpcUrl`                     | `sorobanRpcUrl`                   | Reflects that this is a Soroban RPC URL                               |
+| `GET /api/v1/config`        | `rpcUrl`                     | `sorobanRpcUrl`                   | Consistent naming across endpoints                                    |
+| `GET /api/v1/campaigns/:id` | `campaignId` (in stats)      | `campaignId` → stays `campaignId` | No change, but verify your integration reads `id` for the campaign ID |
+| All                         | `timestamp` (event payloads) | `createdAt` / `updatedAt`         | Context-dependent; timestamps now use descriptive field names         |
+| `GET /health`               | `service` (string)           | `service` → stays `service`       | No change                                                             |
+| `POST /api/v1/campaigns`    | `imageUrl` in request body   | `imageUrl` → stays `imageUrl`     | No change, but validation added                                       |
 
 ### Removed Endpoints
 
 These endpoints available in v0 are **removed** in v1. Use the replacements listed:
 
-| v0 (Removed)                    | v1 Replacement                        | Reason                          |
-|---------------------------------|---------------------------------------|----------------------------------|
-| `GET /api/health`               | `GET /api/v1/health` (no /api prefix) | Health is outside versioned API |
-| `GET /api/health/rpc`           | `GET /api/v1/health/rpc`              | Same as above                   |
-| `GET /api/metrics`              | `GET /api/v1/metrics`                 | Prometheus metrics are unversioned |
-| `GET /api` (legacy info)        | `GET /api/v1`                         | Use versioned info endpoint      |
+| v0 (Removed)             | v1 Replacement                        | Reason                             |
+| ------------------------ | ------------------------------------- | ---------------------------------- |
+| `GET /api/health`        | `GET /api/v1/health` (no /api prefix) | Health is outside versioned API    |
+| `GET /api/health/rpc`    | `GET /api/v1/health/rpc`              | Same as above                      |
+| `GET /api/metrics`       | `GET /api/v1/metrics`                 | Prometheus metrics are unversioned |
+| `GET /api` (legacy info) | `GET /api/v1`                         | Use versioned info endpoint        |
 
 ### New Required Headers
 
 v1 introduces these changes to request headers:
 
-| Header                      | Required | Description                             |
-|-----------------------------|----------|-----------------------------------------|
-| `X-Trivela-Schema-Version`  | Optional | Request a specific schema version       |
-| `X-API-Key`                 | On write ops | API key for write endpoints (if configured) |
+| Header                     | Required     | Description                                 |
+| -------------------------- | ------------ | ------------------------------------------- |
+| `X-Trivela-Schema-Version` | Optional     | Request a specific schema version           |
+| `X-API-Key`                | On write ops | API key for write endpoints (if configured) |
 
 ### Response Changes
 
 v1 responses include:
 
 - **`X-Trivela-Schema-Version: 1`** header on all responses
-- **Consistent error format:** `{ error, code, details? }` (replaces the older string-only error format)
+- **Consistent error format:** `{ error, code, details? }` (replaces the older string-only error
+  format)
 - **Pagination shape:** Standard `{ data, pagination }` structure on all list endpoints
-- **Rate limit headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `RateLimit-Policy`, `RateLimit`
+- **Rate limit headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`,
+  `RateLimit-Policy`, `RateLimit`
 
 ---
 
 ## Endpoint Changelog
 
-| Date       | Change Type | Endpoint               | Description |
-|------------|-------------|------------------------|-------------|
-| 2026-01-15 | Added       | `GET /api/v1`          | API information endpoint |
-| 2026-01-15 | Added       | `GET /api/v1/config`   | Public Stellar configuration |
-| 2026-01-15 | Added       | `GET /api/v1/campaigns` | Paginated campaign list |
-| 2026-01-15 | Added       | `GET /api/v1/campaigns/:id` | Single campaign by ID |
-| 2026-01-15 | Added       | `POST /api/v1/campaigns` | Create campaign |
-| 2026-01-15 | Added       | `PUT /api/v1/campaigns/:id` | Update campaign |
-| 2026-01-15 | Added       | `DELETE /api/v1/campaigns/:id` | Delete campaign |
-| 2026-01-15 | Added       | `GET /api/v1/explorer` | Explorer links |
-| 2026-03-01 | Added       | `GET /api/v1/campaigns/by-slug/:slug` | Lookup by slug |
-| 2026-03-01 | Added       | `GET /api/v1/campaigns/:id/stats` | Campaign analytics |
-| 2026-03-01 | Added       | `GET /api/v1/categories` | Category list |
-| 2026-03-01 | Added       | `GET /api/v1/tags` | Tag list |
-| 2026-03-01 | Added       | `GET /api/v1/indexer/cursor` | Indexer cursor state |
-| 2026-03-15 | Added       | `GET /api/v1/audit-logs` | Audit log queries |
-| 2026-03-15 | Added       | `GET /api/v1/admin/api-keys` | API key management |
-| 2026-03-15 | Added       | `POST /api/v1/admin/api-keys` | Create API key |
-| 2026-03-15 | Added       | `DELETE /api/v1/admin/api-keys/:id` | Revoke API key |
-| 2026-03-15 | Added       | `PUT /api/v1/admin/api-keys/:id/rotate` | Rotate API key |
-| 2026-04-01 | Added       | `POST /api/v1/campaigns/:id/image` | Campaign image upload |
-| 2026-04-01 | Added       | `POST /api/v1/campaigns/:id/referrals` | Create referral |
-| 2026-04-01 | Added       | `GET /api/v1/campaigns/:id/referrals/:walletAddress` | Referral stats |
+| Date       | Change Type | Endpoint                                             | Description                  |
+| ---------- | ----------- | ---------------------------------------------------- | ---------------------------- |
+| 2026-01-15 | Added       | `GET /api/v1`                                        | API information endpoint     |
+| 2026-01-15 | Added       | `GET /api/v1/config`                                 | Public Stellar configuration |
+| 2026-01-15 | Added       | `GET /api/v1/campaigns`                              | Paginated campaign list      |
+| 2026-01-15 | Added       | `GET /api/v1/campaigns/:id`                          | Single campaign by ID        |
+| 2026-01-15 | Added       | `POST /api/v1/campaigns`                             | Create campaign              |
+| 2026-01-15 | Added       | `PUT /api/v1/campaigns/:id`                          | Update campaign              |
+| 2026-01-15 | Added       | `DELETE /api/v1/campaigns/:id`                       | Delete campaign              |
+| 2026-01-15 | Added       | `GET /api/v1/explorer`                               | Explorer links               |
+| 2026-03-01 | Added       | `GET /api/v1/campaigns/by-slug/:slug`                | Lookup by slug               |
+| 2026-03-01 | Added       | `GET /api/v1/campaigns/:id/stats`                    | Campaign analytics           |
+| 2026-03-01 | Added       | `GET /api/v1/categories`                             | Category list                |
+| 2026-03-01 | Added       | `GET /api/v1/tags`                                   | Tag list                     |
+| 2026-03-01 | Added       | `GET /api/v1/indexer/cursor`                         | Indexer cursor state         |
+| 2026-03-15 | Added       | `GET /api/v1/audit-logs`                             | Audit log queries            |
+| 2026-03-15 | Added       | `GET /api/v1/admin/api-keys`                         | API key management           |
+| 2026-03-15 | Added       | `POST /api/v1/admin/api-keys`                        | Create API key               |
+| 2026-03-15 | Added       | `DELETE /api/v1/admin/api-keys/:id`                  | Revoke API key               |
+| 2026-03-15 | Added       | `PUT /api/v1/admin/api-keys/:id/rotate`              | Rotate API key               |
+| 2026-04-01 | Added       | `POST /api/v1/campaigns/:id/image`                   | Campaign image upload        |
+| 2026-04-01 | Added       | `POST /api/v1/campaigns/:id/referrals`               | Create referral              |
+| 2026-04-01 | Added       | `GET /api/v1/campaigns/:id/referrals/:walletAddress` | Referral stats               |
 
 ### Change Type Legend
 
@@ -112,12 +117,12 @@ Trivela follows a **predictable breaking change policy** to minimise disruption 
 
 ### 90-Day Deprecation Notice
 
-| Phase | Duration | Description |
-|-------|----------|-------------|
-| Announcement | Day 0 | Breaking change announced on the [API changelog](#endpoint-changelog) and [GitHub Releases](https://github.com/FinesseStudioLab/Trivela/releases) |
-| Deprecation | Days 0–60 | Old behaviour still works; `Deprecation` response header added |
-| Sunset header | Days 60–90 | `Sunset` header added with the removal date |
-| Removal | Day 90+ | Old behaviour removed; requests return `410 Gone` or `404 Not Found` |
+| Phase         | Duration   | Description                                                                                                                                       |
+| ------------- | ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Announcement  | Day 0      | Breaking change announced on the [API changelog](#endpoint-changelog) and [GitHub Releases](https://github.com/FinesseStudioLab/Trivela/releases) |
+| Deprecation   | Days 0–60  | Old behaviour still works; `Deprecation` response header added                                                                                    |
+| Sunset header | Days 60–90 | `Sunset` header added with the removal date                                                                                                       |
+| Removal       | Day 90+    | Old behaviour removed; requests return `410 Gone` or `404 Not Found`                                                                              |
 
 ### Sunset Header
 
@@ -250,9 +255,7 @@ With validation errors:
 {
   "error": "Invalid campaign payload",
   "code": "VALIDATION_ERROR",
-  "details": [
-    "name is required and must be a non-empty string"
-  ]
+  "details": ["name is required and must be a non-empty string"]
 }
 ```
 
@@ -303,14 +306,17 @@ curl -X POST http://localhost:3001/api/v1/campaigns \
 
 ## Compatibility Shim (`?api_version=v0`)
 
-A **compatibility shim** is available during the 90-day migration window. Append `?api_version=v0` to any v1 endpoint to request legacy route rewriting and response compatibility.
+A **compatibility shim** is available during the 90-day migration window. Append `?api_version=v0`
+to any v1 endpoint to request legacy route rewriting and response compatibility.
 
 ### How It Works
 
 The shim intercepts requests to `/api/v1/*` when the `api_version=v0` query parameter is present:
 
-1. **Route rewriting:** The `?api_version=v0` parameter triggers the server to apply legacy route patterns (matching `/api/*` behaviour)
-2. **Deprecation header:** Responses include a `Deprecation: true` header to indicate the shim is temporary
+1. **Route rewriting:** The `?api_version=v0` parameter triggers the server to apply legacy route
+   patterns (matching `/api/*` behaviour)
+2. **Deprecation header:** Responses include a `Deprecation: true` header to indicate the shim is
+   temporary
 3. **Response compatibility:** The response shape matches v0 format where differences exist
 
 ### Example
@@ -325,8 +331,10 @@ curl "http://localhost:3001/api/v1/campaigns?api_version=v0"
 
 - The shim is a **temporary bridge** — it will be removed after the 90-day deprecation window
 - New integrators should target v1 directly without the shim
-- The shim does NOT provide full backward compatibility for all edge cases — test your integration thoroughly
-- After the 90-day window, `?api_version=v0` will be ignored and v1 behaviour will apply unconditionally
+- The shim does NOT provide full backward compatibility for all edge cases — test your integration
+  thoroughly
+- After the 90-day window, `?api_version=v0` will be ignored and v1 behaviour will apply
+  unconditionally
 
 ### Testing the Shim
 
@@ -345,6 +353,7 @@ curl -sI "http://localhost:3001/api/v1/campaigns?api_version=v0" \
 
 ## Need Help?
 
-- Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) for migration questions
+- Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) for migration
+  questions
 - Check the [FAQ](FAQ.md) for common issues
 - Review the full [OpenAPI spec](../backend/openapi.yaml) for endpoint details

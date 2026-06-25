@@ -51,9 +51,7 @@ export async function addressToLeaf(gAddress) {
     throw new Error(`not a Stellar G-address: ${gAddress}`);
   }
   const raw = StrKey.decodeEd25519PublicKey(gAddress);
-  const scAddress = xdr.ScAddress.scAddressTypeAccount(
-    xdr.PublicKey.publicKeyTypeEd25519(raw),
-  );
+  const scAddress = xdr.ScAddress.scAddressTypeAccount(xdr.PublicKey.publicKeyTypeEd25519(raw));
   const scVal = xdr.ScVal.scvAddress(scAddress);
   const xdrBytes = scVal.toXDR();
   // toXDR returns a Buffer in Node, Uint8Array in the browser; both

@@ -140,15 +140,71 @@ export const listQuerySchema = z
   })
   .passthrough();
 
+/** Valid granular scopes for API keys (#611). */
+export const VALID_API_KEY_SCOPES = /** @type {const} */ ([
+  'campaigns:read',
+  'campaigns:write',
+  'allowlist:write',
+  'admin',
+]);
+
 /** Schema for creating an API key. */
 export const apiKeyCreateSchema = z.object({
   label: z.string().trim().max(128).optional(),
   expiresAt: isoDateOrNull.optional(),
+  orgId: z.string().trim().min(1).max(128).optional(),
+  scopes: z
+    .array(z.enum(VALID_API_KEY_SCOPES))
+    .min(1, 'scopes must contain at least one scope')
+    .optional(),
 });
 
 /** Schema for the indexer cursor update body. */
 export const cursorBodySchema = z.object({
   cursor: z.string().trim().min(1, 'cursor is required and must be a non-empty string'),
+});
+
+/** Schema for creating a campaign variant. */
+export const variantCreateSchema = z.object({
+  variantKey: z
+    .string()
+    .regex(/^[a-z0-9_]+$/, 'variantKey must be lowercase alphanumeric with underscores')
+    .min(1)
+    .max(50),
+  name: z.string().trim().min(1, 'Name is required and must be a non-empty string'),
+  description: z.string().optional(),
+  trafficWeight: z
+    .number()
+    .int()
+    .min(0, 'trafficWeight must be between 0 and 100')
+    .max(100, 'trafficWeight must be between 0 and 100'),
+  isControl: z.boolean().optional(),
+  active: z.boolean().optional(),
+  config: z.record(z.unknown()).optional(),
+});
+
+/** Schema for updating a campaign variant. */
+export const variantUpdateSchema = z.object({
+  name: z.string().trim().min(1).optional(),
+  description: z.string().optional(),
+  trafficWeight: z.number().int().min(0).max(100).optional(),
+  isControl: z.boolean().optional(),
+  active: z.boolean().optional(),
+  config: z.record(z.unknown()).optional(),
+});
+
+/** Schema for assigning a user to a variant. */
+export const variantAssignSchema = z.object({
+  userId: z.string().trim().min(1, 'userId is required'),
+  sticky: z.boolean().optional(),
+});
+
+/** Schema for tracking a variant result. */
+export const variantResultSchema = z.object({
+  userId: z.string().trim().min(1, 'userId is required'),
+  metricName: z.string().trim().min(1, 'metricName is required'),
+  metricValue: z.number().finite('metricValue must be a valid number'),
+  metadata: z.record(z.unknown()).optional(),
 });
 
 /**

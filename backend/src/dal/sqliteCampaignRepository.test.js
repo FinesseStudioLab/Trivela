@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrate.js';
-import { createSqliteCampaignRepository, computeCampaignStatus } from './sqliteCampaignRepository.js';
+import {
+  createSqliteCampaignRepository,
+  computeCampaignStatus,
+} from './sqliteCampaignRepository.js';
 
 async function setupTestRepository(seed = []) {
   const db = new Database(':memory:');
@@ -123,17 +126,14 @@ test('sqlite campaign repository rejects duplicate slugs', async () => {
     rewardPerAction: 10,
   });
 
-  assert.throws(
-    () => {
-      repository.create({
-        name: 'Second Campaign',
-        slug: 'duplicate-slug',
-        description: 'Test',
-        rewardPerAction: 10,
-      });
-    },
-    /UNIQUE constraint failed/,
-  );
+  assert.throws(() => {
+    repository.create({
+      name: 'Second Campaign',
+      slug: 'duplicate-slug',
+      description: 'Test',
+      rewardPerAction: 10,
+    });
+  }, /UNIQUE constraint failed/);
 });
 
 test('sqlite campaign repository creates, updates, and deletes campaigns', async () => {
@@ -328,7 +328,6 @@ test('list includeHidden option exposes hidden campaigns', async () => {
   assert.equal(repository.list({ includeHidden: true }).length, 2);
 });
 
-<<<<<<< HEAD
 // #333 — FTS5 search
 test('FTS search supports prefix matching and ranks relevant results first', async () => {
   const repository = await setupTestRepository();
@@ -492,4 +491,3 @@ test('clone generates unique slug for cloned campaign', async () => {
   assert.notEqual(cloned.slug, original.slug);
   assert.equal(cloned.slug, 'copy-of-test-campaign');
 });
-

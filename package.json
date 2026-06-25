@@ -19,6 +19,7 @@
     "test:backend": "npm run test --workspace=backend",
     "test:frontend": "npm run test --workspace=frontend",
     "deploy:testnet": "bash ./scripts/deploy-testnet.sh",
+    "deploy:mainnet": "STELLAR_NETWORK=mainnet MAINNET_CONFIRMED=true bash ./scripts/deploy-testnet.sh",
     "contracts:build-bindings": "node scripts/build-bindings.js",
     "env:validate": "node ./scripts/validate-env.mjs",
     "labels:sync": "node ./scripts/sync-github-labels.js",
@@ -26,7 +27,12 @@
     "docs:contracts": "cargo doc --package trivela-campaign-contract --package trivela-rewards-contract --no-deps && rm -rf docs/contract-api && cp -r target/doc docs/contract-api",
     "format": "prettier --write \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
     "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
-    "merkle:generate": "node scripts/generate-merkle.mjs"
+    "merkle:generate": "node scripts/generate-merkle.mjs",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
+    "dev:devnet": "docker compose --profile devnet up --build",
+    "dev:devnet:down": "docker compose --profile devnet down -v",
+    "codegen": "cd sdk/client && npm install && npm run generate",
+    "codegen:check": "cd sdk/client && npm install && npm run check-drift"
   },
   "workspaces": [
     "backend",

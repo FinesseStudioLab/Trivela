@@ -20,13 +20,15 @@ export function createS3StorageAdapter({
     backendName: 's3',
     async upload({ buffer, filename, mimeType }) {
       const key = `campaigns/${filename}`;
-      await client.send(new PutObjectCommand({
-        Bucket: bucket,
-        Key: key,
-        Body: buffer,
-        ContentType: mimeType,
-        ACL: 'public-read',
-      }));
+      await client.send(
+        new PutObjectCommand({
+          Bucket: bucket,
+          Key: key,
+          Body: buffer,
+          ContentType: mimeType,
+          ACL: 'public-read',
+        }),
+      );
 
       return { url: `${baseUrl.replace(/\/$/, '')}/${key}`, key };
     },

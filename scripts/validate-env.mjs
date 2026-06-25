@@ -54,11 +54,17 @@ function validateFrontendEnv(env) {
     }
   }
 
-  if (env.VITE_REWARDS_CONTRACT_ID && !contractPattern.test(String(env.VITE_REWARDS_CONTRACT_ID).trim())) {
+  if (
+    env.VITE_REWARDS_CONTRACT_ID &&
+    !contractPattern.test(String(env.VITE_REWARDS_CONTRACT_ID).trim())
+  ) {
     errors.push('VITE_REWARDS_CONTRACT_ID must be a valid Stellar contract ID');
   }
 
-  if (env.VITE_CAMPAIGN_CONTRACT_ID && !contractPattern.test(String(env.VITE_CAMPAIGN_CONTRACT_ID).trim())) {
+  if (
+    env.VITE_CAMPAIGN_CONTRACT_ID &&
+    !contractPattern.test(String(env.VITE_CAMPAIGN_CONTRACT_ID).trim())
+  ) {
     errors.push('VITE_CAMPAIGN_CONTRACT_ID must be a valid Stellar contract ID');
   }
 
@@ -95,7 +101,8 @@ function validateBackendEnv(env) {
       .split(',')
       .map((o) => o.trim())
       .filter(Boolean);
-    if (origins.length === 0) errors.push('CORS_ALLOWED_ORIGINS must include at least one origin when set');
+    if (origins.length === 0)
+      errors.push('CORS_ALLOWED_ORIGINS must include at least one origin when set');
     if (!origins.includes('*')) {
       for (const origin of origins) {
         try {
@@ -115,7 +122,8 @@ function validateBackendEnv(env) {
     const keys = String(rawKeys)
       .split(',')
       .map((k) => k.trim());
-    if (keys.some((k) => !k)) errors.push('TRIVELA_API_KEYS contains an empty key (check for trailing commas)');
+    if (keys.some((k) => !k))
+      errors.push('TRIVELA_API_KEYS contains an empty key (check for trailing commas)');
   }
 
   if (errors.length > 0) {

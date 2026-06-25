@@ -72,9 +72,8 @@ export default function AllowlistUpload() {
     <div className="allowlist-upload" aria-busy={status === 'parsing'}>
       <h3>Merkle allowlist</h3>
       <p className="muted">
-        Upload a CSV or newline-delimited file of Stellar G-addresses.
-        The Merkle root is computed in your browser using the same
-        leaf and pair-hashing conventions as the campaign contract.
+        Upload a CSV or newline-delimited file of Stellar G-addresses. The Merkle root is computed
+        in your browser using the same leaf and pair-hashing conventions as the campaign contract.
       </p>
 
       <label htmlFor="allowlist-file" className="allowlist-upload__file-label">
@@ -107,8 +106,8 @@ export default function AllowlistUpload() {
             <code>{result.root}</code>
           </p>
           <p className="muted">
-            Paste the root into the campaign's <code>set_merkle_root</code> admin call.
-            Distribute the proofs JSON to participants so they can pass <code>(leaf, siblings)</code>
+            Paste the root into the campaign's <code>set_merkle_root</code> admin call. Distribute
+            the proofs JSON to participants so they can pass <code>(leaf, siblings)</code>
             into their <code>register</code> call.
           </p>
           <button type="button" onClick={onDownload}>

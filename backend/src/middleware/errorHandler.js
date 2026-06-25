@@ -10,12 +10,28 @@ const isProd = process.env.NODE_ENV === 'production';
  * in production. Sanitizes error details to prevent log injection and
  * sensitive data leakage.
  *
+ * Special cases:
+ *   - PoolSaturatedError (code POOL_SATURATED) → 503 with typed code.
+ *
  * @param {unknown} err
  * @param {import('express').Request} _req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} _next
  */
 export default function errorHandler(err, _req, res, _next) {
+  // Typed 503 for RPC pool saturation (issue #650 — pool saturation safety).
+  if (
+    err != null &&
+    typeof err === 'object' &&
+    /** @type {any} */ (err).code === 'POOL_SATURATED'
+  ) {
+    log.warn({ err: { message: /** @type {any} */ (err).message } }, 'RPC pool saturated');
+    if (!res.headersSent) {
+      res.status(503).json({ error: 'Service temporarily unavailable', code: 'POOL_SATURATED' });
+    }
+    return;
+  }
+
   const statusCode =
     err != null &&
     typeof err === 'object' &&
@@ -24,19 +40,18 @@ export default function errorHandler(err, _req, res, _next) {
       ? err.statusCode
       : 500;
 
-  const message =
-    err instanceof Error ? err.message : 'An unexpected error occurred';
+  const message = err instanceof Error ? err.message : 'An unexpected error occurred';
 
   // Sanitize error object for logging to prevent log injection
-  const sanitizedErr = err instanceof Error ? {
-    message: sanitizeForLog(err.message),
-    name: sanitizeForLog(err.name),
-  } : sanitizeObject(err);
+  const sanitizedErr =
+    err instanceof Error
+      ? {
+          message: sanitizeForLog(err.message),
+          name: sanitizeForLog(err.name),
+        }
+      : sanitizeObject(err);
 
-  log.error(
-    { err: sanitizedErr, requestId: res.locals.requestId },
-    'Unhandled error'
-  );
+  log.error({ err: sanitizedErr, requestId: res.locals.requestId }, 'Unhandled error');
 
   /** @type {Record<string, unknown>} */
   const body = {

@@ -1,13 +1,15 @@
 # Campaign Creation Flow
 
-This document describes the campaign creation flow in Trivela, including both off-chain record creation and optional on-chain contract deployment.
+This document describes the campaign creation flow in Trivela, including both off-chain record
+creation and optional on-chain contract deployment.
 
 ## Overview
 
 Campaigns in Trivela can exist in two modes:
 
 1. **Off-chain only**: Campaign metadata stored in the backend database without blockchain anchoring
-2. **On-chain anchored**: Campaign linked to a deployed Soroban campaign contract for trustless, decentralized operation
+2. **On-chain anchored**: Campaign linked to a deployed Soroban campaign contract for trustless,
+   decentralized operation
 
 ## Architecture
 
@@ -34,11 +36,13 @@ User fills form → POST /api/v1/campaigns → Campaign record created in SQLite
 ```
 
 **Required fields:**
+
 - `name` (string, required)
 - `description` (string, optional)
 - `rewardPerAction` (number, optional, default: 0)
 
 **Optional fields:**
+
 - `contractId` (string, nullable) - Stellar contract ID in format `C...`
 - `slug`, `startDate`, `endDate`, `active`, `featured`, `hidden`, `hiddenReason`
 
@@ -69,6 +73,7 @@ When "Initialize contract on-chain" is enabled:
 ```
 
 **Transaction Flow:**
+
 - **Build**: Create `TransactionBuilder` with `initialize` operation
 - **Prepare**: `server.prepareTransaction()` adds auth entries and resource fees
 - **Sign**: Wallet signs the XDR
@@ -84,6 +89,7 @@ pub fn initialize(env: Env, admin: Address) -> Result<(), Error>
 ```
 
 This sets:
+
 - Admin address (for privileged operations)
 - Schema version
 - Initial nonce (for replay protection)
@@ -93,6 +99,7 @@ This sets:
 ### Admin Campaign Manager Form
 
 **Fields:**
+
 1. **Admin API Key** (password) - Required for all operations
 2. **Edit existing campaign** (select) - Optional, loads campaign for editing
 3. **Campaign name** (text) - Required
@@ -102,6 +109,7 @@ This sets:
 7. **Initialize contract on-chain** (checkbox) - Only shown when contract ID is provided
 
 **States:**
+
 - **Creating...** - Submitting form
 - **Creating campaign record...** - POST request in progress
 - **Checking wallet connection...** - Verifying wallet
@@ -112,6 +120,7 @@ This sets:
 ### Transaction Status Display
 
 After successful deployment, shows:
+
 - ✓ Success badge
 - Transaction hash (shortened, with copy button)
 - "View on Stellar Expert" link
@@ -147,6 +156,7 @@ After successful deployment, shows:
 ### Option 1: Pre-deployed Contract (Recommended)
 
 1. Deploy campaign contract WASM using `stellar-cli`:
+
    ```bash
    stellar contract deploy \
      --wasm target/wasm32-unknown-unknown/release/campaign.wasm \

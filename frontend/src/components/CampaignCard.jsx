@@ -1,6 +1,7 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
 import StatusBadge from './StatusBadge';
+import UrgencyBadge from './UrgencyBadge';
 
 function formatDate(value) {
   if (!value) return '';
@@ -33,7 +34,10 @@ export default function CampaignCard({ campaign }) {
             </h3>
           </div>
 
-          <StatusBadge status={status} />
+          <div className="campaign-card-badges">
+            <UrgencyBadge campaign={campaign} />
+            <StatusBadge status={status} />
+          </div>
         </div>
 
         <p className="campaign-card-description">{description}</p>

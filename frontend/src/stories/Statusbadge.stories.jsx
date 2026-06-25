@@ -11,4 +11,7 @@ export const Active = { args: { status: 'active' } };
 export const Upcoming = { args: { status: 'upcoming' } };
 export const Ended = { args: { status: 'ended' } };
 export const Paused = { args: { status: 'paused' } };
-export const DarkMode = { args: { status: 'active' }, parameters: { backgrounds: { default: 'dark' } } };
+export const DarkMode = {
+  args: { status: 'active' },
+  parameters: { backgrounds: { default: 'dark' } },
+};

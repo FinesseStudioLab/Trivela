@@ -131,10 +131,39 @@ describe('sqliteCampaignRepository — integration tests (real SQLite)', () => {
 
     before(() => {
       allCreated = seedCampaigns(campaigns, [
-        { name: 'Active DeFi', slug: 'active-defi', active: true, tags: ['defi'], category: 'DeFi', rewardPerAction: 10 },
-        { name: 'Inactive NFT', slug: 'inactive-nft', active: false, tags: ['nft'], category: 'NFT', rewardPerAction: 20 },
-        { name: 'Featured Community', slug: 'featured-community', active: true, featured: true, tags: ['community'], category: 'Community', rewardPerAction: 30 },
-        { name: 'Active Airdrop', slug: 'active-airdrop', active: true, tags: ['airdrop', 'defi'], category: 'Airdrop', rewardPerAction: 40 },
+        {
+          name: 'Active DeFi',
+          slug: 'active-defi',
+          active: true,
+          tags: ['defi'],
+          category: 'DeFi',
+          rewardPerAction: 10,
+        },
+        {
+          name: 'Inactive NFT',
+          slug: 'inactive-nft',
+          active: false,
+          tags: ['nft'],
+          category: 'NFT',
+          rewardPerAction: 20,
+        },
+        {
+          name: 'Featured Community',
+          slug: 'featured-community',
+          active: true,
+          featured: true,
+          tags: ['community'],
+          category: 'Community',
+          rewardPerAction: 30,
+        },
+        {
+          name: 'Active Airdrop',
+          slug: 'active-airdrop',
+          active: true,
+          tags: ['airdrop', 'defi'],
+          category: 'Airdrop',
+          rewardPerAction: 40,
+        },
       ]);
     });
 

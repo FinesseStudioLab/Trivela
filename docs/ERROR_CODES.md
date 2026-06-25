@@ -1,6 +1,7 @@
 # Error Codes Reference
 
-This document defines all error codes returned by Trivela smart contracts and provides frontend-friendly message mappings.
+This document defines all error codes returned by Trivela smart contracts and provides
+frontend-friendly message mappings.
 
 ## Campaign Contract Errors
 
@@ -28,14 +29,15 @@ This document defines all error codes returned by Trivela smart contracts and pr
 
 ## Backend API Errors
 
-| Status | Error                   | Cause                              | Frontend Message                                       |
-| ------ | ----------------------- | ---------------------------------- | ------------------------------------------------------ |
-| 400    | `Bad Request`           | Invalid request body or parameters | "Invalid input. Please check your data and try again"  |
-| 401    | `Unauthorized`          | Missing or invalid API key         | "API key is required or invalid"                       |
-| 404    | `Not Found`             | Campaign or resource not found     | "The requested campaign was not found"                 |
-| 429    | `Too Many Requests`     | Rate limit exceeded                | "Too many requests. Please wait before trying again"   |
-| 500    | `Internal Server Error` | Server error                       | "An unexpected error occurred. Please try again later" |
-| 503    | `Service Unavailable`   | Soroban RPC unavailable            | "The blockchain service is temporarily unavailable"    |
+| Status | Error                   | Cause                                          | Frontend Message                                       |
+| ------ | ----------------------- | ---------------------------------------------- | ------------------------------------------------------ |
+| 400    | `Bad Request`           | Invalid request body or parameters             | "Invalid input. Please check your data and try again"  |
+| 401    | `Unauthorized`          | Missing or invalid API key                     | "API key is required or invalid"                       |
+| 404    | `Not Found`             | Campaign or resource not found                 | "The requested campaign was not found"                 |
+| 429    | `Too Many Requests`     | Rate limit exceeded                            | "Too many requests. Please wait before trying again"   |
+| 429    | `AUTH_LOCKED_OUT`       | Brute-force lockout after repeated failed auth | "Too many failed attempts. Try again later"            |
+| 500    | `Internal Server Error` | Server error                                   | "An unexpected error occurred. Please try again later" |
+| 503    | `Service Unavailable`   | Soroban RPC unavailable                        | "The blockchain service is temporarily unavailable"    |
 
 ## Frontend Error Mapping
 
@@ -46,33 +48,33 @@ Use this mapping to display user-friendly error messages:
 const ERROR_MESSAGES = {
   // Campaign contract errors
   100: "You don't have permission to perform this action",
-  101: "This campaign is not currently accepting registrations",
-  102: "This campaign has reached its participant limit",
-  103: "This campaign is not active",
-  104: "Your address is not eligible for this campaign",
-  105: "This action has already been processed or contract migration failed",
+  101: 'This campaign is not currently accepting registrations',
+  102: 'This campaign has reached its participant limit',
+  103: 'This campaign is not active',
+  104: 'Your address is not eligible for this campaign',
+  105: 'This action has already been processed or contract migration failed',
 
   // Rewards contract errors
-  1: "Balance calculation error. Please contact support",
-  2: "Insufficient balance to claim this amount",
+  1: 'Balance calculation error. Please contact support',
+  2: 'Insufficient balance to claim this amount',
   3: "You don't have permission to perform this action",
-  4: "The rewards contract is temporarily unavailable",
-  5: "Credit amount exceeds the maximum allowed per transaction",
-  6: "Invalid reward configuration. Please contact support",
+  4: 'The rewards contract is temporarily unavailable',
+  5: 'Credit amount exceeds the maximum allowed per transaction',
+  6: 'Invalid reward configuration. Please contact support',
 
   // HTTP status codes
-  400: "Invalid input. Please check your data and try again",
-  401: "API key is required or invalid",
-  404: "The requested resource was not found",
-  429: "Too many requests. Please wait before trying again",
-  500: "An unexpected error occurred. Please try again later",
-  503: "The blockchain service is temporarily unavailable",
+  400: 'Invalid input. Please check your data and try again',
+  401: 'API key is required or invalid',
+  404: 'The requested resource was not found',
+  429: 'Too many requests. Please wait before trying again',
+  500: 'An unexpected error occurred. Please try again later',
+  503: 'The blockchain service is temporarily unavailable',
 };
 
 // Usage in React component
 function handleContractError(error) {
   const errorCode = error.code || error.status;
-  const message = ERROR_MESSAGES[errorCode] || "An error occurred";
+  const message = ERROR_MESSAGES[errorCode] || 'An error occurred';
   return message;
 }
 ```
@@ -141,4 +143,5 @@ When adding new error codes:
 
 ## Support
 
-For questions about error codes, open an issue on [GitHub](https://github.com/FinesseStudioLab/Trivela/issues).
+For questions about error codes, open an issue on
+[GitHub](https://github.com/FinesseStudioLab/Trivela/issues).

@@ -61,9 +61,7 @@ export function addressToLeaf(gAddress) {
   const raw = StrKey.decodeEd25519PublicKey(gAddress);
   // ScAddress -> ScVal serialisation:
   //   xdr.ScAddress.scAddressTypeAccount(xdr.PublicKey.publicKeyTypeEd25519(raw))
-  const scAddress = xdr.ScAddress.scAddressTypeAccount(
-    xdr.PublicKey.publicKeyTypeEd25519(raw),
-  );
+  const scAddress = xdr.ScAddress.scAddressTypeAccount(xdr.PublicKey.publicKeyTypeEd25519(raw));
   const scVal = xdr.ScVal.scvAddress(scAddress);
   const bytes = scVal.toXDR();
   return createHash('sha256').update(bytes).digest();
@@ -72,7 +70,9 @@ export function addressToLeaf(gAddress) {
 /** Hash two 32-byte buffers in sorted order. Mirrors `hash_pair()`. */
 export function hashPair(a, b) {
   const [left, right] = Buffer.compare(a, b) <= 0 ? [a, b] : [b, a];
-  return createHash('sha256').update(Buffer.concat([left, right])).digest();
+  return createHash('sha256')
+    .update(Buffer.concat([left, right]))
+    .digest();
 }
 
 /**

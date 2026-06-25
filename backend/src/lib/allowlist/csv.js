@@ -2,7 +2,6 @@
 
 import { StrKey } from '@stellar/stellar-sdk';
 
-
 export const MAX_ALLOWLIST_ROWS = 10_000;
 
 /**
@@ -50,4 +49,3 @@ export function validateGAddress(address) {
   if (!address || typeof address !== 'string') return false;
   return StrKey.isValidEd25519PublicKey(address);
 }
-

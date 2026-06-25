@@ -37,7 +37,14 @@ export const Inactive = {
 };
 
 export const Upcoming = {
-  args: { campaign: { ...baseCampaign, status: 'upcoming', startDate: '2027-01-01', name: 'Upcoming Campaign' } },
+  args: {
+    campaign: {
+      ...baseCampaign,
+      status: 'upcoming',
+      startDate: '2027-01-01',
+      name: 'Upcoming Campaign',
+    },
+  },
 };
 
 export const WithImage = {

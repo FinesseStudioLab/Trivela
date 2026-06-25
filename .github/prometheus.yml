@@ -6,7 +6,7 @@ global:
     project: trivela
 
 rule_files:
-  - "alerting/alerting_rules.yml"
+  - 'alerting/alerting_rules.yml'
 
 alerting:
   alertmanagers:
@@ -15,35 +15,35 @@ alerting:
             - alertmanager:9093
 
 scrape_configs:
-  - job_name: "trivela-backend"
+  - job_name: 'trivela-backend'
     scrape_interval: 10s
     scrape_timeout: 5s
     static_configs:
-      - targets: ["backend:3000"]
+      - targets: ['backend:3000']
     metrics_path: /metrics
     scheme: http
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        replacement: "trivela-backend"
+        replacement: 'trivela-backend'
 
-  - job_name: "trivela-rpc-health"
+  - job_name: 'trivela-rpc-health'
     scrape_interval: 30s
     scrape_timeout: 10s
     static_configs:
-      - targets: ["backend:3000"]
+      - targets: ['backend:3000']
     metrics_path: /health
     params:
-      format: ["prometheus"]
+      format: ['prometheus']
     relabel_configs:
       - source_labels: [__address__]
         target_label: instance
-        replacement: "trivela-rpc"
+        replacement: 'trivela-rpc'
 
-  - job_name: "prometheus"
+  - job_name: 'prometheus'
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ['localhost:9090']
 
-  - job_name: "node-exporter"
+  - job_name: 'node-exporter'
     static_configs:
-      - targets: ["node-exporter:9100"]
+      - targets: ['node-exporter:9100']

@@ -1,9 +1,11 @@
 # Contributing to Trivela Smart Contracts
 
-> **Prerequisites:** Familiarity with Soroban smart contracts, Rust, and Stellar concepts.
-> New to Trivela terminology? See the [Glossary](../docs/GLOSSARY.md).
+> **Prerequisites:** Familiarity with Soroban smart contracts, Rust, and Stellar concepts. New to
+> Trivela terminology? See the [Glossary](../docs/GLOSSARY.md).
 
-This guide covers environment setup, coding standards, testing patterns, and common pitfalls for the Soroban smart contracts in `contracts/`. It supplements the main [CONTRIBUTING.md](../CONTRIBUTING.md).
+This guide covers environment setup, coding standards, testing patterns, and common pitfalls for the
+Soroban smart contracts in `contracts/`. It supplements the main
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
 
@@ -39,17 +41,23 @@ rustup target add wasm32-unknown-unknown
 
 ### 3. Soroban CLI (Stellar CLI)
 
-Install the **Stellar CLI** — the official tool for building, deploying, and interacting with Soroban contracts:
+Install the **Stellar CLI** — the official tool for building, deploying, and interacting with
+Soroban contracts:
 
 ```bash
 cargo install --locked stellar-cli
 ```
 
-> **Version compatibility:** Ensure your Stellar CLI version matches the Soroban SDK version used by the contracts. Check the SDK version in `contracts/campaign/Cargo.toml` and `contracts/rewards/Cargo.toml`, then verify:
+> **Version compatibility:** Ensure your Stellar CLI version matches the Soroban SDK version used by
+> the contracts. Check the SDK version in `contracts/campaign/Cargo.toml` and
+> `contracts/rewards/Cargo.toml`, then verify:
+>
 > ```bash
 > stellar --version
 > ```
-> The `stellar-cli` release should correspond to the same `soroban-sdk` crate version. Mismatches can cause build failures or runtime errors due to XDR encoding changes.
+>
+> The `stellar-cli` release should correspond to the same `soroban-sdk` crate version. Mismatches
+> can cause build failures or runtime errors due to XDR encoding changes.
 
 ### 4. Verify Setup
 
@@ -59,7 +67,8 @@ Run the contract test suite from the repository root:
 cargo test --workspace
 ```
 
-All tests should pass. If you encounter WASM-related linker errors, verify the `wasm32-unknown-unknown` target is installed.
+All tests should pass. If you encounter WASM-related linker errors, verify the
+`wasm32-unknown-unknown` target is installed.
 
 ---
 
@@ -106,7 +115,9 @@ cargo test --package trivela-rewards
 
 ### Use `require_auth()` Correctly
 
-In Soroban, **authorization** (authenticating a user's intent) is done via `Address::require_auth()`. This is not the same as authentication (verifying identity) — it confirms that the user's signature is present for a specific operation.
+In Soroban, **authorization** (authenticating a user's intent) is done via
+`Address::require_auth()`. This is not the same as authentication (verifying identity) — it confirms
+that the user's signature is present for a specific operation.
 
 ```rust
 // ✅ CORRECT: Use require_auth() for operations where the user
@@ -132,13 +143,16 @@ pub fn set_window(env: Env, admin: Address) {
 ```
 
 **Key rules:**
-- Always verify that the authenticated address matches the expected stored address for admin operations
+
+- Always verify that the authenticated address matches the expected stored address for admin
+  operations
 - Do not rely solely on `require_auth()` — pair it with an address comparison
 - Use `require_admin_with_nonce()` for admin operations to prevent replay attacks
 
 ### Always Bump TTL on Storage Writes
 
-Soroban contract storage entries have a **Time-To-Live (TTL)**. If an entry's TTL expires, the data is lost. **Every state-mutating function must extend the TTL** of the relevant storage entries.
+Soroban contract storage entries have a **Time-To-Live (TTL)**. If an entry's TTL expires, the data
+is lost. **Every state-mutating function must extend the TTL** of the relevant storage entries.
 
 ```rust
 // ✅ CORRECT: Always extend TTL after writing to instance storage
@@ -154,11 +168,13 @@ env.storage().instance().set(&SOME_KEY, &value);
 // TTL not bumped — entry may expire!
 ```
 
-See [TTL_STRATEGY.md](../docs/TTL_STRATEGY.md) for the full rationale and production threshold values.
+See [TTL_STRATEGY.md](../docs/TTL_STRATEGY.md) for the full rationale and production threshold
+values.
 
 ### Use `panic_with_error!` Not `panic!()`
 
-Always use typed error enums rather than raw string panics. This ensures errors are catchable and propagate correctly through Soroban's error handling.
+Always use typed error enums rather than raw string panics. This ensures errors are catchable and
+propagate correctly through Soroban's error handling.
 
 ```rust
 // ✅ CORRECT: Use the Error enum and panic with a typed error
@@ -185,7 +201,8 @@ panic!("Something went wrong");
 
 ### Prefer `i128` for Amounts, Not `u64`
 
-While the current contracts use `u64` for most amounts, new code should prefer `i128` for financial values that may need to scale in the future. This provides:
+While the current contracts use `u64` for most amounts, new code should prefer `i128` for financial
+values that may need to scale in the future. This provides:
 
 - **Future-proofing:** Higher maximum values (Soroban supports up to `i128` in the ledger)
 - **Overflow safety:** `checked_add` / `checked_mul` semantics
@@ -210,7 +227,8 @@ let amount: u64 = 100;
 
 ### Storage Key Collisions
 
-When using tuples as storage keys, ensure the tuple serialization is unique. Two different logical keys can collide if their components produce the same XDR serialization.
+When using tuples as storage keys, ensure the tuple serialization is unique. Two different logical
+keys can collide if their components produce the same XDR serialization.
 
 ```rust
 // Potential collision: (Symbol, Address) and (Address, Symbol) could collide
@@ -229,19 +247,23 @@ env.storage().persistent().set(&(PARTICIPANT, participant.clone()), &true);
 
 ### TTL Not Bumped Causes State Loss
 
-This is the **most common production bug** in Soroban contracts. If TTL is not extended on writes, the contract's entire state can be wiped when the instance storage TTL expires.
+This is the **most common production bug** in Soroban contracts. If TTL is not extended on writes,
+the contract's entire state can be wiped when the instance storage TTL expires.
 
 - **Instance storage:** Shared by all users; if TTL expires, the contract appears unininitialized
 - **Persistent storage:** Per-key TTL; each entry can expire independently
 
 **Mitigation:**
+
 - Every `set()` or `remove()` call on instance storage must be followed by `extend_ttl()`
 - Every `set()` on persistent storage should extend the key's TTL
 - Read-only `get()` calls do NOT need TTL extension (but are harmless if present)
 
 ### Admin Nonce Replay
 
-Admin operations use a nonce to prevent replay attacks. The `ADMIN_NONCE` counter increments on each admin call. If a transaction is submitted twice, the second attempt will fail because the nonce doesn't match.
+Admin operations use a nonce to prevent replay attacks. The `ADMIN_NONCE` counter increments on each
+admin call. If a transaction is submitted twice, the second attempt will fail because the nonce
+doesn't match.
 
 ```rust
 // Admin must provide the current nonce value
@@ -249,11 +271,14 @@ let nonce: u64 = env.storage().instance().get(&ADMIN_NONCE).unwrap_or(0);
 // The require_admin_with_nonce function checks this and increments it
 ```
 
-**Important:** Off-chain callers must track the admin nonce state and submit the correct value. After each admin operation, the nonce increments by 1.
+**Important:** Off-chain callers must track the admin nonce state and submit the correct value.
+After each admin operation, the nonce increments by 1.
 
 ### Testing Window Constraints in Tests
 
-When writing tests, be aware that Soroban test environments provide a default ledger timestamp. Use `env.ledger().with_mutable_seq(|seq| { ... })` or adjust timestamps in test helper functions to properly test window boundaries.
+When writing tests, be aware that Soroban test environments provide a default ledger timestamp. Use
+`env.ledger().with_mutable_seq(|seq| { ... })` or adjust timestamps in test helper functions to
+properly test window boundaries.
 
 ---
 
@@ -261,16 +286,22 @@ When writing tests, be aware that Soroban test environments provide a default le
 
 Before submitting a smart contract PR, verify the following:
 
-- [ ] **Invariants preserved**: State invariants (e.g., count == number of participants, total supply == sum of balances) hold before and after the change
+- [ ] **Invariants preserved**: State invariants (e.g., count == number of participants, total
+      supply == sum of balances) hold before and after the change
 - [ ] **TTL bumped**: Every storage write extends the relevant TTL (instance and/or persistent)
 - [ ] **Events emitted**: All state changes that affect external callers have corresponding events
-- [ ] **Error types used**: `panic_with_error!` or `Err(Error::Variant)` used; no raw `panic!()` calls
+- [ ] **Error types used**: `panic_with_error!` or `Err(Error::Variant)` used; no raw `panic!()`
+      calls
 - [ ] **Tests added**: New functionality has unit tests; edge cases are covered
-- [ ] **Admin nonce**: Admin-protected functions use `require_admin_with_nonce()` (not bare `require_auth()`)
+- [ ] **Admin nonce**: Admin-protected functions use `require_admin_with_nonce()` (not bare
+      `require_auth()`)
 - [ ] **Storage keys**: No key collision risk; new keys use distinct symbol prefixes
-- [ ] **No breaking changes**: Public function signatures remain backward compatible unless explicitly versioned
-- [ ] **Documentation**: Public functions have `///` doc comments; events documented in the module-level doc string
-- [ ] **Fuzz testing**: For new logic paths, fuzz targets in `contracts/*/fuzz/` are added or updated
+- [ ] **No breaking changes**: Public function signatures remain backward compatible unless
+      explicitly versioned
+- [ ] **Documentation**: Public functions have `///` doc comments; events documented in the
+      module-level doc string
+- [ ] **Fuzz testing**: For new logic paths, fuzz targets in `contracts/*/fuzz/` are added or
+      updated
 
 ---
 
@@ -280,7 +311,8 @@ Trivela supports contract upgrades via the Soroban `migrate()` pattern. To test 
 
 ### Upgrade Test Harness
 
-An upgrade test harness is available (see [issue #445](https://github.com/FinesseStudioLab/Trivela/issues/445)). The harness provides:
+An upgrade test harness is available (see
+[issue #445](https://github.com/FinesseStudioLab/Trivela/issues/445)). The harness provides:
 
 1. **Deploy old contract** — Deploy the current (pre-upgrade) version
 2. **Seed state** — Execute transactions to populate storage
@@ -295,14 +327,14 @@ fn test_upgrade_preserves_state() {
     let env = Env::default();
     let contract_id = env.register_contract(None, OldContract);
     let client = OldContractClient::new(&env, &contract_id);
-    
+
     // Seed state
     client.initialize(&admin);
-    
+
     // Upgrade to new WASM
     env.deployer().update_current_contract_wasm(NewContractWasm);
     client.migrate(&admin, &1);
-    
+
     // Verify state preserved
     assert!(client.is_initialized());
 }
@@ -317,10 +349,12 @@ cd contracts/integration
 cargo test -- --nocapture test_upgrade
 ```
 
-The integration tests deploy contracts, execute pre-upgrade transactions, simulate upgrades, and validate post-upgrade state.
+The integration tests deploy contracts, execute pre-upgrade transactions, simulate upgrades, and
+validate post-upgrade state.
 
 ---
 
 ## Questions?
 
-Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in an issue.
+Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in
+an issue.

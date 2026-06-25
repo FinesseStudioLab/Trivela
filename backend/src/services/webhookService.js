@@ -41,10 +41,7 @@ export class WebhookService {
    * @returns {string}
    */
   generateSignature(secret, payload) {
-    return crypto
-      .createHmac('sha256', secret)
-      .update(payload)
-      .digest('hex');
+    return crypto.createHmac('sha256', secret).update(payload).digest('hex');
   }
 
   /**
@@ -56,10 +53,7 @@ export class WebhookService {
    */
   verifySignature(signature, secret, payload) {
     const expected = this.generateSignature(secret, payload);
-    return crypto.timingSafeEqual(
-      Buffer.from(signature),
-      Buffer.from(expected),
-    );
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
   }
 
   /**
@@ -69,9 +63,7 @@ export class WebhookService {
    */
   async dispatchEvent(event) {
     const webhooks = this.webhookRepository.list({ active: true });
-    const subscribedWebhooks = webhooks.filter((w) =>
-      w.events.includes(event.type),
-    );
+    const subscribedWebhooks = webhooks.filter((w) => w.events.includes(event.type));
 
     for (const webhook of subscribedWebhooks) {
       await this.deliverWebhook(webhook, event);
@@ -162,10 +154,7 @@ export class WebhookService {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Trivela-Signature': this.generateSignature(
-              webhook.secret,
-              JSON.stringify(event),
-            ),
+            'X-Trivela-Signature': this.generateSignature(webhook.secret, JSON.stringify(event)),
             'X-Trivela-Event': delivery.event,
             'X-Trivela-Timestamp': event.timestamp,
             'X-Trivela-Retry-Attempt': String(delivery.attempts + 1),

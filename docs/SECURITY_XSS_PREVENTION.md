@@ -2,24 +2,33 @@
 
 ## Overview
 
-This document describes the XSS prevention and input sanitization hardening implemented for the Trivela project. The implementation addresses campaign names, descriptions, tags, and all user-supplied text that gets stored in SQLite and rendered in React.
+This document describes the XSS prevention and input sanitization hardening implemented for the
+Trivela project. The implementation addresses campaign names, descriptions, tags, and all
+user-supplied text that gets stored in SQLite and rendered in React.
 
 ## Implementation Summary
 
 ### 1. Frontend: DOMPurify Integration
 
 #### Files Added/Modified
+
 - **`frontend/package.json`**: Added `dompurify` v3.1.0 dependency
 - **`frontend/src/lib/sanitize.ts`**: New sanitization wrapper module
 
 #### Features
-- **`sanitizeText()`**: Strips all HTML tags from user input (default for campaign names/descriptions)
-- **`sanitizeRichText()`**: Allows safe formatting tags (`<b>`, `<i>`, `<strong>`, `<em>`, `<br>`, `<p>`, `<a>`, lists)
-- **`sanitizeUrlParam()`**: Decodes and re-sanitizes URL parameters to prevent double-encoded attacks
+
+- **`sanitizeText()`**: Strips all HTML tags from user input (default for campaign
+  names/descriptions)
+- **`sanitizeRichText()`**: Allows safe formatting tags (`<b>`, `<i>`, `<strong>`, `<em>`, `<br>`,
+  `<p>`, `<a>`, lists)
+- **`sanitizeUrlParam()`**: Decodes and re-sanitizes URL parameters to prevent double-encoded
+  attacks
 - **`containsXSSPayload()`**: Detects common XSS patterns in input (for logging/validation)
 
 #### No `dangerouslySetInnerHTML` Found
-✅ Audit confirmed no instances of `dangerouslySetInnerHTML` in the codebase. Frontend relies on React's default JSX escaping.
+
+✅ Audit confirmed no instances of `dangerouslySetInnerHTML` in the codebase. Frontend relies on
+React's default JSX escaping.
 
 #### Usage Examples
 
@@ -39,6 +48,7 @@ const slug = sanitizeUrlParam(params.slug);
 ### 2. Backend: Input Sanitization & Log Injection Prevention
 
 #### Files Added/Modified
+
 - **`backend/package.json`**: Added `validator` v13.12.0 dependency
 - **`backend/src/lib/sanitizer.js`**: New backend sanitization utilities
 - **`backend/src/middleware/errorHandler.js`**: Updated to use sanitizer
@@ -47,10 +57,12 @@ const slug = sanitizeUrlParam(params.slug);
 #### Sanitizer Functions
 
 ##### HTML Entity Escaping
+
 - **`escapeHtml(str)`**: Escapes `<`, `>`, `&`, `"`, `'` using `validator.escape()`
 - Prevents HTML injection in error messages and logs
 
 ##### Log Injection Prevention (CWE-117)
+
 - **`sanitizeForLog(value)`**: Removes injection attack vectors:
   - Newlines (`\n`) and carriage returns (`\r`)
   - ANSI escape codes (`\x1b[...m`)
@@ -58,33 +70,36 @@ const slug = sanitizeUrlParam(params.slug);
 - **`sanitizeObject(obj)`**: Recursively sanitizes objects for safe logging
 
 ##### URL Parameter Escaping
+
 - **`sanitizeUrlParam(param)`**: Escapes and limits length to 255 chars
 - Prevents reflected XSS in error messages like "Campaign `{slug}` not found"
 
 ##### Campaign Metadata Sanitization
+
 - **`sanitizeCampaignMetadata(value, maxLength)`**: Trims, removes null bytes, HTML-escapes
 - Default max length: 500 chars (can be customized)
 - Used for campaign names, descriptions, tags
 
 ##### Safe Error Messages
+
 - **`createSafeErrorMessage(template, params)`**: Substitutes escaped parameters
 - Ensures user input in errors is always escaped
 
 #### Usage Examples
 
 ```javascript
-import { 
-  sanitizeCampaignMetadata, 
-  sanitizeForLog, 
+import {
+  sanitizeCampaignMetadata,
+  sanitizeForLog,
   sanitizeUrlParam,
-  createSafeErrorMessage 
+  createSafeErrorMessage,
 } from '../lib/sanitizer.js';
 
 // Sanitize campaign input
 const campaign = campaignRepository.create({
   name: sanitizeCampaignMetadata(req.body.name),
   description: sanitizeCampaignMetadata(req.body.description, 1000),
-  tags: req.body.tags?.map(t => sanitizeCampaignMetadata(t, 32)) || [],
+  tags: req.body.tags?.map((t) => sanitizeCampaignMetadata(t, 32)) || [],
 });
 
 // Safe logging
@@ -92,8 +107,8 @@ log.info({ user: sanitizeForLog(userId) });
 
 // Safe error messages
 return res.status(404).json({
-  error: createSafeErrorMessage('Campaign "{slug}" not found', { 
-    slug: req.params.slug 
+  error: createSafeErrorMessage('Campaign "{slug}" not found', {
+    slug: req.params.slug,
   }),
 });
 ```
@@ -101,6 +116,7 @@ return res.status(404).json({
 ### 3. Backend: Error Handling Hardening
 
 #### Error Handler (`middleware/errorHandler.js`)
+
 - Sanitizes all error details before logging
 - Prevents log injection attacks via error messages
 - Sanitizes stack traces (non-production only)
@@ -109,7 +125,9 @@ return res.status(404).json({
 ### 4. Existing Backend Input Validation
 
 #### Zod Schema Validation
+
 The backend already uses comprehensive Zod schemas (`backend/src/schemas.js`):
+
 - ✅ **String trimming**: All string inputs trimmed
 - ✅ **Regex validation**: Contract IDs, slugs validated against strict patterns
 - ✅ **URL validation**: Image URLs validated
@@ -117,11 +135,13 @@ The backend already uses comprehensive Zod schemas (`backend/src/schemas.js`):
 - ✅ **Cross-field validation**: Date ranges validated
 
 Current schemas do NOT require additional sanitization via the sanitizer module because:
+
 1. Zod validation ensures format compliance
 2. SQLite treats all input as data (no injection vectors)
 3. React JSX output automatically escapes by default
 
 However, the sanitizer is available for:
+
 - **Logging**: Prevent log injection
 - **Error messages**: Prevent reflected XSS
 - **Rich text scenarios**: If HTML rendering is added in future
@@ -131,6 +151,7 @@ However, the sanitizer is available for:
 #### File: `backend/scripts/security-audit.js`
 
 Automated security checks:
+
 - Detects `eval()` or `Function()` constructor usage
 - Flags unescaped `innerHTML` assignments
 - Warns about unsanitized user data in responses
@@ -148,6 +169,7 @@ npm run security:xss
 ### 6. CSP Nonce Support
 
 CSP with inline script nonces (issue #40 referenced) is a separate concern:
+
 - Requires CDN/build system integration
 - Recommended for future hardening
 - Would work alongside these sanitization measures
@@ -155,6 +177,7 @@ CSP with inline script nonces (issue #40 referenced) is a separate concern:
 ## Security Checklist
 
 ### Frontend ✅
+
 - [x] No `dangerouslySetInnerHTML` usage
 - [x] DOMPurify integrated for sanitization
 - [x] URL parameters sanitized
@@ -162,6 +185,7 @@ CSP with inline script nonces (issue #40 referenced) is a separate concern:
 - [x] Security audit script added
 
 ### Backend ✅
+
 - [x] HTML entity escaping for output
 - [x] Log injection prevention (newlines, ANSI codes)
 - [x] URL parameters escaped in error messages
@@ -171,6 +195,7 @@ CSP with inline script nonces (issue #40 referenced) is a separate concern:
 - [x] Validator.js integrated
 
 ### Logging & Monitoring ✅
+
 - [x] Sanitized logging in error handler
 - [x] Recursive object sanitization for complex data
 - [x] Log injection vectors removed
@@ -179,18 +204,21 @@ CSP with inline script nonces (issue #40 referenced) is a separate concern:
 ## Running Security Checks
 
 ### Frontend
+
 ```bash
 cd frontend
 npm run security:xss
 ```
 
 ### Backend
+
 ```bash
 cd backend
 npm run security:xss
 ```
 
 ### Full Stack
+
 ```bash
 npm run security:xss  # From root (if npm workspace configured)
 ```
@@ -206,18 +234,15 @@ import { sanitizeText, sanitizeForLog, sanitizeUrlParam } from '../lib/sanitize.
 
 describe('Sanitizer', () => {
   test('sanitizeText removes HTML tags', () => {
-    expect(sanitizeText('<script>alert("xss")</script>'))
-      .toBe('alert("xss")');
+    expect(sanitizeText('<script>alert("xss")</script>')).toBe('alert("xss")');
   });
 
   test('sanitizeForLog removes newlines', () => {
-    expect(sanitizeForLog('line1\nline2\rline3'))
-      .toBe('line1 line2 line3');
+    expect(sanitizeForLog('line1\nline2\rline3')).toBe('line1 line2 line3');
   });
 
   test('sanitizeUrlParam escapes HTML', () => {
-    expect(sanitizeUrlParam('<img src=x>'))
-      .toBe('&lt;img src=x&gt;');
+    expect(sanitizeUrlParam('<img src=x>')).toBe('&lt;img src=x&gt;');
   });
 });
 ```
@@ -225,12 +250,14 @@ describe('Sanitizer', () => {
 ## Known Limitations & Future Work
 
 ### Not Addressed in This PR
+
 1. **CSP Headers**: Requires infrastructure changes (see issue #40)
 2. **Subresource Integrity**: CDN resources should use SRI
 3. **Content Security Policy Violations**: Monitoring requires reporting endpoint
 4. **XSS Scanner in CI**: `retire.js` or OWASP ZAP integration (can be added)
 
 ### Recommendations for Future
+
 1. Implement CSP nonce support (#40)
 2. Add SRI headers for CDN resources
 3. Integrate OWASP ZAP or similar in CI pipeline
@@ -240,11 +267,13 @@ describe('Sanitizer', () => {
 ## Compliance & Standards
 
 ### CWE Coverage
+
 - ✅ CWE-79: Improper Neutralization of Input During Web Page Generation (XSS)
 - ✅ CWE-117: Improper Output Neutralization for Logs
 - ✅ CWE-94: Improper Control of Generation of Code (eval)
 
 ### OWASP Top 10 (2021)
+
 - ✅ A03:2021 – Injection
 - ✅ A06:2021 – Vulnerable and Outdated Components
 
@@ -267,5 +296,6 @@ XSS Prevention & Input Sanitization Hardening (Issue #488)
 **Breaking Changes**: None
 
 **Dependencies Added**:
+
 - `dompurify` (frontend)
 - `validator` (backend)

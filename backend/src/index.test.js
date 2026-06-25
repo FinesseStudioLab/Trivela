@@ -35,7 +35,10 @@ function campaignShapeAssertions(campaign) {
   assert.equal(typeof campaign.active, 'boolean');
   assert.equal(typeof campaign.rewardPerAction, 'number');
   assert.equal(typeof campaign.createdAt, 'string');
-  assert.ok(['active', 'upcoming', 'ended'].includes(campaign.status), `unexpected status: ${campaign.status}`);
+  assert.ok(
+    ['active', 'upcoming', 'ended'].includes(campaign.status),
+    `unexpected status: ${campaign.status}`,
+  );
   assert.ok(campaign.startDate === null || typeof campaign.startDate === 'string');
   assert.ok(campaign.endDate === null || typeof campaign.endDate === 'string');
 }
@@ -253,7 +256,10 @@ test('GET /api/v1/config exposes explicit stellar network metadata', async () =>
 
     const payload = await response.json();
     assert.equal(payload.stellar.network, 'mainnet');
-    assert.equal(payload.stellar.networkPassphrase, 'Public Global Stellar Network ; September 2015');
+    assert.equal(
+      payload.stellar.networkPassphrase,
+      'Public Global Stellar Network ; September 2015',
+    );
     assert.equal(payload.stellar.sorobanRpcUrl, 'https://soroban-mainnet.stellar.org');
     assert.equal(payload.stellar.horizonUrl, 'https://horizon.stellar.org');
     assert.equal(
@@ -578,9 +584,30 @@ test('PUT /api/v1/campaigns/:id with partial fields preserves untouched fields',
 
 test('GET /api/v1/campaigns?active=true returns only active campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '3', name: 'Active Two', description: '', active: true, rewardPerAction: 10, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '3',
+      name: 'Active Two',
+      description: '',
+      active: true,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -597,8 +624,22 @@ test('GET /api/v1/campaigns?active=true returns only active campaigns', async ()
 
 test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -615,8 +656,22 @@ test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async
 
 test('GET /api/v1/campaigns?active=invalid ignores the filter and returns all campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -632,8 +687,22 @@ test('GET /api/v1/campaigns?active=invalid ignores the filter and returns all ca
 
 test('GET /api/v1/campaigns without active param returns all campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -692,7 +761,12 @@ test('POST /api/v1/campaigns accepts startDate and endDate and returns computed 
     const activeResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Live Campaign', rewardPerAction: 5, startDate: past, endDate: future }),
+      body: JSON.stringify({
+        name: 'Live Campaign',
+        rewardPerAction: 5,
+        startDate: past,
+        endDate: future,
+      }),
     });
     assert.equal(activeResp.status, 201);
     const active = await activeResp.json();
@@ -952,8 +1026,20 @@ test('createApp defaults to deny-by-default CORS in production when not configur
 // #232 — featured flag: ordering and admin toggle
 test('GET /api/v1/campaigns returns featured campaigns first', async () => {
   const seed = [
-    { name: 'Regular A', description: '', active: true, rewardPerAction: 1, createdAt: new Date().toISOString() },
-    { name: 'Regular B', description: '', active: true, rewardPerAction: 1, createdAt: new Date().toISOString() },
+    {
+      name: 'Regular A',
+      description: '',
+      active: true,
+      rewardPerAction: 1,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Regular B',
+      description: '',
+      active: true,
+      rewardPerAction: 1,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -1005,8 +1091,20 @@ test('PUT /api/v1/campaigns/:id can set and unset featured', async () => {
 // #234 — hidden flag: moderation
 test('hidden campaigns do not appear in GET /api/v1/campaigns list', async () => {
   const seed = [
-    { name: 'Visible Campaign', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { name: 'Spam Campaign', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      name: 'Visible Campaign',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Spam Campaign',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -1204,9 +1302,27 @@ test('GET /api/v1/admin/dashboard requires master key authentication', async () 
 
 test('GET /api/v1/admin/dashboard returns aggregated stats with master key', async () => {
   const seedCampaigns = [
-    { name: 'Active Campaign', active: true, hidden: false, rewardPerAction: 10, createdAt: new Date().toISOString() },
-    { name: 'Draft Campaign', active: false, hidden: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { name: 'Archived Campaign', active: false, hidden: false, rewardPerAction: 15, createdAt: new Date().toISOString() },
+    {
+      name: 'Active Campaign',
+      active: true,
+      hidden: false,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Draft Campaign',
+      active: false,
+      hidden: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Archived Campaign',
+      active: false,
+      hidden: false,
+      rewardPerAction: 15,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({
     campaigns: seedCampaigns,
@@ -1219,7 +1335,7 @@ test('GET /api/v1/admin/dashboard returns aggregated stats with master key', asy
     });
     assert.equal(response.status, 200);
     const body = await response.json();
-    
+
     assert.ok(body.campaigns);
     assert.equal(body.campaigns.total, 3);
     assert.equal(body.campaigns.byStatus.draft, 1);
@@ -1275,8 +1391,20 @@ test('GET /api/v1/admin/campaigns requires master key authentication', async () 
 
 test('GET /api/v1/admin/campaigns returns all campaigns including hidden with master key', async () => {
   const seedCampaigns = [
-    { name: 'Public Campaign', active: true, hidden: false, rewardPerAction: 10, createdAt: new Date().toISOString() },
-    { name: 'Hidden Campaign', active: true, hidden: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      name: 'Public Campaign',
+      active: true,
+      hidden: false,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Hidden Campaign',
+      active: true,
+      hidden: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({
     campaigns: seedCampaigns,
@@ -1289,14 +1417,13 @@ test('GET /api/v1/admin/campaigns returns all campaigns including hidden with ma
     });
     assert.equal(response.status, 200);
     const body = await response.json();
-    
+
     assert.ok(Array.isArray(body.data));
     assert.equal(body.data.length, 2);
-    assert.ok(body.data.some(c => c.name === 'Public Campaign'));
-    assert.ok(body.data.some(c => c.name === 'Hidden Campaign'));
+    assert.ok(body.data.some((c) => c.name === 'Public Campaign'));
+    assert.ok(body.data.some((c) => c.name === 'Hidden Campaign'));
     assert.ok(body.pagination);
   } finally {
     await stopTestServer(server);
   }
 });
-

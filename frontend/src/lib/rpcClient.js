@@ -9,16 +9,14 @@ export async function rpcRequest(fn, options = {}) {
 
   // simple circuit breaker
   if (failureCount >= FAILURE_THRESHOLD) {
-    throw new Error("RPC temporarily unavailable (circuit open)");
+    throw new Error('RPC temporarily unavailable (circuit open)');
   }
 
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const result = await Promise.race([
         fn(),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("RPC timeout")), timeoutMs)
-        ),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('RPC timeout')), timeoutMs)),
       ]);
 
       // reset on success

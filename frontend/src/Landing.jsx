@@ -12,13 +12,7 @@ import EmptyState from './components/EmptyState';
 import { logSafeEvent } from './lib/safeAnalytics';
 import OnboardingTour, { useRestartTour } from './components/OnboardingTour';
 
-const VALID_SORT_KEYS = new Set([
-  'newest',
-  'oldest',
-  'name_asc',
-  'name_desc',
-  'reward_desc',
-]);
+const VALID_SORT_KEYS = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'reward_desc']);
 
 function normalizeSortKey(raw) {
   return VALID_SORT_KEYS.has(raw) ? raw : 'newest';
@@ -202,37 +196,32 @@ export default function Landing({
             rewards. Full stack: Rust contracts, Node API, React frontend.
           </p>
           <div className="hero-cta">
-            <a
-              href={GITHUB_REPO}
-              className="btn btn-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View repository
+            <a href="#campaigns" className="btn btn-primary">
+              Browse campaigns
             </a>
-            <a
-              href={GITHUB_ISSUES}
+            <button
+              type="button"
               className="btn btn-secondary"
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={onConnectWallet}
+              disabled={isWalletLoading}
             >
-              Browse contributor issues
-            </a>
+              {isWalletLoading
+                ? 'Connecting…'
+                : walletAddress
+                  ? 'Wallet connected ✓'
+                  : 'Connect wallet'}
+            </button>
           </div>
           <div className="hero-stats" aria-label="Project summary">
-            <span>
-              <strong>50</strong> open issues
-            </span>
-            <span className="hero-stats-dot" aria-hidden="true">
-              ·
-            </span>
-            <span>
-              <strong>3</strong> stacks
-            </span>
+            <span>Stellar Soroban</span>
             <span className="hero-stats-dot" aria-hidden="true">
               ·
             </span>
             <span>Rust · Node · React</span>
+            <span className="hero-stats-dot" aria-hidden="true">
+              ·
+            </span>
+            <span>Apache-2.0</span>
           </div>
         </header>
 
@@ -251,7 +240,9 @@ export default function Landing({
 
             <div className="rewards-balance" aria-live="polite">
               <span className="rewards-balance-label">Available points</span>
-              <strong data-tour="rewards">{isRewardsPointsLoading ? '…' : rewardsPoints || '—'}</strong>
+              <strong data-tour="rewards">
+                {isRewardsPointsLoading ? '…' : rewardsPoints || '—'}
+              </strong>
             </div>
 
             <div className="rewards-actions">
@@ -286,8 +277,23 @@ export default function Landing({
 
             {(rewardsPoints === 'Unavailable' || walletError) && (
               <p className="rewards-error" role="alert">
-                {walletError ||
-                  'Unable to load your rewards balance. Check your connection or contract deployment.'}
+                {walletError && walletError.toLowerCase().includes('freighter') ? (
+                  <>
+                    Freighter wallet not detected.{' '}
+                    <a
+                      href="https://www.freighter.app"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Install Freighter
+                    </a>{' '}
+                    then try again.
+                  </>
+                ) : (
+                  walletError ||
+                  'Unable to load your rewards balance. Check your connection or contract deployment.'
+                )}
               </p>
             )}
 
@@ -446,7 +452,12 @@ export default function Landing({
           </div>
         </section>
 
-        <section className="section campaigns-preview" aria-labelledby="campaigns-title" data-tour="campaigns">
+        <section
+          id="campaigns"
+          className="section campaigns-preview"
+          aria-labelledby="campaigns-title"
+          data-tour="campaigns"
+        >
           <h2 id="campaigns-title" className="section-title">
             Live campaigns
           </h2>
@@ -473,9 +484,7 @@ export default function Landing({
 
           {!isCampaignsLoading && !campaignsError && (
             <p className="campaign-result-count" aria-live="polite">
-              {totalCampaigns === 1
-                ? '1 campaign'
-                : `${totalCampaigns} campaigns`}
+              {totalCampaigns === 1 ? '1 campaign' : `${totalCampaigns} campaigns`}
               {hasActiveFilters ? ' matching your filters' : ''}
             </p>
           )}
@@ -626,7 +635,15 @@ export default function Landing({
             type="button"
             className="footer-restart-tour"
             onClick={restart}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--color-text-secondary, #94a3b8)', fontSize: '0.8rem', textDecoration: 'underline', padding: 0 }}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-text-secondary, #94a3b8)',
+              fontSize: '0.8rem',
+              textDecoration: 'underline',
+              padding: 0,
+            }}
           >
             Restart Tour
           </button>
@@ -636,4 +653,3 @@ export default function Landing({
     </div>
   );
 }
-

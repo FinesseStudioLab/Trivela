@@ -5,7 +5,6 @@
 import crypto from 'node:crypto';
 import { StrKey, xdr } from '@stellar/stellar-sdk';
 
-
 function compareBytes(a, b) {
   const len = Math.min(a.length, b.length);
   for (let i = 0; i < len; i += 1) {
@@ -43,9 +42,7 @@ export async function addressToLeaf(gAddress) {
   }
 
   const raw = StrKey.decodeEd25519PublicKey(gAddress);
-  const scAddress = xdr.ScAddress.scAddressTypeAccount(
-    xdr.PublicKey.publicKeyTypeEd25519(raw),
-  );
+  const scAddress = xdr.ScAddress.scAddressTypeAccount(xdr.PublicKey.publicKeyTypeEd25519(raw));
   const scVal = xdr.ScVal.scvAddress(scAddress);
   const xdrBytes = scVal.toXDR();
 
@@ -139,5 +136,3 @@ export async function generateAllowlist(addresses) {
     proofs,
   };
 }
-
-

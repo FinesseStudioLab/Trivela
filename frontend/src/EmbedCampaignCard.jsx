@@ -24,7 +24,8 @@ export default function EmbedCampaignCard({ id }) {
     setError(null);
     try {
       const res = await fetch(`${apiUrl}/api/v1/campaigns/${id}`);
-      if (!res.ok) throw new Error(res.status === 404 ? 'Campaign not found.' : 'Failed to load campaign.');
+      if (!res.ok)
+        throw new Error(res.status === 404 ? 'Campaign not found.' : 'Failed to load campaign.');
       setCampaign(await res.json());
     } catch (err) {
       setError(err.message || 'Unknown error');
@@ -33,7 +34,9 @@ export default function EmbedCampaignCard({ id }) {
     }
   }, [id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const style = {
     fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -46,21 +49,45 @@ export default function EmbedCampaignCard({ id }) {
     padding: 16,
   };
 
-  if (loading) return (
-    <div style={style}>
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: '24px', width: '100%', maxWidth: 420, color: '#64748b', textAlign: 'center' }}>
-        Loading campaign…
+  if (loading)
+    return (
+      <div style={style}>
+        <div
+          style={{
+            background: '#1e293b',
+            border: '1px solid #334155',
+            borderRadius: 12,
+            padding: '24px',
+            width: '100%',
+            maxWidth: 420,
+            color: '#64748b',
+            textAlign: 'center',
+          }}
+        >
+          Loading campaign…
+        </div>
       </div>
-    </div>
-  );
+    );
 
-  if (error || !campaign) return (
-    <div style={style}>
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: '24px', width: '100%', maxWidth: 420, color: '#ef4444', textAlign: 'center' }}>
-        {error || 'Campaign not found.'}
+  if (error || !campaign)
+    return (
+      <div style={style}>
+        <div
+          style={{
+            background: '#1e293b',
+            border: '1px solid #334155',
+            borderRadius: 12,
+            padding: '24px',
+            width: '100%',
+            maxWidth: 420,
+            color: '#ef4444',
+            textAlign: 'center',
+          }}
+        >
+          {error || 'Campaign not found.'}
+        </div>
       </div>
-    </div>
-  );
+    );
 
   const status = statusLabel(campaign);
   const isActive = status === 'Active';
@@ -71,11 +98,36 @@ export default function EmbedCampaignCard({ id }) {
 
   return (
     <div style={style}>
-      <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 12, padding: '20px 24px', width: '100%', maxWidth: 420 }}>
-        <p style={{ fontSize: '0.7rem', letterSpacing: '0.08em', textTransform: 'uppercase', color: '#64748b', marginBottom: 6 }}>
+      <div
+        style={{
+          background: '#1e293b',
+          border: '1px solid #334155',
+          borderRadius: 12,
+          padding: '20px 24px',
+          width: '100%',
+          maxWidth: 420,
+        }}
+      >
+        <p
+          style={{
+            fontSize: '0.7rem',
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: '#64748b',
+            marginBottom: 6,
+          }}
+        >
           Trivela Campaign
         </p>
-        <h1 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f1f5f9', marginBottom: 8, lineHeight: 1.3 }}>
+        <h1
+          style={{
+            fontSize: '1.1rem',
+            fontWeight: 700,
+            color: '#f1f5f9',
+            marginBottom: 8,
+            lineHeight: 1.3,
+          }}
+        >
           {campaign.name}
         </h1>
         {campaign.description && (
@@ -85,7 +137,17 @@ export default function EmbedCampaignCard({ id }) {
         )}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 18 }}>
           <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
-            <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: '50%', background: isActive ? '#22c55e' : '#94a3b8', marginRight: 5, verticalAlign: 'middle' }} />
+            <span
+              style={{
+                display: 'inline-block',
+                width: 7,
+                height: 7,
+                borderRadius: '50%',
+                background: isActive ? '#22c55e' : '#94a3b8',
+                marginRight: 5,
+                verticalAlign: 'middle',
+              }}
+            />
             <strong style={{ color: '#cbd5e1' }}>{status}</strong>
           </span>
           <span style={{ fontSize: '0.78rem', color: '#64748b' }}>
@@ -123,7 +185,12 @@ export default function EmbedCampaignCard({ id }) {
         </a>
         <p style={{ textAlign: 'center', marginTop: 12, fontSize: '0.68rem', color: '#475569' }}>
           Powered by{' '}
-          <a href={TRIVELA_URL} target="_blank" rel="noopener noreferrer" style={{ color: '#64748b', textDecoration: 'none' }}>
+          <a
+            href={TRIVELA_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: '#64748b', textDecoration: 'none' }}
+          >
             Trivela
           </a>
         </p>

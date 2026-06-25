@@ -4,12 +4,12 @@ This document provides implementation guidance for four Trivela enhancements.
 
 ## Summary
 
-| Issue | Title | Type | Effort | Status |
-|-------|-------|------|--------|--------|
-| #339 | Campaign Auto-Deactivation Job | Backend | 4-6h | ✅ Documented |
-| #336 | GraphQL API Layer | Backend | 8-12h | ✅ Documented |
-| #337 | GDPR Data Export/Deletion | Backend | 6-8h | ✅ Documented |
-| #329 | Campaign Rewards Multiplier | Contract | 5-7h | ✅ Documented |
+| Issue | Title                          | Type     | Effort | Status        |
+| ----- | ------------------------------ | -------- | ------ | ------------- |
+| #339  | Campaign Auto-Deactivation Job | Backend  | 4-6h   | ✅ Documented |
+| #336  | GraphQL API Layer              | Backend  | 8-12h  | ✅ Documented |
+| #337  | GDPR Data Export/Deletion      | Backend  | 6-8h   | ✅ Documented |
+| #329  | Campaign Rewards Multiplier    | Contract | 5-7h   | ✅ Documented |
 
 **Total Effort**: 23-33 hours
 
@@ -30,25 +30,22 @@ const EXPIRY_CHECK_INTERVAL_MS = parseInt(process.env.EXPIRY_CHECK_INTERVAL_MS |
 
 async function checkExpiredCampaigns() {
   const now = new Date();
-  
+
   try {
     const expiredCampaigns = await db.query(
       `SELECT * FROM campaigns WHERE active = 1 AND endDate IS NOT NULL AND endDate < ?`,
-      [now]
+      [now],
     );
 
     for (const campaign of expiredCampaigns.rows) {
-      await db.query(
-        `UPDATE campaigns SET active = 0 WHERE id = ?`,
-        [campaign.id]
-      );
+      await db.query(`UPDATE campaigns SET active = 0 WHERE id = ?`, [campaign.id]);
 
       await auditLog({
         entityType: 'campaign',
         entityId: campaign.id,
         action: 'deactivate',
         actor: 'system:expiry-job',
-        changes: { active: { from: true, to: false }, reason: 'endDate passed' }
+        changes: { active: { from: true, to: false }, reason: 'endDate passed' },
       });
 
       logger.info(`Auto-deactivated expired campaign ${campaign.id}`);
@@ -84,11 +81,13 @@ Update `backend/src/jobs/jobRunner.js` to register the job.
 ### Implementation
 
 1. Install dependencies:
+
 ```bash
 npm install graphql graphql-yoga dataloader
 ```
 
 2. Create `backend/src/graphql/schema.js`:
+
 ```javascript
 const { createSchema } = require('graphql-yoga');
 
@@ -161,7 +160,7 @@ module.exports = createSchema({
   `,
   resolvers: {
     // Implement resolvers with DataLoader for batching
-  }
+  },
 });
 ```
 
@@ -181,21 +180,15 @@ const crypto = require('crypto');
 const { auditLog } = require('../dal/auditLogRepository');
 
 async function exportUserData(walletAddress) {
-  const auditLogs = await db.query(
-    `SELECT * FROM audit_log WHERE actor = ?`,
-    [walletAddress]
-  );
+  const auditLogs = await db.query(`SELECT * FROM audit_log WHERE actor = ?`, [walletAddress]);
 
-  const campaigns = await db.query(
-    `SELECT * FROM campaigns WHERE createdBy = ?`,
-    [walletAddress]
-  );
+  const campaigns = await db.query(`SELECT * FROM campaigns WHERE createdBy = ?`, [walletAddress]);
 
   return {
     walletAddress,
     exportDate: new Date().toISOString(),
     auditLogs: auditLogs.rows,
-    campaigns: campaigns.rows
+    campaigns: campaigns.rows,
   };
 }
 
@@ -203,22 +196,19 @@ async function deleteUserData(walletAddress) {
   const hash = crypto.createHash('sha256').update(walletAddress).digest('hex');
   const redacted = `[REDACTED:${hash.substring(0, 8)}]`;
 
-  await db.query(
-    `UPDATE audit_log SET actor = ? WHERE actor = ?`,
-    [redacted, walletAddress]
-  );
+  await db.query(`UPDATE audit_log SET actor = ? WHERE actor = ?`, [redacted, walletAddress]);
 
-  await db.query(
-    `UPDATE campaigns SET createdBy = ? WHERE createdBy = ?`,
-    [redacted, walletAddress]
-  );
+  await db.query(`UPDATE campaigns SET createdBy = ? WHERE createdBy = ?`, [
+    redacted,
+    walletAddress,
+  ]);
 
   await auditLog({
     entityType: 'user',
     entityId: redacted,
     action: 'gdpr_deletion',
     actor: 'system:gdpr',
-    changes: { walletAddress: 'redacted' }
+    changes: { walletAddress: 'redacted' },
   });
 
   return { success: true, redactedAs: redacted };
@@ -228,6 +218,7 @@ module.exports = { exportUserData, deleteUserData };
 ```
 
 Add routes in `backend/src/index.js`:
+
 ```javascript
 app.get('/api/v1/user/:walletAddress/export', rateLimiter, async (req, res) => {
   // Verify wallet signature
@@ -267,7 +258,7 @@ impl RewardsContract {
         multiplier_bps: u32
     ) {
         admin.require_auth();
-        
+
         // Store multiplier keyed by campaign contract address
         env.storage().instance().set(&campaign_contract, &multiplier_bps);
     }
@@ -293,7 +284,7 @@ impl RewardsContract {
         // Cross-contract call to verify campaign is active
         let campaign_client = CampaignContractClient::new(&env, &campaign_contract);
         let is_active = campaign_client.is_active();
-        
+
         if !is_active {
             panic!("Campaign is not active");
         }
@@ -316,6 +307,7 @@ impl RewardsContract {
 ## Testing
 
 Each implementation requires:
+
 - Unit tests
 - Integration tests
 - Manual testing
@@ -330,6 +322,7 @@ Each implementation requires:
 ## Documentation
 
 Update:
+
 - API documentation
 - Contract documentation
 - Deployment guides

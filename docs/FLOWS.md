@@ -1,7 +1,7 @@
 # Data Flow Diagrams
 
-Detailed sequence diagrams for each core Trivela user journey.
-These complement the high-level diagram in [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md).
+Detailed sequence diagrams for each core Trivela user journey. These complement the high-level
+diagram in [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md).
 
 ---
 

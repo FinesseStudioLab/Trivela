@@ -2,7 +2,8 @@
 
 ## Overview
 
-This document describes the end-to-end testing infrastructure for testing the complete campaign lifecycle from creation through reward claiming.
+This document describes the end-to-end testing infrastructure for testing the complete campaign
+lifecycle from creation through reward claiming.
 
 ## Test Structure
 
@@ -71,6 +72,7 @@ npm run test:e2e:lifecycle
 ### Test Steps
 
 #### 1. Campaign Creation (API)
+
 ```
 POST /api/v1/campaigns
 Headers: X-API-Key: {admin-key}
@@ -83,44 +85,54 @@ Body: {
   active: true
 }
 ```
+
 - ✅ Campaign created with ID
 - ✅ Campaign retrieved by slug
 - ✅ Campaign visible in list
 
 #### 2. Campaign Page Navigation
+
 ```
 GET /campaign/{slug}
 ```
+
 - ✅ Page loads with correct title
 - ✅ Campaign details displayed (name, description, tags)
 - ✅ Mock Freighter wallet injected into browser context
 
 #### 3. Wallet Connection (Ready for UI Implementation)
+
 ```
 Button Click: "Connect Wallet"
 ```
+
 - Placeholder: Freighter API mock installed
 - Future: Integration with real Freighter extension
 - Status: Test infrastructure ready, UI component pending
 
 #### 4. Campaign Metadata Persistence
+
 ```
 GET /api/v1/campaigns/{id}
 ```
+
 - ✅ All fields persisted correctly
 - ✅ Tags and metadata intact
 - ✅ Timestamps valid
 
 #### 5. Campaign Updates
+
 ```
 PUT /api/v1/campaigns/{id}
 Headers: X-API-Key: {admin-key}
 Body: { rewardPerAction: 150, ... }
 ```
+
 - ✅ Updates applied successfully
 - ✅ Data persists
 
 #### 6. Future: Contract Interaction
+
 - Deploy campaign contract to testnet
 - Deploy rewards contract to testnet
 - Link contract IDs to campaign (PUT /api/v1/campaigns/{id})
@@ -129,7 +141,8 @@ Body: { rewardPerAction: 150, ... }
 
 ## Freighter Wallet Mocking
 
-The lifecycle test includes a mock Freighter wallet API for browser testing without requiring a real wallet extension:
+The lifecycle test includes a mock Freighter wallet API for browser testing without requiring a real
+wallet extension:
 
 ```javascript
 // Injected into page context
@@ -145,16 +158,16 @@ window.freighter = {
 
 ### Implementation Status
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Mock wallet API | ✅ Implemented | Injected before navigation |
-| Campaign creation | ✅ Working | API fully functional |
-| Page navigation | ✅ Working | Basic page loads verified |
-| Wallet connection UI | ⏳ Pending | Need to implement UI component |
-| Contract deployment | ⏳ Pending | Requires Rust build + Soroban CLI |
-| Transaction signing | ⏳ Pending | Awaits UI + contract setup |
-| Points crediting | ⏳ Pending | Awaits contract interaction |
-| Claim flow | ⏳ Pending | Awaits full contract integration |
+| Feature              | Status         | Notes                             |
+| -------------------- | -------------- | --------------------------------- |
+| Mock wallet API      | ✅ Implemented | Injected before navigation        |
+| Campaign creation    | ✅ Working     | API fully functional              |
+| Page navigation      | ✅ Working     | Basic page loads verified         |
+| Wallet connection UI | ⏳ Pending     | Need to implement UI component    |
+| Contract deployment  | ⏳ Pending     | Requires Rust build + Soroban CLI |
+| Transaction signing  | ⏳ Pending     | Awaits UI + contract setup        |
+| Points crediting     | ⏳ Pending     | Awaits contract interaction       |
+| Claim flow           | ⏳ Pending     | Awaits full contract integration  |
 
 ## Setting Up the Test Environment
 
@@ -178,9 +191,9 @@ Create `.github/workflows/e2e-lifecycle.yml`:
 name: E2E Campaign Lifecycle Test
 
 on:
-  workflow_dispatch:  # Manual trigger only (slow test)
+  workflow_dispatch: # Manual trigger only (slow test)
   schedule:
-    - cron: '0 2 * * *'  # Daily at 2 AM UTC
+    - cron: '0 2 * * *' # Daily at 2 AM UTC
 
 jobs:
   e2e-lifecycle:
@@ -189,38 +202,36 @@ jobs:
       backend:
         image: node:20-alpine
         options: >-
-          --health-cmd "node -e \"require('http').get('http://localhost:3001/api/v1/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1))\"" 
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
+          --health-cmd "node -e \"require('http').get('http://localhost:3001/api/v1/health', (r) =>
+          process.exit(r.statusCode === 200 ? 0 : 1))\"" 
+          --health-interval 10s --health-timeout 5s --health-retries 5
         env:
           PORT: 3001
           STELLAR_NETWORK: testnet
-      
+
       redis:
         image: redis:7-alpine
         options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-    
+          --health-cmd "redis-cli ping" --health-interval 10s
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-      
+
       - run: npm ci --workspace=frontend
-      
+
       - run: npm run build --workspace=frontend
-      
+
       - run: npm run test:e2e:lifecycle --workspace=frontend
         env:
           BACKEND_URL: http://localhost:3001
           FRONTEND_URL: http://localhost:5173
           TEST_ADMIN_API_KEY: ${{ secrets.TEST_ADMIN_API_KEY }}
-      
+
       - uses: actions/upload-artifact@v3
         if: always()
         with:
@@ -262,52 +273,66 @@ npx playwright show-trace trace.zip
 ## Troubleshooting
 
 ### Backend Not Ready
+
 ```
 Error: Backend did not become ready after 30000ms
 ```
+
 **Solution**: Start backend first with `docker compose up -d backend` and wait for health check.
 
 ### Campaign Creation Fails
+
 ```
 Error: Failed to create campaign: 401 Unauthorized
 ```
+
 **Solution**: Set valid `TEST_ADMIN_API_KEY` environment variable.
 
 ### Page Navigation Timeout
+
 ```
 Error: Timeout waiting for page load
 ```
-**Solution**: 
+
+**Solution**:
+
 - Verify frontend is running on correct port
 - Check `FRONTEND_URL` environment variable
 - Check browser logs in trace file
 
 ### Mock Wallet Not Found
+
 ```
 Warning: Connect wallet button not found
 ```
-**Solution**: This is expected if wallet UI hasn't been implemented yet. Test infrastructure is ready for future UI integration.
+
+**Solution**: This is expected if wallet UI hasn't been implemented yet. Test infrastructure is
+ready for future UI integration.
 
 ## Future Enhancements
 
 ### Phase 1: Basic Lifecycle (Current)
+
 - [x] Campaign creation via API
 - [x] Campaign persistence
 - [ ] Contract deployment automation
 - [ ] Freighter wallet UI integration
 
 ### Phase 2: Contract Interaction
+
 - [ ] User registration flow
 - [ ] Admin credit interface
 - [ ] Points claiming
 
 ### Phase 3: Advanced Scenarios
+
 - [ ] Cross-browser testing (Firefox, Safari)
 - [ ] Multi-user scenarios
 - [ ] Merkle tree allowlist validation
 - [ ] Error recovery flows
 
 ### Phase 4: Performance & Security
+
 - [ ] Load testing with multiple users
 - [ ] XSS payload injection tests
 - [ ] Rate limiting verification

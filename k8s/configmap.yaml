@@ -5,9 +5,9 @@ metadata:
   labels:
     app: trivela
 data:
-  NODE_ENV: "production"
-  LOG_LEVEL: "info"
-  CORS_ORIGIN: "https://trivela.example.com"
+  NODE_ENV: 'production'
+  LOG_LEVEL: 'info'
+  CORS_ORIGIN: 'https://trivela.example.com'
   nginx.conf: |
     server {
         listen 80;

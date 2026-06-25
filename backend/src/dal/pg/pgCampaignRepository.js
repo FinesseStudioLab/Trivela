@@ -1,5 +1,3 @@
-// @ts-check
-//
 // PostgreSQL-backed campaign repository (issue #284).
 //
 // Implements the same interface as `sqliteCampaignRepository.js` so the
@@ -16,13 +14,7 @@ import {
   validateTags,
 } from '../sqliteCampaignRepository.js';
 
-const SORTABLE_COLUMNS = new Set([
-  'name',
-  'created_at',
-  'updated_at',
-  'reward_per_action',
-  'id',
-]);
+const SORTABLE_COLUMNS = new Set(['name', 'created_at', 'updated_at', 'reward_per_action', 'id']);
 
 function generateSlug(name) {
   return name
@@ -102,15 +94,7 @@ export function createPgCampaignRepository({
 
   const seedPromise = maybeSeed();
 
-  async function list({
-    active,
-    q,
-    tags,
-    category,
-    includeHidden = false,
-    sort,
-    order,
-  } = {}) {
+  async function list({ active, q, tags, category, includeHidden = false, sort, order } = {}) {
     await seedPromise;
 
     const where = [];
@@ -182,19 +166,13 @@ export function createPgCampaignRepository({
 
   async function getById(id) {
     await seedPromise;
-    const { rows } = await pool.query(
-      'SELECT * FROM campaigns WHERE id = $1',
-      [Number(id)],
-    );
+    const { rows } = await pool.query('SELECT * FROM campaigns WHERE id = $1', [Number(id)]);
     return rows[0] ? rowToCampaign(rows[0]) : undefined;
   }
 
   async function getBySlug(slug) {
     await seedPromise;
-    const { rows } = await pool.query(
-      'SELECT * FROM campaigns WHERE slug = $1',
-      [slug],
-    );
+    const { rows } = await pool.query('SELECT * FROM campaigns WHERE slug = $1', [slug]);
     return rows[0] ? rowToCampaign(rows[0]) : undefined;
   }
 
@@ -306,18 +284,12 @@ export function createPgCampaignRepository({
     params.push(new Date().toISOString());
     params.push(Number(id));
 
-    await pool.query(
-      `UPDATE campaigns SET ${sets.join(', ')} WHERE id = $${idx}`,
-      params,
-    );
+    await pool.query(`UPDATE campaigns SET ${sets.join(', ')} WHERE id = $${idx}`, params);
     return getById(id);
   }
 
   async function remove(id) {
-    const result = await pool.query(
-      'DELETE FROM campaigns WHERE id = $1',
-      [Number(id)],
-    );
+    const result = await pool.query('DELETE FROM campaigns WHERE id = $1', [Number(id)]);
     return result.rowCount > 0;
   }
 

@@ -5,6 +5,7 @@ This document describes the testnet integration test workflow and how to use it.
 ## Overview
 
 The **Testnet Integration Tests** workflow is a GitHub Actions job that:
+
 - Runs on manual trigger (workflow dispatch)
 - Optionally deploys contracts to Stellar testnet
 - Builds backend and frontend
@@ -89,6 +90,7 @@ HORIZON_URL=https://horizon-testnet.stellar.org
 ```
 
 Frontend tests inherit:
+
 ```
 VITE_API_URL=http://localhost:3001
 VITE_STELLAR_NETWORK=testnet
@@ -106,6 +108,7 @@ VITE_STELLAR_NETWORK=testnet
 ### Workflow fails with "Secret not found"
 
 Ensure `SOROBAN_TESTNET_ACCOUNT_SECRET` is set in repository settings:
+
 1. Go to Settings > Secrets and variables > Actions
 2. Create new repository secret
 3. Name: `SOROBAN_TESTNET_ACCOUNT_SECRET`
@@ -114,6 +117,7 @@ Ensure `SOROBAN_TESTNET_ACCOUNT_SECRET` is set in repository settings:
 ### Deployment fails
 
 Check that:
+
 1. Account has enough testnet lumens
 2. `scripts/deploy-testnet.sh` exists and is executable
 3. Contracts compile successfully
@@ -122,6 +126,7 @@ Check that:
 ### Tests timeout
 
 Testnet operations may be slow. Increase timeout in workflow if needed:
+
 - Change `timeout-minutes: 30` to higher value
 - Check testnet RPC status: https://soroban-testnet.stellar.org/status
 

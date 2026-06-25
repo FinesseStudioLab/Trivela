@@ -49,7 +49,7 @@ const TOUR_STEPS = [
     popover: {
       title: 'Track Your Rewards',
       description:
-        "Your accumulated reward points are shown here once your wallet is connected. You can claim them via the smart contract at any time.",
+        'Your accumulated reward points are shown here once your wallet is connected. You can claim them via the smart contract at any time.',
       side: 'bottom',
       align: 'end',
     },

@@ -86,7 +86,17 @@ function parseTagsFromRow(row) {
   }
 }
 
+function parseTranslationsFromRow(row) {
+  try {
+    const parsed = JSON.parse(row.translations ?? '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
 function rowToCampaign(row) {
+  const rawTranslations = parseTranslationsFromRow(row);
   const campaign = {
     id: String(row.id),
     name: row.name,
@@ -107,8 +117,9 @@ function rowToCampaign(row) {
     status: row.status ?? 'draft',
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
+    available_locales: Object.keys(rawTranslations),
+    _rawTranslations: rawTranslations,
   };
-  // Keep the computed status for backward compatibility with time-based status
   campaign.computedStatus = computeCampaignStatus(campaign);
   return campaign;
 }
@@ -179,6 +190,8 @@ export function createSqliteCampaignRepository({
     if (status && status !== 'all') {
       where.push('campaigns.status = ?');
       params.push(status);
+    } else if (!status) {
+      where.push("campaigns.status = 'published'");
     }
 
     if (category) {
@@ -501,6 +514,46 @@ export function createSqliteCampaignRepository({
     return getById(id);
   }
 
+  /** @param {string | number} id @returns {Record<string, { name?: string, description?: string }>} */
+  function getTranslations(id) {
+    const row = db.prepare('SELECT translations FROM campaigns WHERE id = ?').get(Number(id));
+    if (!row) return {};
+    return parseTranslationsFromRow(row);
+  }
+
+  /**
+   * @param {string | number} id
+   * @param {string} locale
+   * @param {{ name?: string, description?: string }} data
+   */
+  function upsertTranslation(id, locale, data) {
+    const current = getTranslations(id);
+    const updated = { ...current, [locale]: { ...data } };
+    const updatedAt = new Date().toISOString();
+    db.prepare('UPDATE campaigns SET translations = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(updated),
+      updatedAt,
+      Number(id),
+    );
+  }
+
+  /**
+   * @param {string | number} id
+   * @param {string} locale
+   */
+  function deleteTranslation(id, locale) {
+    const current = getTranslations(id);
+    if (!(locale in current)) return false;
+    const { [locale]: _removed, ...rest } = current;
+    const updatedAt = new Date().toISOString();
+    db.prepare('UPDATE campaigns SET translations = ?, updated_at = ? WHERE id = ?').run(
+      JSON.stringify(rest),
+      updatedAt,
+      Number(id),
+    );
+    return true;
+  }
+
   return {
     list,
     listCategories,
@@ -513,6 +566,9 @@ export function createSqliteCampaignRepository({
     clone,
     publish,
     archive,
+    getTranslations,
+    upsertTranslation,
+    deleteTranslation,
     ftsAvailable,
   };
 }

@@ -68,3 +68,47 @@ test('malformed referred event (missing referrer) is ignored', async () => {
 
   assert.equal(db.calls.length, 0, 'no writes for an incomplete event');
 });
+
+// ── Referral bonus instrumentation (issue #656) ──────────────────────────────
+
+const REF_BONUS = (overrides = {}) => ({
+  topic: ['refbonus', 'REFERRER_ADDR', 'REFEREE_ADDR'],
+  data: [100, 1000],
+  ledger: 7,
+  txHash: '0xbeef',
+  ...overrides,
+});
+
+test('refbonus event records a referral_bonus_events row (issue #656)', async () => {
+  const db = makeDb();
+  const indexer = createEventIndexer({ db });
+
+  await indexer.processEvent(REF_BONUS());
+
+  assert.equal(db.calls.length, 1, 'a single instrumentation insert runs');
+  assert.match(db.calls[0].sql, /referral_bonus_events/);
+  assert.deepEqual(
+    db.calls[0].params.slice(0, 5),
+    ['REFERRER_ADDR', 'REFEREE_ADDR', '100', '1000', 7],
+    'records referrer, referee, bonus, qualifying amount, ledger',
+  );
+});
+
+test('refbonus event never touches balances (the credit event owns that)', async () => {
+  const db = makeDb();
+  const indexer = createEventIndexer({ db });
+
+  await indexer.processEvent(REF_BONUS());
+
+  const sqls = db.calls.map((c) => c.sql).join('\n');
+  assert.doesNotMatch(sqls, /balance = balance/, 'no balance mutation -> no double credit');
+});
+
+test('refbonus event with missing topics is ignored', async () => {
+  const db = makeDb();
+  const indexer = createEventIndexer({ db });
+
+  await indexer.processEvent({ topic: ['refbonus'], data: [1, 2] });
+
+  assert.equal(db.calls.length, 0);
+});

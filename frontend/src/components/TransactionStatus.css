@@ -131,3 +131,103 @@
 .tx-explorer-link:hover svg {
   transform: translate(1px, -1px);
 }
+
+/* ── Lifecycle variants (optimistic UI) ─────────────────────────────────── */
+
+.tx-status--pending .tx-status-icon {
+  background: var(--warning, #d97706);
+  animation: txPulse 1.2s ease-in-out infinite;
+}
+
+.tx-status--pending .tx-status-label {
+  color: var(--warning, #d97706);
+}
+
+.tx-status--error .tx-status-icon {
+  background: var(--error, #dc2626);
+}
+
+.tx-status--error .tx-status-label {
+  color: var(--error, #dc2626);
+}
+
+.tx-status-message {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--text-secondary, #4b5563);
+}
+
+@keyframes txPulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+/* ── Recovery actions ────────────────────────────────────────────────────── */
+
+.tx-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 0 0 1rem;
+}
+
+.tx-recovery-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+  white-space: nowrap;
+}
+
+/* Primary — retry / re-sign: filled accent button */
+.tx-recovery-btn--primary {
+  background: var(--accent, #6366f1);
+  color: #fff;
+  border: 1.5px solid transparent;
+}
+
+.tx-recovery-btn--primary:hover {
+  background: var(--accent-hover, #4f46e5);
+}
+
+/* Secondary — switch wallet / top-up / view explorer: outlined */
+.tx-recovery-btn--secondary {
+  background: transparent;
+  color: var(--accent, #6366f1);
+  border: 1.5px solid var(--accent, #6366f1);
+}
+
+.tx-recovery-btn--secondary:hover {
+  background: var(--accent-soft, rgba(99, 102, 241, 0.08));
+}
+
+/* Ghost — report issue: subtle text-only link */
+.tx-recovery-btn--ghost {
+  background: transparent;
+  color: var(--text-muted, #6b7280);
+  border: 1.5px solid transparent;
+  padding-left: 0.25rem;
+  padding-right: 0.25rem;
+  font-weight: 400;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.tx-recovery-btn--ghost:hover {
+  color: var(--text, #111827);
+}

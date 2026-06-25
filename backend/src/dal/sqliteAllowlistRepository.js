@@ -9,7 +9,7 @@ export function createSqliteAllowlistRepository({ db }) {
 
       const stmt = db.prepare(
         `INSERT INTO allowlists (campaign_id, address, merkle_proof, merkle_root, label, bonus_points, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
 
       const now = new Date().toISOString();
@@ -36,7 +36,7 @@ export function createSqliteAllowlistRepository({ db }) {
         `SELECT address, label, bonus_points, merkle_proof, merkle_root, created_at, updated_at
          FROM allowlists
          WHERE campaign_id = ?
-         ORDER BY address ASC`
+         ORDER BY address ASC`,
       )
       .all(campaignId)
       .map((row) => ({
@@ -54,7 +54,7 @@ export function createSqliteAllowlistRepository({ db }) {
     return db
       .prepare(
         `SELECT merkle_proof, merkle_root FROM allowlists
-         WHERE campaign_id = ? AND address = ?`
+         WHERE campaign_id = ? AND address = ?`,
       )
       .get(campaignId, address);
   }
@@ -73,4 +73,3 @@ export function createSqliteAllowlistRepository({ db }) {
     getMerkeRoot,
   };
 }
-
