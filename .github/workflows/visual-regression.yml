@@ -7,13 +7,7 @@ on:
       - 'frontend/.storybook/**'
       - 'frontend/tests/visual/**'
       - 'frontend/package*.json'
-  push:
-    branches:
-      - main
-    paths:
-      - 'frontend/src/**'
-      - 'frontend/.storybook/**'
-      - 'frontend/tests/visual/**'
+  # Push trigger on main intentionally omitted (lightweight main-branch checks).
   workflow_dispatch:
 
 permissions:

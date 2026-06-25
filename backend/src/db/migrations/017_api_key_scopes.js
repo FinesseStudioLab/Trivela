@@ -1,5 +1,6 @@
 export const version = 17;
-export const description = 'Add org_id and scopes columns to api_keys for org-scoped granular access (#611)';
+export const description =
+  'Add org_id and scopes columns to api_keys for org-scoped granular access (#611)';
 
 /**
  * Canonical scope set. New keys are created with an explicit scopes list; legacy

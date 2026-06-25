@@ -1,10 +1,39 @@
 {
   "generators": {
-    "address": 5,
+    "address": 2,
     "nonce": 0,
     "mux_id": 0
   },
   "auth": [
+    [],
+    [],
+    [
+      [
+        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+        {
+          "function": {
+            "contract_fn": {
+              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+              "function_name": "set_active",
+              "args": [
+                {
+                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
+                },
+                {
+                  "u64": "0"
+                },
+                {
+                  "bool": true
+                }
+              ]
+            }
+          },
+          "sub_invocations": []
+        }
+      ]
+    ],
+    [],
+    [],
     [],
     [],
     [
@@ -20,13 +49,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "0"
+                  "u64": "1"
                 },
                 {
-                  "u64": "681043"
+                  "u64": "21981"
                 },
                 {
-                  "u64": "937582"
+                  "u64": "238003"
                 }
               ]
             }
@@ -35,14 +64,6 @@
         }
       ]
     ],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
     [],
     [],
     [],
@@ -60,10 +81,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "1"
+                  "u64": "2"
                 },
                 {
-                  "u64": "10"
+                  "u64": "0"
                 }
               ]
             }
@@ -72,7 +93,6 @@
         }
       ]
     ],
-    [],
     [],
     [],
     [],
@@ -127,7 +147,7 @@
                         "symbol": "anonce"
                       },
                       "val": {
-                        "u64": "2"
+                        "u64": "3"
                       }
                     },
                     {
@@ -143,7 +163,7 @@
                         "symbol": "end"
                       },
                       "val": {
-                        "u64": "937582"
+                        "u64": "238003"
                       }
                     },
                     {
@@ -151,7 +171,7 @@
                         "symbol": "maxcap"
                       },
                       "val": {
-                        "u64": "10"
+                        "u64": "0"
                       }
                     },
                     {
@@ -167,7 +187,7 @@
                         "symbol": "start"
                       },
                       "val": {
-                        "u64": "681043"
+                        "u64": "21981"
                       }
                     }
                   ]
@@ -208,7 +228,27 @@
               "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
               "key": {
                 "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
+                  "nonce": "1033654523790656264"
+                }
+              },
+              "durability": "temporary",
+              "val": "void"
+            }
+          },
+          "ext": "v0"
+        },
+        "live_until": 6311999
+      },
+      {
+        "entry": {
+          "last_modified_ledger_seq": 0,
+          "data": {
+            "contract_data": {
+              "ext": "v0",
+              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4",
+              "key": {
+                "ledger_key_nonce": {
+                  "nonce": "5541220902715666415"
                 }
               },
               "durability": "temporary",

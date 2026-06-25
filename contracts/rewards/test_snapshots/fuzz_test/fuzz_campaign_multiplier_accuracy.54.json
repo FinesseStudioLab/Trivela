@@ -20,10 +20,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "4"
+                  "u64": "3"
                 },
                 {
-                  "u32": 27794
+                  "u32": 19032
                 }
               ]
             }
@@ -49,10 +49,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "u64": "4"
+                  "u64": "3"
                 },
                 {
-                  "u64": "3780"
+                  "u64": "5372"
                 }
               ]
             }
@@ -155,7 +155,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "10506"
+                        "u64": "10223"
                       }
                     },
                     {
@@ -165,12 +165,12 @@
                             "symbol": "mult"
                           },
                           {
-                            "u64": "4"
+                            "u64": "3"
                           }
                         ]
                       },
                       "val": {
-                        "u32": 27794
+                        "u32": 19032
                       }
                     }
                   ]

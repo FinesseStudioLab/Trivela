@@ -1,0 +1,71 @@
+title = "Trivela Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "stellar-secret-key"
+description = "Stellar secret key (S... 56-char base32)"
+regex = '''\bS[A-Z2-7]{55}\b'''
+tags = ["stellar", "secret-key"]
+
+[[rules]]
+id = "trivela-api-key"
+description = "Trivela API key pattern"
+regex = '''tvl_[a-zA-Z0-9]{32,}'''
+tags = ["trivela", "api-key"]
+
+[[rules]]
+id = "pem-private-key"
+description = "PEM-encoded private key block"
+regex = '''-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'''
+tags = ["pem", "private-key"]
+
+[[rules]]
+id = "jwt-secret-env"
+description = "JWT_SECRET value assignment in env files or shell"
+regex = '''JWT_SECRET\s*=\s*['"]?[A-Za-z0-9+/=\-_]{16,}['"]?'''
+tags = ["jwt", "secret"]
+
+[[rules]]
+id = "generic-high-entropy-secret"
+description = "Assignment to variables named *_SECRET or *_PRIVATE_KEY with high-entropy values"
+regex = '''(?i)(secret|private_key)\s*[:=]\s*['"]?[A-Za-z0-9+/]{32,}['"]?'''
+tags = ["generic", "secret"]
+
+[[rules]]
+id = "keeper-secret-key"
+description = "KEEPER_SECRET_KEY Stellar value"
+regex = '''KEEPER_SECRET_KEY\s*=\s*['"]?S[A-Z2-7]{55}['"]?'''
+tags = ["stellar", "keeper"]
+
+[allowlist]
+description = "Safe paths — example files, test fixtures, docs, and example tokens"
+# Documentation and test files intentionally contain placeholder credentials in
+# example requests (curl snippets, X-API-Key headers, idempotency keys). The
+# high-value custom rules above (Stellar secret key, JWT_SECRET, PEM blocks,
+# KEEPER_SECRET_KEY) still apply to real source code; only these example-bearing
+# paths and obvious placeholder tokens are exempted so the scan stays meaningful
+# without flagging documentation.
+paths = [
+  '''.env\.example''',
+  '''test[s]?/fixtures/''',
+  '''docs/''',
+  '''\.gitleaks\.toml''',
+  # Markdown docs (READMEs, design notes) — example requests only.
+  '''\.md$''',
+  # Unit/integration test files — fixture credentials, not real secrets.
+  '''\.(test|spec)\.(js|jsx|ts|tsx)$''',
+  # Developer-portal route renders example curl snippets in its HTML.
+  '''backend/src/routes/devPortal\.js''',
+  # Build / vendor output (never present in CI checkout; keeps local scans clean).
+  '''(^|/)target/''',
+  '''(^|/)dist/''',
+  '''(^|/)node_modules/''',
+]
+regexes = [
+  # Obvious placeholder tokens used throughout examples.
+  '''sandbox_your_key''',
+  '''(?i)your[_-]?(api[_-]?)?key''',
+  '''(?i)example[_-]?(api[_-]?)?key''',
+]

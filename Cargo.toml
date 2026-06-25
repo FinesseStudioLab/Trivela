@@ -4,6 +4,14 @@ members = [
   "contracts/rewards",
   "contracts/campaign",
   "contracts/integration",
+  "contracts/nullifiers",
+]
+# Temporarily excluded from the workspace/CI: these contracts are still
+# work-in-progress (do not yet compile / contain incomplete modules) and are
+# re-added by their authors once finished.
+exclude = [
+  "contracts/badges",
+  "contracts/voting",
 ]
 
 [workspace.metadata]

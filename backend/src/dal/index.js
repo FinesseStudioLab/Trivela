@@ -7,7 +7,7 @@ import {
 } from './sqliteCampaignRepository.js';
 import { assertAuditLogRepository } from './auditLogRepository.js';
 import { createSqliteAuditLogRepository } from './sqliteAuditLogRepository.js';
-import { WebhookRepository } from './webhookRepository.js';
+import { createSqliteWebhookRepository } from './sqliteWebhookRepository.js';
 import { createSqliteReferralRepository } from './sqliteReferralRepository.js';
 import { assertApiKeyRepository } from './apiKeyRepository.js';
 import { createSqliteApiKeyRepository } from './sqliteApiKeyRepository.js';
@@ -20,6 +20,8 @@ import { createSqliteAllowlistRepository } from './sqliteAllowlistRepository.js'
 import { SqliteOrganizationRepository } from './sqliteOrganizationRepository.js';
 import { createSqliteOrgMemberRepository } from './sqliteOrgMemberRepository.js';
 import { createSqliteUsageRepository } from './sqliteUsageRepository.js';
+import { createSqliteFeatureFlagRepository } from './sqliteFeatureFlagRepository.js';
+import { createSqliteIdempotencyRepository } from './sqliteIdempotencyRepository.js';
 
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
@@ -81,7 +83,7 @@ export async function createDal({
     auditLogs: assertAuditLogRepository(
       auditLogRepository ?? pgAuditLogs ?? createSqliteAuditLogRepository({ db }),
     ),
-    webhooks: webhookRepository ?? new WebhookRepository(db),
+    webhooks: webhookRepository ?? createSqliteWebhookRepository({ db }),
     referrals: createSqliteReferralRepository({ db }),
     variants: createSqliteVariantRepository({ db }),
     cohorts: createSqliteCohortRepository({ db }),
@@ -92,6 +94,8 @@ export async function createDal({
     organizations: new SqliteOrganizationRepository(db),
     orgMembers: createSqliteOrgMemberRepository({ db }),
     usage: createSqliteUsageRepository({ db }),
+    featureFlags: createSqliteFeatureFlagRepository({ db }),
+    idempotency: createSqliteIdempotencyRepository({ db }),
     db,
     pgPool,
   };

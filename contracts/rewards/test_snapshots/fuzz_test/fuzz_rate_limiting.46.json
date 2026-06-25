@@ -20,35 +20,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 3
+                  "u32": 5
                 },
                 {
-                  "u32": 29
-                }
-              ]
-            }
-          },
-          "sub_invocations": []
-        }
-      ]
-    ],
-    [
-      [
-        "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-        {
-          "function": {
-            "contract_fn": {
-              "contract_address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
-              "function_name": "credit",
-              "args": [
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
-                },
-                {
-                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
-                },
-                {
-                  "u64": "100"
+                  "u32": 11
                 }
               ]
             }
@@ -185,7 +160,7 @@
                         "symbol": "ratlmax"
                       },
                       "val": {
-                        "u32": 3
+                        "u32": 5
                       }
                     },
                     {
@@ -193,7 +168,7 @@
                         "symbol": "ratlwin"
                       },
                       "val": {
-                        "u32": 29
+                        "u32": 11
                       }
                     },
                     {
@@ -216,7 +191,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "300"
+                        "u64": "200"
                       }
                     },
                     {
@@ -234,7 +209,7 @@
                         ]
                       },
                       "val": {
-                        "u32": 3
+                        "u32": 2
                       }
                     }
                   ]
@@ -276,26 +251,6 @@
               "key": {
                 "ledger_key_nonce": {
                   "nonce": "1033654523790656264"
-                }
-              },
-              "durability": "temporary",
-              "val": "void"
-            }
-          },
-          "ext": "v0"
-        },
-        "live_until": 6311999
-      },
-      {
-        "entry": {
-          "last_modified_ledger_seq": 0,
-          "data": {
-            "contract_data": {
-              "ext": "v0",
-              "contract": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4",
-              "key": {
-                "ledger_key_nonce": {
-                  "nonce": "4837995959683129791"
                 }
               },
               "durability": "temporary",

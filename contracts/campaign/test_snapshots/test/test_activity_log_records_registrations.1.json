@@ -25,6 +25,7 @@
                 {
                   "vec": []
                 },
+                "void",
                 "void"
               ]
             }
@@ -51,6 +52,7 @@
                 {
                   "vec": []
                 },
+                "void",
                 "void"
               ]
             }
@@ -263,6 +265,21 @@
                       },
                       "val": {
                         "u64": "18446744073709551615"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "preg"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+                          },
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                          }
+                        ]
                       }
                     },
                     {

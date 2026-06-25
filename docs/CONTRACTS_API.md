@@ -227,6 +227,94 @@ const participantCount = await contract.get_participant_count();
 
 ---
 
+## SEP-41 Token Interface (Rewards Contract)
+
+When `token_mode` is enabled via `set_token_mode(admin, true)`, the rewards contract exposes a
+SEP-41-compliant token interface. SEP-41 is the Soroban token standard (analogous to ERC-20).
+
+> **Mutual exclusivity note:** SEP-41 token mode and confidential balance mode (NEW-003) are
+> mutually exclusive. Enabling `token_mode` while confidential mode is active will be rejected.
+
+### Allowance / Approve / Transfer-From Flow
+
+```
+Owner → sep41_approve(spender, amount, expiration_ledger)
+                        ↓
+                allowance stored on-chain
+                        ↓
+Spender → sep41_transfer_from(owner, recipient, amount)
+                        ↓
+          allowance decremented, balances updated
+```
+
+### Functions
+
+| Function                                                  | Auth required | Description                                                 |
+| --------------------------------------------------------- | ------------- | ----------------------------------------------------------- |
+| `sep41_balance(id)`                                       | none          | Returns token balance (as `i128`)                           |
+| `sep41_transfer(from, to, amount)`                        | `from`        | Direct transfer                                             |
+| `sep41_transfer_from(spender, from, to, amount)`          | `spender`     | Delegated transfer using allowance                          |
+| `sep41_approve(from, spender, amount, expiration_ledger)` | `from`        | Grant allowance; `expiration_ledger = 0` means non-expiring |
+| `sep41_allowance(owner, spender)`                         | none          | Read current allowance                                      |
+| `sep41_burn(from, amount)`                                | `from`        | Burn tokens from own balance                                |
+| `sep41_burn_from(spender, from, amount)`                  | `spender`     | Burn from another's balance using allowance                 |
+| `sep41_decimals()`                                        | none          | Token decimal places                                        |
+| `sep41_name()`                                            | none          | Token name                                                  |
+| `sep41_symbol()`                                          | none          | Token ticker symbol                                         |
+
+### Error Codes (SEP-41 specific)
+
+| Code | Name                  | Cause                                                         |
+| ---- | --------------------- | ------------------------------------------------------------- |
+| 21   | `TokenModeNotEnabled` | Called a SEP-41 function without enabling token mode          |
+| 22   | `AllowanceExceeded`   | `transfer_from`/`burn_from` amount > current allowance        |
+| 23   | `ApprovalExpired`     | `expiration_ledger` has passed                                |
+| 24   | `InvalidExpiration`   | `expiration_ledger` is in the past (must be > current ledger) |
+
+### Edge Cases
+
+- **Spend after `expiration_ledger`** — The allowance entry is deleted and `ApprovalExpired` (#23)
+  is returned.
+- **Over-spend** — `AllowanceExceeded` (#22). The allowance is not modified.
+- **Re-approve** — Calling `sep41_approve` again **replaces** the previous amount and expiry (not
+  additive). This is per-spec.
+- **Allowance to self** — Permitted by the contract; no special restriction.
+- **Zero amount approve** — Permitted; effectively revokes the allowance (amount stored as 0).
+
+### TypeScript Usage
+
+```typescript
+import { Client as RewardsClient } from './contracts/rewards';
+
+const client = new RewardsClient({
+  rpcUrl,
+  networkPassphrase,
+  contractId,
+  publicKey,
+  signTransaction,
+});
+
+// Grant allowance
+await (
+  await client.sep41_approve({ from, spender, amount: 1000n, expiration_ledger: 0 })
+).signAndSend();
+
+// Check allowance
+const allowance = await (await client.sep41_allowance({ owner: from, spender })).simulate();
+
+// Spend on behalf of `from`
+await (await client.sep41_transfer_from({ spender, from, to, amount: 500n })).signAndSend();
+```
+
+Frontend helpers are also available in `frontend/src/stellar.js`:
+
+- `submitApproveTransaction(walletAddress, spender, amount, expirationLedger)`
+- `fetchAllowance(owner, spender)`
+- `submitTransferFromTransaction(spenderAddress, from, to, amount)`
+- `submitBurnFromTransaction(spenderAddress, from, amount)`
+
+---
+
 ## Questions?
 
 - Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions)
