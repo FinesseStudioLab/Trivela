@@ -1,5 +1,45 @@
 const MAX_LABEL_LENGTH = 80;
 
+/**
+ * SSR- and exception-safe wrapper around window.localStorage.
+ *
+ * Returns null / silently no-ops when storage is unavailable (server-side
+ * rendering, privacy mode, quota errors) so callers never have to guard each
+ * access themselves.
+ */
+export const safeLocalStorage = {
+  getItem(key) {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return null;
+    }
+    try {
+      return window.localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  },
+  setItem(key, value) {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return;
+    }
+    try {
+      window.localStorage.setItem(key, value);
+    } catch {
+      /* ignore quota / security errors */
+    }
+  },
+  removeItem(key) {
+    if (typeof window === 'undefined' || !window.localStorage) {
+      return;
+    }
+    try {
+      window.localStorage.removeItem(key);
+    } catch {
+      /* ignore */
+    }
+  },
+};
+
 function sanitizeLabel(input) {
   if (typeof input !== 'string') {
     return undefined;

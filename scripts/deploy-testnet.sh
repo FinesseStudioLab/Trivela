@@ -34,6 +34,14 @@ if [ -z "$SOURCE" ]; then
   err "STELLAR_SOURCE is required (set it to a funded Stellar identity or secret key)"
 fi
 
+# Mainnet guard — require explicit opt-in to prevent accidental production deploys.
+if [ "$NETWORK" = "mainnet" ] || [ "$NETWORK" = "public" ]; then
+  if [ "${MAINNET_CONFIRMED:-}" != "true" ]; then
+    err "Deploying to mainnet requires MAINNET_CONFIRMED=true. Set this variable only after reviewing docs/MAINNET_DEPLOY.md."
+  fi
+  echo "WARNING: Deploying to MAINNET. This action is irreversible." >&2
+fi
+
 if ! command -v cargo >/dev/null 2>&1; then
   err "cargo is required but not found in PATH"
 fi

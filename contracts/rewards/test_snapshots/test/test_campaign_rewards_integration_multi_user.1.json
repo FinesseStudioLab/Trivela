@@ -27,6 +27,7 @@
                 {
                   "vec": []
                 },
+                "void",
                 "void"
               ]
             }
@@ -53,6 +54,7 @@
                 {
                   "vec": []
                 },
+                "void",
                 "void"
               ]
             }
@@ -297,6 +299,91 @@
                     },
                     {
                       "key": {
+                        "symbol": "actlog"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "actor"
+                                },
+                                "val": {
+                                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "amount"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "kind"
+                                },
+                                "val": {
+                                  "vec": [
+                                    {
+                                      "symbol": "Register"
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "ledger"
+                                },
+                                "val": {
+                                  "u32": 0
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "map": [
+                              {
+                                "key": {
+                                  "symbol": "actor"
+                                },
+                                "val": {
+                                  "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "amount"
+                                },
+                                "val": "void"
+                              },
+                              {
+                                "key": {
+                                  "symbol": "kind"
+                                },
+                                "val": {
+                                  "vec": [
+                                    {
+                                      "symbol": "Register"
+                                    }
+                                  ]
+                                }
+                              },
+                              {
+                                "key": {
+                                  "symbol": "ledger"
+                                },
+                                "val": {
+                                  "u32": 0
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "admin"
                       },
                       "val": {
@@ -325,6 +412,21 @@
                       },
                       "val": {
                         "u64": "18446744073709551615"
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "preg"
+                      },
+                      "val": {
+                        "vec": [
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAITA4"
+                          },
+                          {
+                            "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAK3IM"
+                          }
+                        ]
                       }
                     },
                     {

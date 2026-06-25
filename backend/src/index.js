@@ -46,20 +46,110 @@ import {
   MAX_IMAGE_SIZE_BYTES,
 } from './services/imageUpload.js';
 import { buildCampaignStats } from './services/campaignStatsService.js';
+import { createCampaignExportRoute } from './routes/campaignExport.js';
+import { createDeprecationMiddleware } from './middleware/deprecationNotice.js';
+import { DEPRECATION_REGISTRY } from './deprecations.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
+import { createTemplateRoutes } from './routes/templates.js';
+import { createSseRoutes } from './routes/sse.js';
+import { createEmbedWidgetRoute } from './routes/embedWidget.js';
+import { createDevPortalRoutes } from './routes/devPortal.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
 import { createCohortRoutes } from './routes/cohorts.js';
 import { createCohortService } from './services/cohortService.js';
 import { createPushRoutes } from './routes/push.js';
 import { createOrgRoutes } from './routes/orgs.js';
+import { createAuditRouter } from './routes/audit.js';
+import { createAuditLogService } from './services/auditLogService.js';
 import { createWebPushService } from './services/webPushService.js';
+import { createOrganizationRoutes } from './routes/organizations.js';
+import { createUsageMeteringService } from './services/usageMeteringService.js';
+import { createFeatureFlagRoutes } from './routes/featureFlags.js';
+import { createFeatureFlagService } from './services/featureFlagService.js';
+import { createUsageMeteringMiddleware } from './middleware/usageMetering.js';
 import { requestTimeout } from './middleware/timeout.js';
 import { PoolSaturatedError } from './rpcPool.js';
+import { initializeWebSocket, getWebSocketServer } from './websocket/index.js';
+import { requireScope } from './middleware/rbac.js';
+import { createIdempotencyMiddleware } from './middleware/idempotency.js';
+import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
+import { createExportJob } from './jobs/exportJob.js';
+import { createEventIndexer } from './jobs/eventIndexer.js';
+import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
+import { createDurableJobQueue } from './jobs/durableJobQueue.js';
+import { createStellarTomlRoute } from './routes/stellarToml.js';
+import { createSponsoredAccountRoutes } from './routes/sponsoredAccounts.js';
+import { createClaimableBalancesRoutes } from './routes/claimableBalances.js';
+import { createFeeBumpRoutes } from './routes/feeBump.js';
+import { createPathPaymentRoutes } from './routes/pathPayment.js';
+import { createIndexReadRoutes } from './routes/indexRead.js';
+import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
+import { createZkInputsRoutes } from './routes/zkInputs.js';
+import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createModerationService } from './moderation/moderationService.js';
+import { createContentModerationMiddleware } from './middleware/contentModeration.js';
+import createFaucetRoutes from './routes/faucet.js';
+import createStatusRoutes from './routes/status.js';
+import createWebhookRoutes from './routes/webhooks.js';
 
 const DEFAULT_PORT = 3001;
+
+// BCP-47: language (2-3 chars) + optional script (4 chars) + optional region (2 chars)
+const BCP47_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4}(-[A-Z]{2})?)?$/;
+
+/** @param {string} locale */
+export function isValidLocale(locale) {
+  return BCP47_RE.test(locale);
+}
+
+/** @param {string | undefined} header */
+function parseAcceptLanguage(header) {
+  if (!header) return [];
+  return header
+    .split(',')
+    .map((part) => {
+      const [tag, qPart] = part.trim().split(';');
+      const q = qPart ? parseFloat(qPart.replace(/.*=/, '')) : 1.0;
+      return { locale: tag.trim(), q: Number.isFinite(q) ? q : 1.0 };
+    })
+    .sort((a, b) => b.q - a.q)
+    .map(({ locale }) => locale)
+    .filter(Boolean);
+}
+
+/** @param {import('express').Request} req @returns {string[]} */
+function getRequestLocales(req) {
+  const queryLocale = req.query?.locale;
+  if (typeof queryLocale === 'string' && queryLocale.trim()) {
+    return [queryLocale.trim()];
+  }
+  return parseAcceptLanguage(req.headers['accept-language']);
+}
+
+/**
+ * Strips `_rawTranslations` and applies locale negotiation to name/description.
+ * @param {Record<string, any>} campaign
+ * @param {string[]} [locales]
+ * @returns {Record<string, any>}
+ */
+function serializeCampaign(campaign, locales = []) {
+  const { _rawTranslations, ...pub } = campaign;
+  if (!_rawTranslations || !locales.length) return pub;
+  for (const locale of locales) {
+    if (locale === 'en' || locale.startsWith('en-')) break;
+    const trans = _rawTranslations[locale] ?? _rawTranslations[locale.split('-')[0]] ?? null;
+    if (trans) {
+      if (trans.name) pub.name = trans.name;
+      if (trans.description) pub.description = trans.description;
+      break;
+    }
+  }
+  return pub;
+}
+
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 60;
 const DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD = 5;
@@ -249,6 +339,12 @@ export async function createApp(options = {}) {
   const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
   const allowlistRepository = dal.allowlists;
   const orgMemberRepository = dal.orgMembers;
+  const usageRepository = options.usageRepository ?? dal.usage;
+  const idempotencyRepository = dal.idempotency;
+
+  const idempotencyMiddleware = createIdempotencyMiddleware({
+    repository: idempotencyRepository,
+  });
 
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
@@ -263,6 +359,10 @@ export async function createApp(options = {}) {
   });
   const variantService = createVariantService({ variantRepo: variantRepository });
   const cohortService = createCohortService({ cohortRepo: cohortRepository });
+  const auditLogService = createAuditLogService({
+    auditLogRepository,
+    orgMemberRepository,
+  });
   const webPushService = createWebPushService({
     repository: pushSubscriptionRepository,
     vapid: {
@@ -382,6 +482,7 @@ export async function createApp(options = {}) {
   const requireAdminMasterKey = requireMasterKey;
 
   let rateLimitStore = null;
+  let usageRedisClient = null;
   const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
   if (redisUrl && !options.disableRedis) {
     try {
@@ -394,6 +495,7 @@ export async function createApp(options = {}) {
         log.error({ err }, 'Redis connection error');
       });
       rateLimitStore = createRedisStore(redisClient);
+      usageRedisClient = redisClient;
       log.info(
         { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
         'Rate limiter using Redis store',
@@ -406,6 +508,65 @@ export async function createApp(options = {}) {
     }
   }
 
+  // Distributed lock — Redis when available, in-process Map otherwise (#564)
+  const lockTtlMs = normalizePositiveInteger(
+    /** @type {any} */ (options.lockTtlMs) ?? process.env.LOCK_TTL_MS,
+    30_000,
+  );
+  const lockProvider =
+    options.lockProvider ??
+    (usageRedisClient
+      ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
+      : createInMemoryLock({ ttlMs: lockTtlMs }));
+
+  // Data export job — daily CSV export to object storage (#562)
+  const exportRetentionDays = normalizePositiveInteger(
+    /** @type {any} */ (options.exportRetentionDays) ?? process.env.EXPORT_RETENTION_DAYS,
+    30,
+  );
+  const exportJob = createExportJob({
+    db: dal.db,
+    storage: storageAdapter,
+    logger: log,
+    retentionDays: exportRetentionDays,
+    uploadDir: process.env.UPLOAD_DIR ?? './uploads',
+  });
+
+  const eventIndexer = createEventIndexer({
+    db: dal.db,
+    rpcPool,
+    logger: log,
+    referralBonus: normalizePositiveInteger(
+      /** @type {any} */ (options.referralBonus) ?? process.env.REFERRAL_BONUS,
+      0,
+    ),
+  });
+
+  // Durable job queue store — persistent across restarts (#565)
+  const jobQueueStore = createSqliteJobQueueRepository({ db: dal.db });
+
+  const usageMeteringService = createUsageMeteringService({
+    usageRepository,
+    redisClient: usageRedisClient ?? /** @type {any} */ (options.usageRedisClient) ?? null,
+    timeProvider: /** @type {any} */ (options.usageMeteringService)?.timeProvider,
+  });
+  const stopUsageFlush = usageMeteringService.startFlushInterval();
+
+  const usageMeteringMiddleware = createUsageMeteringMiddleware({ usageMeteringService });
+
+  const moderationService =
+    /** @type {any} */ (options.moderationService) ??
+    createModerationService({
+      provider:
+        /** @type {string} */ (options.moderationProvider) ?? process.env.MODERATION_PROVIDER,
+      openaiApiKey: /** @type {string} */ (options.moderationApiKey) ?? process.env.OPENAI_API_KEY,
+      fetchImpl,
+    });
+  const contentModerationMiddleware = createContentModerationMiddleware({
+    moderationService,
+    log,
+  });
+
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
     maxRequests: rateLimitMaxRequests,
@@ -417,6 +578,7 @@ export async function createApp(options = {}) {
   app.use(compression({ threshold: 1024 }));
   app.use(cors(createCorsOptions(allowedOrigins)));
   app.use(securityHeaders);
+  app.use(createDeprecationMiddleware({ log }));
   app.use(traceparentMiddleware());
   app.use(requestLogger);
   app.use(express.json({ limit: jsonBodyLimit }));
@@ -524,9 +686,13 @@ export async function createApp(options = {}) {
       async webhook_retry_failed_deliveries() {
         await webhookService.retryFailedDeliveries();
       },
+      async data_export({ date }) {
+        await exportJob.run(date);
+      },
     },
     logger: log,
     deadLetter: failedJobRepository,
+    lockProvider,
     defaultMaxAttempts: jobMaxAttempts,
     defaultBaseDelayMs: jobBaseDelayMs,
     defaultMaxDelayMs: jobMaxDelayMs,
@@ -545,6 +711,57 @@ export async function createApp(options = {}) {
       () => jobRunner.enqueue('webhook_retry_failed_deliveries', null),
       webhookRetryIntervalMs,
     ).unref?.();
+  }
+
+  // Daily data export — idempotent, safe to fire on every startup (#562)
+  if (!options.disableJobs) {
+    const doExport = () =>
+      jobRunner.enqueue('data_export', { date: new Date().toISOString().slice(0, 10) });
+    doExport();
+    setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
+  }
+
+  // Durable job queue — starts poll loop and recovers stale jobs from prior crashes (#565)
+  const durableJobQueue = createDurableJobQueue({
+    store: jobQueueStore,
+    handlers: {},
+    logger: log,
+    deadLetter: failedJobRepository,
+  });
+  if (!options.disableJobs) {
+    durableJobQueue.start();
+  }
+
+  // Event indexer: use Horizon SSE for near-instant indexing; fall back to 30s polling
+  if (!options.disableJobs && (rewardsContractId || campaignContractId)) {
+    const contractIds = [rewardsContractId, campaignContractId].filter(Boolean);
+    if (stellarConfig.horizonUrl) {
+      eventIndexer.startSse({
+        contractIds,
+        horizonUrl: stellarConfig.horizonUrl,
+        allowHttp: !stellarConfig.horizonUrl.startsWith('https'),
+      });
+    } else {
+      const indexerPollMs = 30_000;
+      for (const contractId of contractIds) {
+        setInterval(async () => {
+          const cursor = eventIndexer.getCursor(contractId);
+          await eventIndexer.poll(contractId, cursor);
+        }, indexerPollMs).unref?.();
+      }
+    }
+  }
+
+  // #552 — Operator balance monitoring job
+  const operatorBalanceJob = createOperatorBalanceJob({
+    db: dal.db,
+    stellarConfig,
+    metrics,
+    env: process.env,
+    logger: log,
+  });
+  if (!options.disableJobs) {
+    operatorBalanceJob.start();
   }
 
   async function buildHealthPayload() {
@@ -581,6 +798,7 @@ export async function createApp(options = {}) {
         entity,
         entityId,
         diff,
+        orgId: req.auth?.orgId || null,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -588,9 +806,18 @@ export async function createApp(options = {}) {
     }
   }
 
+  let isShuttingDown = false;
+
   app.get('/health', async (_req, res) => {
     const payload = await buildHealthPayload();
     res.json(payload);
+  });
+
+  app.get('/ready', (_req, res) => {
+    if (isShuttingDown) {
+      return res.status(503).json({ status: 'shutting_down', ready: false });
+    }
+    return res.json({ status: 'ok', ready: true });
   });
 
   const siteOrigin =
@@ -613,6 +840,24 @@ export async function createApp(options = {}) {
     }),
   );
 
+  // SSE live streams for campaigns (#815)
+  app.use(API_V1_PREFIX, createSseRoutes({ campaignRepository }));
+  // Versioned embed widgets (#809)
+  app.get(
+    '/embed/v1/:widgetType/:campaignId',
+    embedRateLimiter,
+    createEmbedWidgetRoute(campaignRepository, siteOrigin, {
+      embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+    }),
+  );
+  // Developer portal (#807)
+  app.use(
+    '/dev-portal',
+    createDevPortalRoutes({
+      openApiPath: join(process.cwd(), 'backend', 'openapi.yaml'),
+    }),
+  );
+
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
     const rpc = await checkSorobanRpcHealth({ rpcUrl, fetchImpl });
@@ -623,6 +868,18 @@ export async function createApp(options = {}) {
       ...rpc,
       rpcPool: rpcPool.getStatus(),
     });
+  });
+
+  app.get('/health/indexer', (_req, res) => {
+    const health = eventIndexer?.getHealth?.() ?? {
+      status: 'unavailable',
+      lastLedger: 0,
+      lagLedgers: 0,
+      eventsTotal: 0,
+      errorsTotal: 0,
+    };
+    const isHealthy = health.status === 'ok' || health.status === 'idle';
+    res.status(isHealthy ? 200 : 503).json(health);
   });
 
   app.get('/metrics', (_req, res) => {
@@ -687,6 +944,14 @@ export async function createApp(options = {}) {
       '# HELP trivela_rpc_pool_unhealthy Unhealthy RPC endpoints in the pool.',
       '# TYPE trivela_rpc_pool_unhealthy gauge',
       `trivela_rpc_pool_unhealthy ${poolStatus.unhealthy}`,
+      // Indexer metrics (#532).
+      ...Object.entries(eventIndexer?.getMetrics?.() ?? {})
+        .map(([key, value]) => [
+          `# HELP ${key.replace(/_/g, ' ')} Indexer metric.`,
+          `# TYPE ${key} gauge`,
+          `${key} ${value}`,
+        ])
+        .flat(),
     ]
       .filter(Boolean)
       .join('\n');
@@ -706,6 +971,7 @@ export async function createApp(options = {}) {
       prefix: API_V1_PREFIX,
       endpoints: {
         health: 'GET /health',
+        ready: 'GET /ready',
         healthRpc: 'GET /health/rpc',
         metrics: 'GET /metrics',
         info: `GET ${API_V1_PREFIX}`,
@@ -717,6 +983,9 @@ export async function createApp(options = {}) {
         updateCampaign: `PUT ${API_V1_PREFIX}/campaigns/:id`,
         deleteCampaign: `DELETE ${API_V1_PREFIX}/campaigns/:id`,
         auditLogs: `GET ${API_V1_PREFIX}/audit-logs`,
+        usage: `GET ${API_V1_PREFIX}/usage`,
+        adminUsage: `GET ${API_V1_PREFIX}/admin/usage`,
+        adminUsageQuotas: `PUT ${API_V1_PREFIX}/admin/usage/quotas`,
         config: `GET ${API_V1_PREFIX}/config`,
         explorer: `GET ${API_V1_PREFIX}/explorer`,
       },
@@ -776,11 +1045,17 @@ export async function createApp(options = {}) {
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
-  function listCampaigns(req, res) {
-    const cacheKey = `campaigns:${req.originalUrl}`;
-    const cached = shortCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return res.set('x-cache', 'HIT').json(cached.payload);
+  async function listCampaigns(req, res) {
+    // Exclude ?locale from cache key so locale variants share the same raw-data cache entry.
+    const cacheKey = `campaigns:${req.originalUrl.replace(/([?&])locale=[^&]*/g, '$1').replace(/[?&]$/, '')}`;
+    const locales = getRequestLocales(req);
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
+      const payload = {
+        ...rawCached.payload,
+        data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)),
+      };
+      return res.set('x-cache', 'HIT').json(payload);
     }
 
     const activeRaw =
@@ -798,13 +1073,59 @@ export async function createApp(options = {}) {
           .map((t) => t.trim())
           .filter(Boolean)
       : undefined;
-    const items = campaignRepository.list({ active: activeFilter, q, sort, order, category, tags });
-    const payload = paginateItems(items, req.query);
+
+    // Status filtering (Issue #457)
+    // By default, only show published campaigns to public API
+    // API key holders can request draft/archived/all statuses
+    const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : undefined;
+    const hasApiKey = req.context?.apiKeyRecord !== undefined;
+    let status = statusRaw;
+
+    if (statusRaw && ['draft', 'archived', 'all'].includes(statusRaw) && !hasApiKey) {
+      // Require API key for non-published statuses
+      return res.status(401).json({
+        error: 'API key required to access draft, archived, or all campaigns',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    // Default to published only for public API
+    if (!status && !hasApiKey) {
+      status = 'published';
+    }
+
+    // Handle urgency sorting separately since it requires application-level logic
+    const isUrgencySort = sort === 'urgency';
+    const dbSort = isUrgencySort ? undefined : sort;
+    const dbOrder = isUrgencySort ? undefined : order;
+
+    const items = campaignRepository.list({
+      active: activeFilter,
+      q,
+      sort: dbSort,
+      order: dbOrder,
+      category,
+      tags,
+      status,
+    });
+
+    // Apply urgency sorting if requested
+    let sortedItems = items;
+    if (isUrgencySort) {
+      const { sortByUrgency } = await import('./utils/urgency.js');
+      sortedItems = sortByUrgency(items);
+    }
+
+    const rawPayload = paginateItems(sortedItems, req.query);
     shortCache.set(cacheKey, {
       expiresAt: Date.now() + shortCacheTtlMs,
-      payload,
+      payload: rawPayload,
     });
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = {
+      ...rawPayload,
+      data: rawPayload.data.map((c) => serializeCampaign(c, locales)),
+    };
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -812,12 +1133,17 @@ export async function createApp(options = {}) {
   function getTrendingCampaigns(req, res) {
     const limitRaw = Number.parseInt(String(req.query.limit ?? '6'), 10);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 50 ? limitRaw : 6;
+    const locales = getRequestLocales(req);
 
     const cacheKey = `trending:${limit}`;
-    const cached = shortCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
       res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
-      return res.set('x-cache', 'HIT').json(cached.payload);
+      const payload = {
+        ...rawCached.payload,
+        data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)),
+      };
+      return res.set('x-cache', 'HIT').json(payload);
     }
 
     const all = campaignRepository.list({
@@ -825,11 +1151,15 @@ export async function createApp(options = {}) {
       sort: 'reward_per_action',
       order: 'desc',
     });
-    const data = all.slice(0, limit);
-    const payload = { data, total: data.length };
+    const rawData = all.slice(0, limit);
+    const rawPayload = { data: rawData, total: rawData.length };
 
-    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload });
+    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload: rawPayload });
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = {
+      ...rawPayload,
+      data: rawPayload.data.map((c) => serializeCampaign(c, locales)),
+    };
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -839,7 +1169,7 @@ export async function createApp(options = {}) {
     if (!campaign) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -866,7 +1196,7 @@ export async function createApp(options = {}) {
     if (!campaign) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -896,6 +1226,7 @@ export async function createApp(options = {}) {
       imageUrl,
       tags,
       category,
+      status,
     } = result.data;
     try {
       const campaign = campaignRepository.create({
@@ -914,6 +1245,7 @@ export async function createApp(options = {}) {
         imageUrl: imageUrl ?? null,
         tags: tags ?? [],
         category: category ?? null,
+        status: status ?? 'draft',
       });
       recordAuditEntry(req, {
         action: 'create',
@@ -934,8 +1266,18 @@ export async function createApp(options = {}) {
           log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
         });
 
+      // Notify WebSocket clients about new campaign (Issue #456)
+      const wsServer = getWebSocketServer();
+      if (wsServer) {
+        wsServer.broadcast('campaigns', {
+          type: 'campaign_created',
+          campaign,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       shortCache.clear();
-      return res.status(201).json(campaign);
+      return res.status(201).json(serializeCampaign(campaign));
     } catch (error) {
       if (
         /** @type {any} */ (error).message?.includes('Tag') ||
@@ -983,6 +1325,7 @@ export async function createApp(options = {}) {
       imageUrl,
       tags,
       category,
+      status,
     } = result.data;
     /** @type {Record<string, unknown>} */
     const updateFields = {};
@@ -1000,6 +1343,7 @@ export async function createApp(options = {}) {
     if (imageUrl !== undefined) updateFields.imageUrl = imageUrl;
     if (tags !== undefined) updateFields.tags = tags;
     if (category !== undefined) updateFields.category = category;
+    if (status !== undefined) updateFields.status = status;
 
     const before = campaignRepository.getById(req.params.id);
     if (!before) {
@@ -1069,8 +1413,18 @@ export async function createApp(options = {}) {
         });
     }
 
+    // Notify WebSocket clients about campaign update (Issue #456)
+    const wsServer = getWebSocketServer();
+    if (wsServer) {
+      wsServer.notifyCampaignUpdate(campaign.id, {
+        campaign,
+        changes,
+        before,
+      });
+    }
+
     shortCache.clear();
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -1134,7 +1488,7 @@ export async function createApp(options = {}) {
       });
 
       shortCache.clear();
-      return res.status(201).json(clonedCampaign);
+      return res.status(201).json(serializeCampaign(clonedCampaign));
     } catch (error) {
       if (/** @type {any} */ (error).message?.includes('UNIQUE constraint failed')) {
         return res.status(409).json({
@@ -1144,6 +1498,88 @@ export async function createApp(options = {}) {
         });
       }
       throw error;
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function publishCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.publish(req.params.id);
+      recordAuditEntry(req, {
+        action: 'publish',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.published',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.published webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(serializeCampaign(campaign));
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'PUBLISH_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function archiveCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.archive(req.params.id);
+      recordAuditEntry(req, {
+        action: 'archive',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.archived',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.archived webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(serializeCampaign(campaign));
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'ARCHIVE_FAILED',
+      });
     }
   }
 
@@ -1158,6 +1594,12 @@ export async function createApp(options = {}) {
       action: action || undefined,
     });
     return res.json(paginateItems(items, req.query));
+  }
+
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function verifyAuditChain(_req, res) {
+    const result = auditLogRepository.verify();
+    return res.status(result.valid ? 200 : 409).json(result);
   }
 
   /** @param {import('express').Request} _req @param {import('express').Response} res */
@@ -1355,6 +1797,8 @@ export async function createApp(options = {}) {
     const created = apiKeyRepository.create({
       label: result.data.label ?? '',
       expiresAt: result.data.expiresAt ?? null,
+      orgId: result.data.orgId ?? null,
+      scopes: result.data.scopes ?? undefined,
     });
 
     recordAuditEntry(req, {
@@ -1457,6 +1901,9 @@ export async function createApp(options = {}) {
 
   /** @param {string} prefix */
   function registerApiRoutes(prefix) {
+    // Shorthand: auth + per-tenant api_calls metering in one step.
+    const guard = [requireApiKey, usageMeteringMiddleware];
+
     app.get(prefix, rateLimiter, apiInfo);
     app.get(`${prefix}/config`, rateLimiter, getPublicConfig);
     app.get(`${prefix}/explorer`, rateLimiter, getExplorerLinks);
@@ -1467,32 +1914,221 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/campaigns/:id/stats`, rateLimiter, getCampaignStats);
-    app.get(`${prefix}/audit-logs`, rateLimiter, requireApiKey, listAuditLogs);
+    app.use(
+      prefix,
+      createCampaignExportRoute({
+        db: dal.db,
+        campaignRepository,
+        auditLogRepository,
+        requireApiKey,
+      }),
+    );
+    app.get(`${prefix}/deprecations`, rateLimiter, (_req, res) =>
+      res.json({ deprecations: DEPRECATION_REGISTRY }),
+    );
+    app.get(`${prefix}/audit-logs`, rateLimiter, ...guard, listAuditLogs);
+    app.get(`${prefix}/admin/audit/verify`, rateLimiter, requireMasterKey, verifyAuditChain);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
-    app.post(`${prefix}/indexer/cursor`, rateLimiter, requireApiKey, setIndexerCursorState);
-    app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
-    app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, requireApiKey, cloneCampaign);
-    app.post(`${prefix}/campaigns/:id/image`, rateLimiter, requireApiKey, (req, res, next) => {
-      imageUpload.single('image')(req, res, (err) => {
-        if (err?.code === 'LIMIT_FILE_SIZE') {
+    app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
+    app.post(
+      `${prefix}/campaigns`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      contentModerationMiddleware,
+      createCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/clone`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      cloneCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/image`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res, next) => {
+        imageUpload.single('image')(req, res, (err) => {
+          if (err?.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'Image must be 5MB or smaller',
+              code: 'FILE_TOO_LARGE',
+            });
+          }
+          if (err) return next(err);
+          return uploadCampaignImageHandler(req, res);
+        });
+      },
+    );
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      contentModerationMiddleware,
+      updateCampaign,
+    );
+    app.delete(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      deleteCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      updateCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/publish`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      publishCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/archive`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      archiveCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      updateCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/publish`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      publishCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/archive`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      archiveCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
+
+    // Campaign translations (i18n)
+    app.get(`${prefix}/campaigns/:id/translations`, rateLimiter, ...guard, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const translations = campaignRepository.getTranslations(req.params.id);
+      return res.json({ campaignId: campaign.id, translations });
+    });
+
+    app.put(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+
+        if (!isValidLocale(locale)) {
           return res.status(400).json({
-            error: 'Image must be 5MB or smaller',
-            code: 'FILE_TOO_LARGE',
+            error: 'Invalid locale — must be a valid BCP-47 tag (e.g. es, fr, zh-CN)',
+            code: 'INVALID_LOCALE',
           });
         }
-        if (err) return next(err);
-        return uploadCampaignImageHandler(req, res);
-      });
-    });
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
-    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
 
-    app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+
+        const { name, description } = req.body ?? {};
+        if (!name && !description) {
+          return res.status(400).json({
+            error: 'At least one of name or description is required',
+            code: 'VALIDATION_ERROR',
+          });
+        }
+
+        const translationPayload = {};
+        if (name !== undefined) translationPayload.name = String(name);
+        if (description !== undefined) translationPayload.description = String(description);
+
+        if (Buffer.byteLength(JSON.stringify(translationPayload), 'utf8') > 2048) {
+          return res.status(413).json({
+            error: 'Translation exceeds the 2KB limit',
+            code: 'TRANSLATION_TOO_LARGE',
+          });
+        }
+
+        const current = campaignRepository.getTranslations(req.params.id);
+        const currentLocales = Object.keys(current);
+        if (!currentLocales.includes(locale) && currentLocales.length >= 10) {
+          return res.status(422).json({
+            error: 'Maximum 10 locales per campaign',
+            code: 'LOCALE_LIMIT_EXCEEDED',
+          });
+        }
+
+        campaignRepository.upsertTranslation(req.params.id, locale, translationPayload);
+        shortCache.clear();
+
+        const updated = campaignRepository.getTranslations(req.params.id);
+        return res.json({ campaignId: campaign.id, locale, translation: updated[locale] });
+      },
+    );
+
+    app.delete(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+        const removed = campaignRepository.deleteTranslation(req.params.id, locale);
+        if (!removed) {
+          return res.status(404).json({ error: 'Locale not found', code: 'LOCALE_NOT_FOUND' });
+        }
+        shortCache.clear();
+        return res.status(204).end();
+      },
+    );
+
+    // Campaign templates (#810)
+    app.use(`${prefix}/templates`, rateLimiter, createTemplateRoutes());
+
+    app.post(
+      `${prefix}/admin/api-keys`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      createApiKeyHandler,
+    );
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
     app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
     app.put(
       `${prefix}/admin/api-keys/:id/rotate`,
       rateLimiter,
+      idempotencyMiddleware,
       requireMasterKey,
       rotateApiKeyHandler,
     );
@@ -1501,12 +2137,109 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
     app.get(`${prefix}/admin/campaigns`, rateLimiter, requireMasterKey, listAdminCampaigns);
 
+    // Content moderation blocklist management
+    app.get(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (_req, res) => {
+      return res.json({ terms: moderationService.getTerms() });
+    });
+    app.post(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (req, res) => {
+      const { action, term } = req.body ?? {};
+      if (!term || typeof term !== 'string' || !term.trim()) {
+        return res.status(400).json({ error: 'term is required', code: 'VALIDATION_ERROR' });
+      }
+      if (action !== 'add' && action !== 'remove') {
+        return res.status(400).json({
+          error: 'action must be "add" or "remove"',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      if (action === 'add') {
+        moderationService.addTerm(term);
+      } else {
+        moderationService.removeTerm(term);
+      }
+      return res.json({ ok: true, terms: moderationService.getTerms() });
+    });
+
+    // Tenant usage metering (Issue #574)
+    app.get(`${prefix}/usage`, rateLimiter, ...guard, (req, res) => {
+      const orgId = req.auth?.orgId;
+      if (!orgId) {
+        return res.status(403).json({
+          error: 'Usage data is scoped to org-linked API keys.',
+          code: 'NO_ORG_CONTEXT',
+        });
+      }
+      const usage = usageMeteringService.getOrgUsage(orgId);
+      return res.json({ orgId, usage });
+    });
+
+    app.get(`${prefix}/admin/usage`, rateLimiter, requireMasterKey, (_req, res) => {
+      const rows = usageMeteringService.adminExport();
+      return res.json({ usage: rows });
+    });
+
+    app.put(`${prefix}/admin/usage/quotas`, rateLimiter, requireMasterKey, (req, res) => {
+      const {
+        orgId,
+        resource,
+        softLimit = null,
+        hardLimit = null,
+        windowSeconds = 3600,
+      } = req.body ?? {};
+      if (!orgId || !resource) {
+        return res.status(400).json({
+          error: 'orgId and resource are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      const quota = usageRepository.upsertQuota({
+        orgId,
+        resource,
+        softLimit,
+        hardLimit,
+        windowSeconds,
+      });
+      return res.json(quota);
+    });
+
     // Job dead-letter inspection / requeue (Issue #286)
-    app.get(`${prefix}/jobs/failed`, rateLimiter, requireApiKey, listFailedJobsHandler);
-    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, requireApiKey, retryFailedJobHandler);
+    app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, listFailedJobsHandler);
+    app.post(
+      `${prefix}/jobs/retry/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      retryFailedJobHandler,
+    );
+
+    // Durable job queue DLQ admin — inspect and replay dead jobs (#565)
+    app.get(`${prefix}/admin/jobs/dlq`, rateLimiter, requireMasterKey, (req, res) => {
+      const limit = Math.min(parseInt(/** @type {any} */ (req.query.limit)) || 100, 500);
+      const offset = Math.max(parseInt(/** @type {any} */ (req.query.offset)) || 0, 0);
+      const items = jobQueueStore.listDead({ limit, offset });
+      const total = jobQueueStore.countDead();
+      return res.json({ data: items, pagination: { total, count: items.length, limit, offset } });
+    });
+
+    app.post(
+      `${prefix}/admin/jobs/:id/replay`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      async (req, res) => {
+        const job = jobQueueStore.getById(req.params.id);
+        if (!job) {
+          return res.status(404).json({ error: 'Job not found', code: 'JOB_NOT_FOUND' });
+        }
+        durableJobQueue.enqueue(job.type, job.payload);
+        jobQueueStore.removeById(job.id);
+        recordAuditEntry(req, { action: 'replay', entity: 'durableJob', entityId: job.id });
+        return res.status(202).json({ requeued: true, job: { id: job.id, type: job.type } });
+      },
+    );
 
     // Webhook routes (Issue #287)
-    app.post(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+    app.post(`${prefix}/webhooks`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
       const { url, events, secret } = req.body;
       if (!url || !Array.isArray(events) || events.length === 0) {
         return res.status(400).json({
@@ -1525,12 +2258,12 @@ export async function createApp(options = {}) {
       return res.status(201).json(webhook);
     });
 
-    app.get(`${prefix}/webhooks`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
       const webhooks = webhookRepository.list();
       return res.json(paginateItems(webhooks, req.query));
     });
 
-    app.get(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -1538,7 +2271,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.put(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
       const { url, events, active } = req.body;
       const before = webhookRepository.getById(req.params.id);
       if (!before) {
@@ -1558,7 +2291,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.delete(`${prefix}/webhooks/:id`, rateLimiter, requireApiKey, (req, res) => {
+    app.delete(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
       const before = webhookRepository.getById(req.params.id);
       const deleted = webhookRepository.delete(req.params.id);
       if (!deleted) {
@@ -1573,7 +2306,7 @@ export async function createApp(options = {}) {
       return res.status(204).end();
     });
 
-    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, requireApiKey, (req, res) => {
+    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, ...guard, (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -1582,6 +2315,83 @@ export async function createApp(options = {}) {
         limit: parseInt(req.query.limit) || 100,
       });
       return res.json(paginateItems(deliveries, req.query));
+    });
+
+    app.get(`${prefix}/webhooks/:id/deliveries/:deliveryId`, rateLimiter, ...guard, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+      if (!delivery || delivery.webhookId !== req.params.id) {
+        return res.status(404).json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+      }
+      return res.json(delivery);
+    });
+
+    app.post(
+      `${prefix}/webhooks/:id/deliveries/:deliveryId/replay`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      async (req, res) => {
+        const webhook = webhookRepository.getById(req.params.id);
+        if (!webhook) {
+          return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+        }
+        const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+        if (!delivery || delivery.webhookId !== req.params.id) {
+          return res.status(404).json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+        }
+        try {
+          await webhookService.deliverWebhook(webhook, {
+            type: delivery.event,
+            data: delivery.payload,
+            timestamp: new Date().toISOString(),
+          });
+          return res.json({ replayed: true, webhookId: req.params.id, event: delivery.event });
+        } catch (err) {
+          log.warn({ err, webhookId: req.params.id }, 'Webhook replay error');
+          return res.status(502).json({ error: 'Replay delivery failed', code: 'REPLAY_FAILED' });
+        }
+      },
+    );
+
+    app.post(`${prefix}/webhooks/:id/test`, rateLimiter, ...guard, async (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const eventType = req.body?.eventType || 'campaign.created';
+      try {
+        await webhookService.deliverWebhook(webhook, {
+          type: eventType,
+          data: { test: true, timestamp: new Date().toISOString() },
+          timestamp: new Date().toISOString(),
+        });
+        return res.json({ sent: true, webhookId: req.params.id, eventType });
+      } catch (err) {
+        log.warn({ err, webhookId: req.params.id }, 'Webhook test error');
+        return res.status(502).json({ error: 'Test delivery failed', code: 'TEST_FAILED' });
+      }
+    });
+
+    // POST /webhooks/verify — signature verification helper for consumers (no auth required)
+    app.post(`${prefix}/webhooks/verify`, rateLimiter, (req, res) => {
+      const { signature, secret, payload } = req.body ?? {};
+      if (!signature || !secret || payload === undefined) {
+        return res.status(400).json({
+          error: 'signature, secret, and payload are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      try {
+        const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        const valid = webhookService.verifySignature(signature, secret, payloadStr);
+        return res.json({ valid });
+      } catch {
+        return res.json({ valid: false });
+      }
     });
 
     // Referral routes (Issue #350)
@@ -1644,6 +2454,112 @@ export async function createApp(options = {}) {
       });
     });
 
+    // Allowlist CSV import + proof routes (Issue #514)
+    const csvUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 /* 5 MB */ },
+    });
+
+    app.post(
+      `${prefix}/campaigns/:id/allowlist/import`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      csvUpload.single('file'),
+      async (req, res) => {
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+        if (!req.file && !req.body.csv) {
+          return res.status(400).json({ error: 'No CSV data provided', code: 'MISSING_CSV' });
+        }
+        const raw = req.file ? req.file.buffer.toString('utf8') : String(req.body.csv);
+        const { rows } = parseAllowlistCsv(raw);
+        if (rows.length === 0) {
+          return res.status(400).json({ error: 'CSV contains no addresses', code: 'EMPTY_CSV' });
+        }
+        if (rows.length > MAX_ALLOWLIST_ROWS) {
+          return res.status(400).json({
+            error: `CSV exceeds maximum of ${MAX_ALLOWLIST_ROWS} rows`,
+            code: 'CSV_TOO_LARGE',
+          });
+        }
+        const invalid = rows.filter((r) => !validateGAddress(r.address));
+        if (invalid.length > 0) {
+          return res.status(400).json({
+            error: 'CSV contains invalid Stellar addresses',
+            code: 'INVALID_ADDRESSES',
+            details: invalid.slice(0, 20).map((r) => ({ row: r.row, address: r.address })),
+          });
+        }
+        try {
+          const addresses = rows.map((r) => r.address);
+          const { root, proofs } = await generateAllowlist(addresses);
+          const addressEntries = rows.map((r) => ({
+            address: r.address,
+            label: r.label,
+            bonus_points: r.bonus_points ? Number(r.bonus_points) : undefined,
+            proof: proofs[r.address],
+          }));
+          allowlistRepository.upsertAllowlistEntries({
+            campaignId: req.params.id,
+            addressEntries,
+            merkleRootHex: root,
+          });
+          return res.status(201).json({
+            campaignId: String(req.params.id),
+            merkleRoot: root,
+            count: rows.length,
+          });
+        } catch (err) {
+          log.error({ err, campaignId: req.params.id }, 'Allowlist import failed');
+          return res
+            .status(500)
+            .json({ error: 'Failed to generate allowlist', code: 'ALLOWLIST_ERROR' });
+        }
+      },
+    );
+
+    app.get(`${prefix}/campaigns/:id/allowlist`, rateLimiter, ...guard, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const entries = allowlistRepository.listAllowlist(req.params.id);
+      const merkleRoot = entries[0]?.merkleRoot ?? null;
+      return res.json({
+        campaignId: String(req.params.id),
+        merkleRoot,
+        count: entries.length,
+        entries,
+      });
+    });
+
+    app.get(`${prefix}/campaigns/:id/allowlist/:address/proof`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const address = req.params.address.trim();
+      if (!validateGAddress(address)) {
+        return res.status(400).json({ error: 'Invalid Stellar address', code: 'INVALID_ADDRESS' });
+      }
+      const row = allowlistRepository.getProof(req.params.id, address);
+      if (!row) {
+        return res
+          .status(404)
+          .json({ error: 'Address not in allowlist', code: 'NOT_IN_ALLOWLIST' });
+      }
+      const proof = row.merkle_proof ? JSON.parse(row.merkle_proof) : null;
+      return res.json({
+        campaignId: String(req.params.id),
+        address,
+        merkleRoot: row.merkle_root,
+        proof,
+      });
+    });
+
     // Org + RBAC member management routes (Issue #608)
     // Registered BEFORE the app.use(prefix, requireApiKey, ...) mounts so that
     // master-key-only routes (POST /orgs) are not intercepted by the API-key
@@ -1655,20 +2571,27 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, orgRouter);
 
+    // Audit log routes for organization-scoped audit logging and activity feeds (Issue #612)
+    const auditRouter = createAuditRouter({
+      auditLogService,
+      requireApiKey,
+    });
+    app.use(prefix, rateLimiter, auditRouter);
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
       variantService,
       campaignRepo: campaignRepository,
     });
-    app.use(prefix, rateLimiter, requireApiKey, variantRouter);
+    app.use(prefix, rateLimiter, ...guard, variantRouter);
 
     // Cohort and retention analysis routes (Issue #623)
     const cohortRouter = createCohortRoutes({
       cohortService,
       campaignRepo: campaignRepository,
     });
-    app.use(prefix, rateLimiter, requireApiKey, cohortRouter);
+    app.use(prefix, rateLimiter, ...guard, cohortRouter);
 
     // Web Push subscription routes (Issue #619)
     const pushRouter = createPushRoutes({
@@ -1676,7 +2599,88 @@ export async function createApp(options = {}) {
       service: webPushService,
     });
     app.use(prefix, rateLimiter, requireApiKey, pushRouter);
+
+    // Organization and team member invitation routes (Issue #609)
+    const organizationRouter = createOrganizationRoutes(dal);
+    app.use(`${prefix}/organizations`, rateLimiter, requireApiKey, organizationRouter);
+    app.use(prefix, rateLimiter, ...guard, pushRouter);
+
+    // Feature flag system routes (Issue #625)
+    const featureFlagService = createFeatureFlagService({
+      featureFlagRepository: dal.featureFlags,
+    });
+    const featureFlagRouter = createFeatureFlagRoutes({ featureFlagService });
+    app.use(`${prefix}/feature-flags`, rateLimiter, featureFlagRouter);
+
+    // #560 — Public read API over indexed data (cursor-paginated, ETag cached)
+    const indexReadRouter = createIndexReadRoutes({ dal, campaignRepository });
+    app.use(`${prefix}/index`, rateLimiter, indexReadRouter);
+
+    // #556 — Sponsored account creation + CAP-33 reserve sponsorship
+    const sponsoredAccountRouter = createSponsoredAccountRoutes({
+      dal,
+      stellarConfig,
+      env: process.env,
+    });
+    app.use(`${prefix}/sponsored-accounts`, rateLimiter, ...guard, sponsoredAccountRouter);
+
+    // #548 — Claimable balances for unclaimed/expired rewards
+    const claimableBalancesRouter = createClaimableBalancesRoutes({
+      dal,
+      campaignRepository,
+      stellarConfig,
+      env: process.env,
+      logger: log,
+    });
+    app.use(prefix, rateLimiter, ...guard, claimableBalancesRouter);
+
+    // #555 — Fee-bump / sponsored transactions (gasless registration & claim)
+    const feeBumpRouter = createFeeBumpRoutes({
+      dal,
+      stellarConfig,
+      env: process.env,
+      logger: log,
+    });
+    app.use(`${prefix}/fee-bump`, rateLimiter, feeBumpRouter);
+
+    // #549 — Path payment support for multi-asset claims
+    const pathPaymentRouter = createPathPaymentRoutes({
+      stellarConfig,
+      fetchImpl,
+    });
+    app.use(`${prefix}/payment-paths`, rateLimiter, pathPaymentRouter);
   }
+
+  // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
+  const stellarTomlRouter = createStellarTomlRoute({ env: process.env });
+  app.use(stellarTomlRouter);
+
+  // #547 — SEP-10 Stellar Web Authentication
+  const sep10Router = createSep10Routes({
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+    networkPassphrase: process.env.STELLAR_NETWORK,
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+  });
+  app.use(rateLimiter, sep10Router);
+
+  // Expose requireWalletAuth for routes that need wallet-based auth
+  const requireWalletAuth = createRequireWalletAuth({
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+  });
+
+  // #543 — ZK proving inputs (public, no auth — secrets never leave the device)
+  const zkInputsRouter = createZkInputsRoutes({ campaignRepository });
+  app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
+
+  // #808 — In-app testnet faucet/funding helper
+  app.use(`${API_V1_PREFIX}/faucet`, createFaucetRoutes);
+
+  // #811 — Partner webhook subscription management
+  app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes);
+
+  // #818 — Public status page + incident communication
+  app.use(`${API_V1_PREFIX}/status`, createStatusRoutes);
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
@@ -1711,6 +2715,23 @@ export async function createApp(options = {}) {
   // Central error handler — must be registered after all routes
   app.use(errorHandler);
 
+  app._close = () => {
+    isShuttingDown = true;
+    try {
+      dal.db.close();
+    } catch (_) {
+      /* ignore errors closing the database during shutdown */
+    }
+  };
+
+  // Expose usage-metering lifecycle hooks so startServer's graceful shutdown
+  // (which only has the `app` handle) can flush metering before exit.
+  app._stopUsageFlush = stopUsageFlush;
+  app._usageMeteringService = usageMeteringService;
+
+  // Expose wallet auth middleware for use by routes and tests
+  app._requireWalletAuth = requireWalletAuth;
+
   return app;
 }
 
@@ -1727,13 +2748,19 @@ export async function startServer(options = {}) {
     log.info({ port }, 'Trivela API running');
   });
 
+  // Initialize WebSocket server if not disabled
+  if (!options.disableWebSocket && process.env.ENABLE_WEBSOCKET !== 'false') {
+    try {
+      initializeWebSocket(server, {
+        path: process.env.WEBSOCKET_PATH || '/ws',
+      });
+      log.info('WebSocket server initialized on /ws');
+    } catch (error) {
+      log.error({ error }, 'Failed to initialize WebSocket server');
+    }
+  }
+
   // ── Graceful shutdown (issue #650) ─────────────────────────────────────────
-  // On SIGTERM / SIGINT:
-  //   1. Stop accepting new connections (server.close).
-  //   2. Allow in-flight HTTP requests to finish for up to SHUTDOWN_GRACE_MS.
-  //   3. Send "Connection: close / will-reconnect" hint to open SSE/WS streams.
-  //   4. Flush OTel spans.
-  //   5. Exit 0 once everything is drained (or force-exit after the grace window).
   const SHUTDOWN_GRACE_MS = normalizePositiveInteger(process.env.SHUTDOWN_GRACE_MS, 15_000);
 
   let shuttingDown = false;
@@ -1741,19 +2768,22 @@ export async function startServer(options = {}) {
   async function gracefulShutdown(signal) {
     if (shuttingDown) return;
     shuttingDown = true;
+    app._close?.();
     log.info({ signal, graceMs: SHUTDOWN_GRACE_MS }, 'graceful shutdown started');
 
-    // Force exit after the grace window so a stuck handler never blocks a deploy.
     const forceTimer = setTimeout(() => {
       log.error('graceful shutdown timed out — forcing exit');
       process.exit(1);
     }, SHUTDOWN_GRACE_MS);
     if (typeof forceTimer.unref === 'function') forceTimer.unref();
 
-    // Stop accepting new connections; drain in-flight HTTP requests.
     await new Promise((resolve) => server.close(resolve));
 
-    // Flush OTel exporter.
+    app._stopUsageFlush?.();
+    await app._usageMeteringService
+      ?.flushToDb()
+      .catch((err) => log.warn({ err }, 'usage flush warning'));
+
     await shutdownTracing().catch((err) => log.warn({ err }, 'OTel shutdown warning'));
 
     log.info('graceful shutdown complete');

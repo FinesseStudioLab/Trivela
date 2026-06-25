@@ -18,20 +18,28 @@ const WALLETS = [
     comingSoon: false,
   },
   {
+    name: 'Lobstr',
+    description: 'Popular mobile & desktop Stellar wallet',
+    icon: '◎',
+    installUrl: 'https://lobstr.co/download',
+    detected: () => !!(window.lobstr ?? window.lobstrApi),
+    comingSoon: false,
+  },
+  {
+    name: 'WalletConnect',
+    description: 'Connect any compatible mobile wallet via QR code',
+    icon: '⬡',
+    installUrl: 'https://walletconnect.com/explorer',
+    detected: () => !!window.__walletConnectClient,
+    comingSoon: false,
+  },
+  {
     name: 'Rabet',
     description: 'Lightweight Stellar browser extension',
     icon: '◈',
     installUrl: 'https://rabet.io',
     detected: () => !!window.rabet,
     comingSoon: false,
-  },
-  {
-    name: 'Lobstr',
-    description: 'Popular mobile & desktop Stellar wallet',
-    icon: '◎',
-    installUrl: 'https://lobstr.co',
-    detected: () => false,
-    comingSoon: true,
   },
 ];
 
@@ -266,9 +274,18 @@ export default function WalletModal({ isOpen, onClose, onConnect, isLoading, err
             rel="noopener noreferrer"
             style={{ color: 'var(--color-accent, #6366f1)', textDecoration: 'none' }}
           >
-            Install Freighter
+            Freighter
           </a>{' '}
-          to get started.
+          or{' '}
+          <a
+            href="https://lobstr.co/download"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: 'var(--color-accent, #6366f1)', textDecoration: 'none' }}
+          >
+            Lobstr
+          </a>{' '}
+          are great places to start.
         </p>
       </div>
     </div>

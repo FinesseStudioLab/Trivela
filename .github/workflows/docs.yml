@@ -1,9 +1,8 @@
 name: Deploy Contract API Docs
 
 on:
-  push:
-    branches:
-      - main
+  # Docs deploy runs manually (kept off the main-branch push check set).
+  workflow_dispatch:
 
 permissions:
   contents: read
