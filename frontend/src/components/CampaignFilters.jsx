@@ -94,6 +94,7 @@ export default function CampaignFilters({
             <option value="name_asc">Name A–Z</option>
             <option value="name_desc">Name Z–A</option>
             <option value="reward_desc">Reward (high to low)</option>
+            <option value="urgency">Urgency</option>
           </select>
         </label>
       </div>
@@ -118,6 +119,8 @@ export function sortKeyToApiParams(key) {
       return { sort: 'name', order: 'desc' };
     case 'reward_desc':
       return { sort: 'reward_per_action', order: 'desc' };
+    case 'urgency':
+      return { sort: 'urgency', order: 'desc' };
     case 'newest':
     default:
       return { sort: 'created_at', order: 'desc' };

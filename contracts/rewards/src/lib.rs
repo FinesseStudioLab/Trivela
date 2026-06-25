@@ -17,12 +17,28 @@
 //! - `redeem`: topics `(redeem, user)`, data `(points_burned: u64, asset_amount: i128)`
 //! - `ref_config`: topics `(refcfg,)`, data `(rate_bps: u32, per_referrer_cap: u64)`
 //! - `ref_bonus`: topics `(refbonus, referrer, referee)`, data `(bonus: u64, qualifying_amount: u64)`
+//! - `pruned`: topics `(pruned, kind)`, data `count: u32`
+//!
+//! ## Storage pruning
+//!
+//! Multisig nonce records are not bumped indefinitely on Soroban;
+//! [`RewardsContract::prune_used_nonces`] lets anyone reclaim storage for
+//! nonces past their TTL, in capped batches. [`RewardsContract::storage_stats`]
+//! reports current usage for monitoring.
+//!
+//! ## Co-admin multisig
+//!
+//! `set_paused` is a critical operation: once a threshold is configured via
+//! `set_multisig_threshold`, it requires at least that many valid co-admin
+//! signatures (registered via `add_co_admin`) over `(op, nonce, args_hash)`,
+//! verified with ed25519. The nonce is consumed on use regardless of how many
+//! signers participated.
 
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, Env,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address,
+    Bytes, BytesN, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -56,6 +72,19 @@ pub enum Error {
     InvalidReferralConfig = 19,
     /// The computed referral bonus rounded down to zero.
     ZeroReferralBonus = 20,
+    /// SEP-41 token mode is not enabled.
+    TokenModeNotEnabled = 21,
+    /// SEP-41: allowance not sufficient for transfer_from.
+    AllowanceExceeded = 22,
+    /// SEP-41: approval expiration ledger has passed.
+    ApprovalExpired = 23,
+    /// SEP-41: invalid expiration ledger (must be > current ledger).
+    InvalidExpiration = 24,
+    InvalidThreshold = 25,
+    InsufficientSignatures = 26,
+    NonceReused = 27,
+    DuplicateSigner = 28,
+    UnknownSigner = 29,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -116,6 +145,19 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 const CAMPAIGN_MULTIPLIER: Symbol = symbol_short!("mult");
 const TIERS: Symbol = symbol_short!("tiers");
 const BPS_DENOMINATOR: u128 = 10_000;
+const PRUNED_EVENT: Symbol = symbol_short!("pruned");
+
+// ── multisig nonce storage (#451 / #454) ────────────────────────────────────
+const NONCE_USED: Symbol = symbol_short!("msnonce");
+const NONCE_REGISTRY: Symbol = symbol_short!("nreg");
+const NONCE_CURSOR: Symbol = symbol_short!("ncursor");
+/// Multisig nonces older than this many ledgers are eligible for pruning.
+const NONCE_TTL_LEDGERS: u32 = 10_000;
+
+// ── co-admin multisig (#454) ────────────────────────────────────────────────
+const CO_ADMINS: Symbol = symbol_short!("coadmin");
+const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
+const OP_SET_PAUSED: u32 = 1;
 
 // Rate limiting constants (issue #324)
 const RATE_LIM_MAX: Symbol = symbol_short!("ratlmax");
@@ -168,6 +210,20 @@ const REF_BONUS_EVENT: Symbol = symbol_short!("refbonus");
 // Upper bound on the configurable rate (1000%) to guard against fat-finger
 // configuration and keep `qualifying_amount * rate_bps` comfortably in range.
 const MAX_REFERRAL_RATE_BPS: u32 = 100_000;
+
+// ── SEP-41 Token Interface (issue #530) ─────────────────────────────────────
+// Optional token-backed mode where reward points are SEP-41-compliant tokens.
+// When token_mode is enabled, the contract exposes standard token functions.
+const TOKEN_MODE: Symbol = symbol_short!("tokmode");
+const TOKEN_DECIMALS: Symbol = symbol_short!("tokdec");
+const TOKEN_NAME: Symbol = symbol_short!("tokname");
+const TOKEN_SYMBOL: Symbol = symbol_short!("toksym");
+const ALLOWANCE: Symbol = symbol_short!("allow");
+
+// SEP-41 Events
+const SEP41_TRANSFER_EVENT: Symbol = symbol_short!("transfer");
+const SEP41_APPROVE_EVENT: Symbol = symbol_short!("approve");
+const SEP41_BURN_EVENT: Symbol = symbol_short!("burn");
 
 #[contract]
 pub struct RewardsContract;
@@ -243,6 +299,78 @@ fn compute_unlocked(now: u32, record: &VestingRecord) -> u64 {
     (unlocked.min(record.total as u128)) as u64
 }
 
+/// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
+/// `op` is a stable per-function discriminant used in place of the function
+/// name string (Symbol byte access is not available in `no_std`).
+fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
+    let mut buf = [0u8; 44];
+    buf[0..4].copy_from_slice(&op.to_be_bytes());
+    buf[4..12].copy_from_slice(&nonce.to_be_bytes());
+    buf[12..44].copy_from_slice(&args_hash.to_array());
+    Bytes::from_slice(env, &buf)
+}
+
+/// Verify at least `required` distinct co-admin signatures over
+/// `(op, nonce, args_hash)`, then consume `nonce` for replay protection.
+/// The nonce is consumed regardless of how many signers submitted.
+fn verify_multisig(
+    env: &Env,
+    op: u32,
+    args_hash: BytesN<32>,
+    nonce: u64,
+    signatures: &Vec<(Address, BytesN<64>)>,
+) -> Result<(), Error> {
+    let required: u32 = env
+        .storage()
+        .instance()
+        .get(&MULTISIG_THRESHOLD)
+        .unwrap_or(0);
+    if required == 0 {
+        return Ok(());
+    }
+
+    let nonce_key = (NONCE_USED, nonce);
+    if env.storage().instance().get::<_, u32>(&nonce_key).is_some() {
+        return Err(Error::NonceReused);
+    }
+
+    let co_admins: Vec<(Address, BytesN<32>)> = env
+        .storage()
+        .instance()
+        .get(&CO_ADMINS)
+        .unwrap_or(Vec::new(env));
+    let message = multisig_message(env, op, nonce, &args_hash);
+
+    let mut seen: Vec<Address> = Vec::new(env);
+    for (signer, sig) in signatures.iter() {
+        if seen.iter().any(|s| s == signer) {
+            return Err(Error::DuplicateSigner);
+        }
+        let pubkey = co_admins
+            .iter()
+            .find_map(|(addr, key)| if addr == signer { Some(key) } else { None })
+            .ok_or(Error::UnknownSigner)?;
+        env.crypto().ed25519_verify(&pubkey, &message, &sig);
+        seen.push_back(signer.clone());
+    }
+
+    if seen.len() < required {
+        return Err(Error::InsufficientSignatures);
+    }
+
+    env.storage()
+        .instance()
+        .set(&nonce_key, &env.ledger().sequence());
+    let mut registry: Vec<u64> = env
+        .storage()
+        .instance()
+        .get(&NONCE_REGISTRY)
+        .unwrap_or(Vec::new(env));
+    registry.push_back(nonce);
+    env.storage().instance().set(&NONCE_REGISTRY, &registry);
+    Ok(())
+}
+
 #[contractimpl]
 impl RewardsContract {
     /// Initialize the rewards contract (admin).
@@ -282,6 +410,28 @@ impl RewardsContract {
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(CURRENT_SCHEMA_VERSION)
+    }
+
+    /// Replace the contract WASM in-place without resetting participant state.
+    ///
+    /// Calls `contract_update_current_contract_wasm` with the supplied hash of
+    /// the new WASM blob.  Balances and vesting records in persistent storage
+    /// survive because Soroban WASM-only upgrades never touch storage.
+    /// Requires admin auth and a valid nonce so upgrades are replay-safe.
+    ///
+    /// Typical workflow (issue #518):
+    ///   1. Upload new WASM → obtain `new_wasm_hash`.
+    ///   2. Call `upgrade(admin, nonce, new_wasm_hash)`.
+    ///   3. If storage layout changed, call `migrate(admin, target_version)`.
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        nonce: i128,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 
     /// Set maximum amount allowed per single credit call (admin only).
@@ -564,9 +714,33 @@ impl RewardsContract {
         Ok(())
     }
 
-    /// Pause the contract (admin only). Blocks credit and claim operations.
-    pub fn set_paused(env: Env, admin: Address, paused: bool) -> Result<(), Error> {
-        require_admin(&env, &admin)?;
+    /// Pause the contract. Blocks credit and claim operations.
+    ///
+    /// This is a critical operation: when a multisig threshold is configured
+    /// (see [`Self::set_multisig_threshold`]), `signatures` must contain at
+    /// least `required` valid co-admin signatures over
+    /// `(op, nonce, sha256(paused))`; otherwise pass an empty `Vec` and the
+    /// legacy single-admin check applies (`nonce` is ignored in that case).
+    pub fn set_paused(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        paused: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<(), Error> {
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0);
+        if threshold > 0 {
+            let mut buf = [0u8; 1];
+            buf[0] = paused as u8;
+            let args_hash = env.crypto().sha256(&Bytes::from_slice(&env, &buf)).into();
+            verify_multisig(&env, OP_SET_PAUSED, args_hash, nonce, &signatures)?;
+        } else {
+            require_admin(&env, &admin)?;
+        }
         env.storage().instance().set(&PAUSED, &paused);
         env.events().publish((PAUSED_EVENT,), paused);
         env.storage()
@@ -902,9 +1076,15 @@ impl RewardsContract {
             .unwrap_or(0)
     }
 
+    /// Alias for redemption_reserve — returns the current payout reserve balance.
+    pub fn payout_reserve_balance(env: Env) -> i128 {
+        Self::redemption_reserve(env) as i128
+    }
+
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
-    pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<(), Error> {
+    /// Returns the amount of asset tokens transferred.
+    pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_not_paused(&env)?;
 
@@ -966,7 +1146,7 @@ impl RewardsContract {
             .publish((REDEEM_EVENT, user), (points_amount, asset_amount));
         env.storage().instance().extend_ttl(50, 100);
 
-        Ok(())
+        Ok(asset_amount)
     }
 
     /// Withdraw asset tokens from redemption reserve (admin only).
@@ -1201,6 +1381,462 @@ impl RewardsContract {
     pub fn rewarded_referrer_of(env: Env, referee: Address) -> Option<Address> {
         env.storage().instance().get(&(REF_PAID, referee))
     }
+
+    // ── SEP-41 Token Interface (issue #530) ──────────────────────────────────
+
+    /// Enable token mode (admin only). One-way: once enabled, cannot be disabled.
+    /// This enables SEP-41-compliant token interface alongside existing points API.
+    pub fn enable_token_mode(
+        env: Env,
+        admin: Address,
+        name: Symbol,
+        symbol: Symbol,
+        decimals: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if decimals > 18 {
+            return Err(Error::InvalidMultiplier);
+        }
+        env.storage().instance().set(&TOKEN_MODE, &true);
+        env.storage().instance().set(&TOKEN_NAME, &name);
+        env.storage().instance().set(&TOKEN_SYMBOL, &symbol);
+        env.storage().instance().set(&TOKEN_DECIMALS, &decimals);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Check if token mode is enabled.
+    pub fn is_token_mode(env: Env) -> bool {
+        env.storage().instance().get(&TOKEN_MODE).unwrap_or(false)
+    }
+
+    /// SEP-41: Returns the balance of `id` as i128.
+    /// Maps internal u64 points to i128 per SEP-41 standard.
+    pub fn sep41_balance(env: Env, id: Address) -> i128 {
+        let balance: u64 = env.storage().instance().get(&(BALANCE, id)).unwrap_or(0);
+        balance as i128
+    }
+
+    /// SEP-41: Transfer `amount` from `from` to `to`.
+    /// Requires authorization from `from`.
+    pub fn sep41_transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let to_key = (BALANCE, to.clone());
+        let to_balance: u64 = env.storage().instance().get(&to_key).unwrap_or(0);
+        let new_to_balance = to_balance.checked_add(amount_u64).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&to_key, &new_to_balance);
+
+        env.events()
+            .publish((SEP41_TRANSFER_EVENT, from, to), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Transfer `amount` from `from` to `to` using allowance.
+    /// Requires authorization from `spender`.
+    pub fn sep41_transfer_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        spender.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        let (allowed, expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+
+        if expiration > 0 && env.ledger().sequence() > expiration {
+            env.storage().instance().remove(&allowance_key);
+            return Err(Error::ApprovalExpired);
+        }
+
+        if allowed < amount_u64 {
+            return Err(Error::AllowanceExceeded);
+        }
+
+        let new_allowed = allowed - amount_u64;
+        if new_allowed == 0 {
+            env.storage().instance().remove(&allowance_key);
+        } else {
+            env.storage()
+                .instance()
+                .set(&allowance_key, &(new_allowed, expiration));
+        }
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let to_key = (BALANCE, to.clone());
+        let to_balance: u64 = env.storage().instance().get(&to_key).unwrap_or(0);
+        let new_to_balance = to_balance.checked_add(amount_u64).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&to_key, &new_to_balance);
+
+        env.events()
+            .publish((SEP41_TRANSFER_EVENT, from, to), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Set allowance for `spender` to spend `amount` from caller's balance.
+    /// If expiration_ledger is 0, the allowance does not expire.
+    pub fn sep41_approve(
+        env: Env,
+        from: Address,
+        spender: Address,
+        amount: i128,
+        expiration_ledger: u32,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+
+        if expiration_ledger > 0 && expiration_ledger <= env.ledger().sequence() {
+            return Err(Error::InvalidExpiration);
+        }
+
+        let amount_u64 = amount as u64;
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        env.storage()
+            .instance()
+            .set(&allowance_key, &(amount_u64, expiration_ledger));
+
+        env.events()
+            .publish((SEP41_APPROVE_EVENT, from, spender), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Returns the allowance `owner` has granted to `spender`.
+    pub fn sep41_allowance(env: Env, owner: Address, spender: Address) -> i128 {
+        let allowance_key = (ALLOWANCE, owner, spender);
+        let (allowed, _expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+        allowed as i128
+    }
+
+    /// SEP-41: Returns the number of decimals used for display.
+    pub fn sep41_decimals(env: Env) -> u32 {
+        env.storage().instance().get(&TOKEN_DECIMALS).unwrap_or(0)
+    }
+
+    /// SEP-41: Returns the name of the token.
+    pub fn sep41_name(env: Env) -> Symbol {
+        env.storage()
+            .instance()
+            .get(&TOKEN_NAME)
+            .unwrap_or_else(|| symbol_short!("Trivela"))
+    }
+
+    /// SEP-41: Returns the symbol of the token.
+    pub fn sep41_symbol(env: Env) -> Symbol {
+        env.storage()
+            .instance()
+            .get(&TOKEN_SYMBOL)
+            .unwrap_or_else(|| symbol_short!("TVL"))
+    }
+
+    /// SEP-41: Burn `amount` from `from`'s balance.
+    /// Requires authorization from `from`.
+    pub fn sep41_burn(env: Env, from: Address, amount: i128) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount_u64));
+
+        env.events().publish((SEP41_BURN_EVENT, from), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Burn `amount` from `from`'s balance using allowance.
+    /// Requires authorization from `spender`.
+    pub fn sep41_burn_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        spender.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        let (allowed, expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+
+        if expiration > 0 && env.ledger().sequence() > expiration {
+            env.storage().instance().remove(&allowance_key);
+            return Err(Error::ApprovalExpired);
+        }
+
+        if allowed < amount_u64 {
+            return Err(Error::AllowanceExceeded);
+        }
+
+        let new_allowed = allowed - amount_u64;
+        if new_allowed == 0 {
+            env.storage().instance().remove(&allowance_key);
+        } else {
+            env.storage()
+                .instance()
+                .set(&allowance_key, &(new_allowed, expiration));
+        }
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount_u64));
+
+        env.events().publish((SEP41_BURN_EVENT, from), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    // ── nonce pruning (#451) ─────────────────────────────────────────────
+
+    /// Remove multisig nonce records older than [`NONCE_TTL_LEDGERS`], up to
+    /// `max_entries` per call. Callable by anyone since it only deletes
+    /// stale data. Returns the number of entries pruned.
+    pub fn prune_used_nonces(env: Env, max_entries: u32) -> u32 {
+        let registry: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&NONCE_REGISTRY)
+            .unwrap_or(Vec::new(&env));
+        let len = registry.len();
+        if len == 0 || max_entries == 0 {
+            return 0;
+        }
+
+        let now = env.ledger().sequence();
+        let mut cursor: u32 = env.storage().instance().get(&NONCE_CURSOR).unwrap_or(0);
+        if cursor >= len {
+            cursor = 0;
+        }
+
+        let mut pruned = 0u32;
+        let mut checked = 0u32;
+        let mut idx = cursor;
+        while checked < len && pruned < max_entries {
+            let nonce = registry.get(idx).unwrap();
+            let key = (NONCE_USED, nonce);
+            if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
+                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                    env.storage().instance().remove(&key);
+                    pruned += 1;
+                }
+            }
+            idx = (idx + 1) % len;
+            checked += 1;
+        }
+        env.storage().instance().set(&NONCE_CURSOR, &idx);
+
+        if pruned > 0 {
+            env.events()
+                .publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
+        }
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        pruned
+    }
+
+    /// Storage stats for monitoring: `(participant_count, nonce_count, expired_estimate)`.
+    /// `participant_count` is always `0` here; the rewards contract tracks
+    /// balances, not participants. `expired_estimate` counts currently-stale
+    /// nonce records.
+    pub fn storage_stats(env: Env) -> (u64, u64, u64) {
+        let registry: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&NONCE_REGISTRY)
+            .unwrap_or(Vec::new(&env));
+        let nonce_count = registry.len() as u64;
+
+        let now = env.ledger().sequence();
+        let mut expired = 0u64;
+        for nonce in registry.iter() {
+            if let Some(used_at) = env.storage().instance().get::<_, u32>(&(NONCE_USED, nonce)) {
+                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                    expired += 1;
+                }
+            }
+        }
+        (0, nonce_count, expired)
+    }
+
+    // ── co-admin multisig (#454) ────────────────────────────────────────
+
+    /// Register a co-admin's ed25519 public key for multisig verification
+    /// (admin only). Overwrites the key if `co_admin` is already registered.
+    pub fn add_co_admin(
+        env: Env,
+        admin: Address,
+        co_admin: Address,
+        pubkey: BytesN<32>,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        let mut co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
+        let mut found = false;
+        for i in 0..co_admins.len() {
+            let (addr, _) = co_admins.get(i).unwrap();
+            if addr == co_admin {
+                co_admins.set(i, (co_admin.clone(), pubkey.clone()));
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            co_admins.push_back((co_admin, pubkey));
+        }
+        env.storage().instance().set(&CO_ADMINS, &co_admins);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove a co-admin from the multisig signer set (admin only).
+    pub fn remove_co_admin(env: Env, admin: Address, co_admin: Address) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
+        let mut remaining = Vec::new(&env);
+        for (addr, pubkey) in co_admins.iter() {
+            if addr != co_admin {
+                remaining.push_back((addr, pubkey));
+            }
+        }
+        env.storage().instance().set(&CO_ADMINS, &remaining);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Set the M-of-N multisig threshold for critical operations (admin only).
+    /// `required = 0` disables multisig (legacy single-admin auth applies).
+    pub fn set_multisig_threshold(env: Env, admin: Address, required: u32) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
+        if required > co_admins.len() {
+            return Err(Error::InvalidThreshold);
+        }
+        env.storage().instance().set(&MULTISIG_THRESHOLD, &required);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Returns the configured M-of-N multisig threshold (0 = disabled).
+    pub fn multisig_threshold(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0)
+    }
 }
 
 fn sort_tiers(_env: &Env, tiers: Vec<(u64, u64)>) -> Vec<(u64, u64)> {
@@ -1231,3 +1867,9 @@ mod test;
 
 #[cfg(test)]
 mod fuzz_test;
+
+#[cfg(all(test, kani))]
+mod kani_harnesses;
+
+#[cfg(test)]
+mod negative_tests;

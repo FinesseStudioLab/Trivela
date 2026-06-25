@@ -204,6 +204,65 @@ export async function submitClaimTransaction(walletAddress, amount) {
   return { hash, newBalance };
 }
 
+/**
+ * Build, sign, submit, and poll a `redeem(user, points_amount)` call
+ * on the rewards contract. Returns the amount of asset tokens received.
+ *
+ * @param {string} walletAddress - The user's Stellar public key
+ * @param {number} pointsAmount - Points to redeem
+ * @returns {Promise<{ hash: string, assetAmount: string }>}
+ */
+export async function submitRedeemTransaction(walletAddress, pointsAmount) {
+  const contractId = getRewardsContractId();
+  if (!contractId) {
+    throw new Error('Set VITE_REWARDS_CONTRACT_ID before redeeming.');
+  }
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.redeem({
+    user: walletAddress,
+    points_amount: BigInt(pointsAmount),
+  });
+
+  const assetAmountVal = await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  const assetAmount = formatPoints(assetAmountVal);
+
+  return { hash, assetAmount };
+}
+
+/**
+ * Fetch the current payout reserve balance from the rewards contract.
+ * @returns {Promise<string>}
+ */
+export async function fetchPayoutReserveBalance() {
+  const contractId = getRewardsContractId();
+  if (!contractId) return '0';
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+  });
+
+  const tx = await client.payout_reserve_balance();
+  const result = await tx.simulate();
+  return formatPoints(result);
+}
+
 /* ---------- campaign contract helpers ---------- */
 
 export async function fetchCampaignOnChainState(contractId) {
@@ -434,6 +493,304 @@ export async function setCampaignMaxCap(walletAddress, contractId, maxCap) {
   await tx.signAndSend();
   const hash = tx.signed.hash().toString('hex');
   return { hash };
+}
+
+/* ---------- SEP-41 token helpers (#550) ---------- */
+
+/**
+ * Grant `spender` an allowance to spend `amount` from `walletAddress`'s balance.
+ * Pass `expirationLedger = 0` for a non-expiring allowance.
+ *
+ * @param {string} walletAddress
+ * @param {string} spender
+ * @param {number} amount
+ * @param {number} expirationLedger
+ */
+export async function submitApproveTransaction(
+  walletAddress,
+  spender,
+  amount,
+  expirationLedger = 0,
+) {
+  const contractId = getRewardsContractId();
+  if (!contractId) throw new Error('Set VITE_REWARDS_CONTRACT_ID before approving.');
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.sep41_approve({
+    from: walletAddress,
+    spender,
+    amount: BigInt(amount),
+    expiration_ledger: expirationLedger,
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/**
+ * Read the current allowance `owner` has granted to `spender`.
+ * Returns the amount as a number (0 if no allowance or expired).
+ *
+ * @param {string} owner
+ * @param {string} spender
+ * @returns {Promise<number>}
+ */
+export async function fetchAllowance(owner, spender) {
+  const contractId = getRewardsContractId();
+  if (!contractId) return 0;
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+  });
+
+  const tx = await client.sep41_allowance({ owner, spender });
+  const result = await tx.simulate();
+  return Number(result ?? 0);
+}
+
+/**
+ * Transfer `amount` from `from` to `to` using a pre-approved allowance.
+ * The caller (`spender`) must have an active, sufficient allowance from `from`.
+ *
+ * @param {string} spenderAddress - the wallet signing the tx (must be the approved spender)
+ * @param {string} from
+ * @param {string} to
+ * @param {number} amount
+ */
+export async function submitTransferFromTransaction(spenderAddress, from, to, amount) {
+  const contractId = getRewardsContractId();
+  if (!contractId) throw new Error('Set VITE_REWARDS_CONTRACT_ID before using transfer_from.');
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: spenderAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: spenderAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.sep41_transfer_from({
+    spender: spenderAddress,
+    from,
+    to,
+    amount: BigInt(amount),
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/**
+ * Burn `amount` from `from`'s balance using a pre-approved allowance.
+ *
+ * @param {string} spenderAddress
+ * @param {string} from
+ * @param {number} amount
+ */
+export async function submitBurnFromTransaction(spenderAddress, from, amount) {
+  const contractId = getRewardsContractId();
+  if (!contractId) throw new Error('Set VITE_REWARDS_CONTRACT_ID before using burn_from.');
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: spenderAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: spenderAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.sep41_burn_from({
+    spender: spenderAddress,
+    from,
+    amount: BigInt(amount),
+  });
+
+  await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  return { hash };
+}
+
+/* ---------- Path payment helpers (#549) ---------- */
+
+/**
+ * Fetch available payment paths from the backend (which proxies Horizon /paths).
+ *
+ * @param {string} sourceAccount
+ * @param {string} destinationAsset - "native" or "CODE:ISSUER"
+ * @param {string|number} destinationAmount
+ * @param {string} [sourceAsset] - "native" or "CODE:ISSUER"
+ * @returns {Promise<Array<{ sourceAmount: string; sourceAsset: string; path: any[] }>>}
+ */
+export async function fetchPaymentPaths(
+  sourceAccount,
+  destinationAsset,
+  destinationAmount,
+  sourceAsset = 'native',
+) {
+  const params = new URLSearchParams({
+    source_account: sourceAccount,
+    destination_asset: destinationAsset,
+    destination_amount: String(destinationAmount),
+    source_asset: sourceAsset,
+  });
+
+  const resp = await fetch(`/api/v1/payment-paths?${params.toString()}`);
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.error ?? `Path-finding failed (${resp.status})`);
+  }
+  const data = await resp.json();
+  return data.paths ?? [];
+}
+
+/**
+ * Build, sign, and submit a PathPaymentStrictReceive transaction.
+ * The user sends at most `sendMax` of `sendAsset` and receives exactly
+ * `destinationAmount` of `destinationAsset`.
+ *
+ * @param {string} walletAddress
+ * @param {{ code: string; issuer?: string }} sendAsset
+ * @param {string} sendMax - max amount willing to send (with slippage already applied)
+ * @param {{ code: string; issuer?: string }} destinationAsset
+ * @param {string} destinationAmount
+ * @param {Array<{ asset_type: string; asset_code?: string; asset_issuer?: string }>} path
+ * @returns {Promise<{ hash: string }>}
+ */
+export async function submitPathPaymentClaimTransaction(
+  walletAddress,
+  sendAsset,
+  sendMax,
+  destinationAsset,
+  destinationAmount,
+  path = [],
+) {
+  const {
+    Horizon: HorizonSdk,
+    TransactionBuilder: TxBuilder,
+    Operation,
+    Asset,
+    BASE_FEE: FEE,
+  } = await import('@stellar/stellar-sdk');
+
+  const networkPassphrase = getNetworkPassphrase();
+  const { horizonUrl } = await import('./config').then((m) => ({
+    horizonUrl:
+      m.getHorizonUrl?.() ??
+      import.meta.env.VITE_HORIZON_URL ??
+      'https://horizon-testnet.stellar.org',
+  }));
+
+  const server = new HorizonSdk.Server(horizonUrl);
+  const account = await server.loadAccount(walletAddress);
+
+  function buildAsset({ code, issuer }) {
+    return code === 'XLM' && !issuer ? Asset.native() : new Asset(code, issuer);
+  }
+
+  const intermediaryAssets = path.map((p) =>
+    p.asset_type === 'native' ? Asset.native() : new Asset(p.asset_code, p.asset_issuer),
+  );
+
+  const tx = new TxBuilder(account, { fee: String(Number(FEE) * 2), networkPassphrase })
+    .addOperation(
+      Operation.pathPaymentStrictReceive({
+        sendAsset: buildAsset(sendAsset),
+        sendMax,
+        destination: walletAddress,
+        destAsset: buildAsset(destinationAsset),
+        destAmount: destinationAmount,
+        path: intermediaryAssets,
+      }),
+    )
+    .setTimeout(180)
+    .build();
+
+  const txXdr = tx.toEnvelope().toXDR('base64');
+  const signedTxXdr = await walletManager.signTransaction(txXdr, {
+    networkPassphrase,
+    address: walletAddress,
+  });
+
+  const { Transaction } = await import('@stellar/stellar-sdk');
+  const signedTx = new Transaction(signedTxXdr, networkPassphrase);
+  const result = await server.submitTransaction(signedTx);
+  return { hash: result.hash };
+}
+
+/* ---------- Fee-bump / sponsorship helpers (#555) ---------- */
+
+/**
+ * Minimum XLM balance required to pay Soroban fees without sponsorship.
+ * Below this, `isEligibleForSponsorship` returns true.
+ */
+const MIN_XLM_FOR_FEES = 2;
+
+/**
+ * Returns true when the account has insufficient XLM for self-funded fees.
+ * Used by registration/claim flows to auto-route through sponsorship.
+ *
+ * @param {string} walletAddress
+ * @returns {Promise<boolean>}
+ */
+export async function isEligibleForSponsorship(walletAddress) {
+  try {
+    const balance = await fetchWalletBalance(walletAddress);
+    return parseFloat(balance) < MIN_XLM_FOR_FEES;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Wrap a signed inner transaction XDR with a backend-issued fee-bump.
+ * The backend covers the fee from the sponsor account.
+ * Returns the fee-bump XDR ready to submit to Horizon.
+ *
+ * @param {string} innerXdr - signed inner transaction XDR
+ * @param {string} walletAddress - the submitting wallet (for quota tracking)
+ * @returns {Promise<string>} feeBumpXdr
+ */
+export async function wrapWithFeeBump(innerXdr, walletAddress) {
+  const resp = await fetch('/api/v1/fee-bump', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ innerXdr, walletAddress }),
+  });
+
+  const data = await resp.json();
+  if (!resp.ok) {
+    throw new Error(data.error ?? `Fee-bump failed (${resp.status})`);
+  }
+  return data.feeBumpXdr;
 }
 
 /**

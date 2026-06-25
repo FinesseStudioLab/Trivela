@@ -12,15 +12,15 @@ try {
   process.exit(1);
 }
 
-const rewardsWasm = 'target/wasm32-unknown-unknown/release/trivela_rewards_contract.wasm';
-const campaignWasm = 'target/wasm32-unknown-unknown/release/trivela_campaign_contract.wasm';
+const rewardsWasm = 'target/wasm32v1-none/release/trivela_rewards_contract.wasm';
+const campaignWasm = 'target/wasm32v1-none/release/trivela_campaign_contract.wasm';
 
 const tempRewardsDir = 'frontend/src/contracts/temp_rewards';
 const tempCampaignDir = 'frontend/src/contracts/temp_campaign';
 
 console.log('Building contracts WASM...');
 execSync(
-  'cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p trivela-campaign-contract',
+  'cargo build --target wasm32v1-none --release -p trivela-rewards-contract -p trivela-campaign-contract',
   { stdio: 'inherit' },
 );
 

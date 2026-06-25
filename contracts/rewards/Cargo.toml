@@ -14,12 +14,18 @@ doctest = false
 [features]
 testutils = ["soroban-sdk/testutils"]
 
+# `kani` is set only under the Kani formal-verification harness runner; declare
+# it so the compiler doesn't flag it as an unexpected cfg under -D warnings.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
+
 [dependencies]
 soroban-sdk = "25.1"
 
 [dev-dependencies]
 soroban-sdk = { version = "25.1", features = ["testutils"] }
 trivela-campaign-contract = { path = "../campaign" }
+ed25519-dalek = "2"
 proptest = "1.4"
 
 [profile.release]

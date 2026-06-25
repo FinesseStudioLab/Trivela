@@ -65,8 +65,11 @@ export async function runMigrations(db) {
 
     const applyMigration = db.transaction(() => {
       mod.up(db);
+      // INSERT OR IGNORE so that multiple files sharing the same version number (a
+      // pre-existing repo condition) can all run their up() without crashing on the
+      // unique-version constraint.  The first file's description wins in the log.
       db.prepare(
-        'INSERT INTO _schema_migrations (version, description, applied_at) VALUES (?, ?, ?)',
+        'INSERT OR IGNORE INTO _schema_migrations (version, description, applied_at) VALUES (?, ?, ?)',
       ).run(mod.version, mod.description ?? file, new Date().toISOString());
     });
 

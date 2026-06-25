@@ -144,6 +144,13 @@
   border-radius: 20px;
   overflow: hidden;
   backdrop-filter: blur(16px);
+  /* Horizontal scroll on narrow viewports (issue #519) */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lb-table-inner {
+  min-width: 520px;
 }
 
 /* Scrollable viewport for the virtualized participant rows (issue #629).

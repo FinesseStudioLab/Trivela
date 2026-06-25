@@ -9,6 +9,8 @@ export function createJobRunner({
   logger = console,
   timeProvider = { now: () => Date.now() },
   deadLetter,
+  lockProvider,
+  lockMissDelayMs = 5_000,
   defaultMaxAttempts = 5,
   defaultBaseDelayMs = 1_000,
   defaultMaxDelayMs = 30_000,
@@ -75,6 +77,24 @@ export function createJobRunner({
       return;
     }
 
+    // Acquire distributed lock before marking running. If the lock is held by
+    // another instance, requeue without consuming an attempt and return early
+    // so `running` is never set to true.
+    let lock = null;
+    if (lockProvider) {
+      try {
+        lock = await lockProvider.acquire(job.type);
+      } catch (lockErr) {
+        logger.warn?.(`job:lock_error type=${job.type}`, lockErr);
+      }
+      if (lock === null) {
+        queue.push({ ...job, runAt: timeProvider.now() + lockMissDelayMs });
+        logger.info?.(`job:lock_miss type=${job.type} requeue_in_ms=${lockMissDelayMs}`);
+        scheduleNext();
+        return;
+      }
+    }
+
     running = true;
     const startedAt = timeProvider.now();
 
@@ -105,6 +125,11 @@ export function createJobRunner({
         recordDeadLetter(job, error);
       }
     } finally {
+      if (lockProvider && lock !== null) {
+        await lockProvider
+          .release(job.type, lock)
+          .catch((err) => logger.warn?.(`job:lock_release_failed type=${job.type}`, err));
+      }
       running = false;
       scheduleNext();
     }

@@ -70,7 +70,7 @@ async function request(url, options = {}) {
  *   q?: string,
  *   page?: number,
  *   limit?: number,
- *   sort?: 'name' | 'created_at' | 'updated_at' | 'reward_per_action' | 'id',
+ *   sort?: 'name' | 'created_at' | 'updated_at' | 'reward_per_action' | 'id' | 'urgency',
  *   order?: 'asc' | 'desc'
  * }} [params]
  */
@@ -166,6 +166,74 @@ async function getConfig() {
   return request(apiUrl('/api/v1/config'));
 }
 
+// ── Notification endpoints (issue #620) ──────────────────────────────────────
+
+async function getNotifications(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.page) qs.set('page', String(params.page));
+  if (params.limit) qs.set('limit', String(params.limit));
+  if (params.unread_only) qs.set('unread_only', 'true');
+  const url = apiUrl('/api/v1/notifications') + (qs.toString() ? `?${qs}` : '');
+  return request(url);
+}
+
+async function markNotificationRead(id) {
+  return request(apiUrl(`/api/v1/notifications/${id}/read`), { method: 'POST' });
+}
+
+async function markAllNotificationsRead() {
+  return request(apiUrl('/api/v1/notifications/read-all'), { method: 'POST' });
+}
+
+// ── Notification preferences endpoints (issue #621) ──────────────────────────
+
+async function getNotificationPreferences() {
+  return request(apiUrl('/api/v1/notifications/preferences'));
+}
+
+async function updateNotificationPreference(eventType, channel, enabled) {
+  return request(apiUrl('/api/v1/notifications/preferences'), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event_type: eventType, channel, enabled }),
+  });
+}
+
+// ── Audit log endpoints (issue #612) ─────────────────────────────────────────
+
+async function getAuditLog(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.actor) qs.set('actor', params.actor);
+  if (params.action) qs.set('action', params.action);
+  if (params.resource) qs.set('resource', params.resource);
+  if (params.date_from) qs.set('date_from', params.date_from);
+  if (params.date_to) qs.set('date_to', params.date_to);
+  if (params.cursor) qs.set('cursor', params.cursor);
+  if (params.limit) qs.set('limit', String(params.limit));
+  const url = apiUrl('/api/v1/audit-log') + (qs.toString() ? `?${qs}` : '');
+  return request(url);
+}
+
+async function exportAuditLog(params = {}, format = 'csv') {
+  const qs = new URLSearchParams({ format });
+  if (params.actor) qs.set('actor', params.actor);
+  if (params.action) qs.set('action', params.action);
+  if (params.resource) qs.set('resource', params.resource);
+  if (params.date_from) qs.set('date_from', params.date_from);
+  if (params.date_to) qs.set('date_to', params.date_to);
+  return apiUrl('/api/v1/audit-log/export') + `?${qs}`;
+}
+
+// ── Analytics endpoints (issue #622) ─────────────────────────────────────────
+
+async function getAnalyticsDashboard(params = {}) {
+  const qs = new URLSearchParams();
+  if (params.campaign_id) qs.set('campaign_id', String(params.campaign_id));
+  if (params.range) qs.set('range', params.range);
+  const url = apiUrl('/api/v1/analytics/dashboard') + (qs.toString() ? `?${qs}` : '');
+  return request(url);
+}
+
 // ── Explore / discovery endpoints ─────────────────────────────────────────────
 
 /** @param {{ limit?: number }} [params] */
@@ -189,6 +257,64 @@ async function getNewCampaigns(params = {}) {
   });
 }
 
+// ── Webhook endpoints ─────────────────────────────────────────────────────────
+
+function makeAuthHeaders(apiKey) {
+  return apiKey ? { 'X-Api-Key': apiKey } : {};
+}
+
+async function listWebhooks(apiKey) {
+  return request(apiUrl('/api/v1/webhooks'), { headers: makeAuthHeaders(apiKey) });
+}
+
+async function createWebhook(data, apiKey) {
+  return request(apiUrl('/api/v1/webhooks'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify(data),
+  });
+}
+
+async function updateWebhook(id, data, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${id}`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify(data),
+  });
+}
+
+async function deleteWebhook(id, apiKey) {
+  const response = await fetch(apiUrl(`/api/v1/webhooks/${id}`), {
+    method: 'DELETE',
+    headers: makeAuthHeaders(apiKey),
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new ApiError(`HTTP ${response.status}`, response.status);
+  }
+}
+
+async function listWebhookDeliveries(id, apiKey, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  const url = apiUrl(`/api/v1/webhooks/${id}/deliveries`) + (qs.toString() ? `?${qs}` : '');
+  return request(url, { headers: makeAuthHeaders(apiKey) });
+}
+
+async function replayDelivery(webhookId, deliveryId, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${webhookId}/deliveries/${deliveryId}/replay`), {
+    method: 'POST',
+    headers: makeAuthHeaders(apiKey),
+  });
+}
+
+async function testWebhook(id, eventType, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${id}/test`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify({ eventType }),
+  });
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 export const apiClient = {
@@ -202,8 +328,23 @@ export const apiClient = {
   getCampaignLeaderboard,
   getParticipantRank,
   getConfig,
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  getNotificationPreferences,
+  updateNotificationPreference,
+  getAuditLog,
+  exportAuditLog,
+  getAnalyticsDashboard,
   getTrendingCampaigns,
   getNewCampaigns,
+  listWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  listWebhookDeliveries,
+  replayDelivery,
+  testWebhook,
 };
 
 export { ApiError };

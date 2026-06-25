@@ -284,7 +284,7 @@ proptest! {
         client.credit(&creditor, &user, &1000u64);
 
         // Now pause the contract
-        client.set_paused(&admin, &true);
+        client.set_paused(&admin, &0, &true, &Vec::new(&env));
 
         // All operations should fail
         let credit_result = client.try_credit(&creditor, &user, &credit_amount);
@@ -437,7 +437,7 @@ proptest! {
                     let _ = client.try_set_max_credit_per_call(&admin, &limit);
                 }
                 RewardsOp::SetPaused(paused) => {
-                    let _ = client.try_set_paused(&admin, &paused);
+                    let _ = client.try_set_paused(&admin, &0, &paused, &Vec::new(&env));
                 }
                 RewardsOp::SetMultiplier(campaign_id, multiplier_bps) => {
                     if multiplier_bps > 0 {
