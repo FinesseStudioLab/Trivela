@@ -179,6 +179,8 @@ export function createSqliteCampaignRepository({
     if (status && status !== 'all') {
       where.push('campaigns.status = ?');
       params.push(status);
+    } else if (!status) {
+      where.push("campaigns.status = 'published'");
     }
 
     if (category) {

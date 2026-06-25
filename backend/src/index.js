@@ -1660,6 +1660,8 @@ export async function createApp(options = {}) {
     app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, requireApiKey, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
     app.put(`${prefix}/campaigns/:id`, rateLimiter, ...guard, updateCampaign);
+    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, ...guard, publishCampaign);
+    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, ...guard, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
     app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
