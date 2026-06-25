@@ -9,8 +9,7 @@ on:
       - 'monitoring/**'
       - 'scripts/canary.mjs'
       - '.github/workflows/observability-ci.yml'
-  push:
-    branches: [main]
+  # Push trigger on main intentionally omitted (lightweight main-branch checks).
 
 jobs:
   # ── promtool: validate + unit-test alert rules ──────────────────────────────

@@ -1,32 +1,47 @@
-import { useId, useState } from 'react';
-import { submitClaimTransaction, getStellarNetwork } from './stellar';
+import { useEffect, useId, useState } from 'react';
+import {
+  submitClaimTransaction,
+  submitRedeemTransaction,
+  fetchPayoutReserveBalance,
+  getStellarNetwork,
+} from './stellar';
 import TransactionStatus from './components/TransactionStatus';
 import { useOptimisticAction } from './hooks/useOptimisticAction';
+import { analytics } from './lib/analytics';
 
 /**
- * ClaimRewards — lets the user enter a points amount, sign a Soroban
- * `claim(user, amount)` transaction via Freighter, and see the result.
- *
- * The submit is optimistic: the input clears and a pending indicator appears
- * immediately; on confirmation the parent reconciles the on-chain balance, and
- * on failure the entered amount is restored and a class-aware error is shown.
- * A second submit while one is in flight is ignored (double-submit guard).
+ * ClaimRewards — lets the user enter a points amount and either claim
+ * internal points or redeem for a real Stellar asset (XLM/USDC via SAC).
  *
  * Props
  * ─────
  * @param {string}   walletAddress   – Connected Stellar public key.
- * @param {function} onClaimSuccess  – Called with the new balance string after
- *                                     a successful claim so the parent can
- *                                     refresh its display.
+ * @param {boolean}  [hasPayoutAsset]– Whether a payout asset is configured.
+ * @param {function} onClaimSuccess  – Called after a successful claim/redeem.
  */
-export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
+export default function ClaimRewards({ walletAddress, hasPayoutAsset = false, onClaimSuccess }) {
   const [amount, setAmount] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [redeemResult, setRedeemResult] = useState(null);
+  const [reserveBalance, setReserveBalance] = useState('');
+  const [mode, setMode] = useState(hasPayoutAsset ? 'redeem' : 'claim');
   const amountId = useId();
   const headingId = useId();
   const feedbackId = useId();
   const stellarNetwork = getStellarNetwork();
   const { run, isPending, isError, error } = useOptimisticAction();
+
+  useEffect(() => {
+    if (hasPayoutAsset && walletAddress) {
+      fetchPayoutReserveBalance()
+        .then(setReserveBalance)
+        .catch(() => setReserveBalance(''));
+    }
+  }, [hasPayoutAsset, walletAddress]);
+
+  useEffect(() => {
+    setMode(hasPayoutAsset ? 'redeem' : 'claim');
+  }, [hasPayoutAsset]);
 
   const parsedAmount = Number(amount);
   const isValid = Number.isInteger(parsedAmount) && parsedAmount > 0;
@@ -37,30 +52,76 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
     if (!walletAddress || !isValid) return;
 
     setTxHash('');
+    setRedeemResult(null);
     const submittedAmount = amount;
 
-    await run(() => submitClaimTransaction(walletAddress, parsedAmount), {
-      // Optimistic: clear the input right away so the action feels instant.
-      optimistic: () => setAmount(''),
-      // Rollback: restore the amount the user entered if the claim fails.
-      rollback: () => setAmount(submittedAmount),
-      // Reconcile: surface the tx + let the parent refresh the chain balance.
-      reconcile: ({ hash, newBalance }) => {
-        setTxHash(hash);
-        onClaimSuccess?.(newBalance);
-      },
-    });
+    if (mode === 'redeem') {
+      await run(() => submitRedeemTransaction(walletAddress, parsedAmount), {
+        optimistic: () => setAmount(''),
+        rollback: () => setAmount(submittedAmount),
+        reconcile: ({ hash, assetAmount }) => {
+          setTxHash(hash);
+          setRedeemResult({ points: submittedAmount, asset: assetAmount });
+          onClaimSuccess?.();
+          fetchPayoutReserveBalance()
+            .then(setReserveBalance)
+            .catch(() => {});
+        },
+      });
+    } else {
+      await run(() => submitClaimTransaction(walletAddress, parsedAmount), {
+        optimistic: () => setAmount(''),
+        rollback: () => setAmount(submittedAmount),
+        reconcile: ({ hash, newBalance }) => {
+          setTxHash(hash);
+          onClaimSuccess?.(newBalance);
+        },
+      });
+    }
   };
 
   return (
     <section className="claim-section" aria-labelledby={headingId}>
       <h3 id={headingId} className="claim-heading">
-        Claim rewards
+        {mode === 'redeem' ? 'Redeem for asset' : 'Claim rewards'}
       </h3>
+
+      {hasPayoutAsset && (
+        <div
+          className="claim-mode-toggle"
+          style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}
+        >
+          <button
+            type="button"
+            className={`btn ${mode === 'redeem' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setMode('redeem')}
+            style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+          >
+            Redeem asset
+          </button>
+          <button
+            type="button"
+            className={`btn ${mode === 'claim' ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setMode('claim')}
+            style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+          >
+            Claim points
+          </button>
+        </div>
+      )}
+
+      {mode === 'redeem' && reserveBalance && (
+        <p
+          className="claim-reserve-info"
+          style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '8px' }}
+        >
+          Reserve: {reserveBalance} tokens available
+        </p>
+      )}
 
       <form className="claim-form" onSubmit={handleClaim}>
         <label htmlFor={amountId} className="claim-label">
-          Amount to claim
+          {mode === 'redeem' ? 'Points to redeem' : 'Amount to claim'}
         </label>
         <div className="claim-input-row">
           <input
@@ -81,16 +142,36 @@ export default function ClaimRewards({ walletAddress, onClaimSuccess }) {
             className="btn btn-primary btn-button"
             disabled={!walletAddress || !isValid || isPending}
           >
-            {isPending ? 'Signing…' : 'Claim'}
+            {isPending ? 'Signing…' : mode === 'redeem' ? 'Redeem' : 'Claim'}
           </button>
         </div>
       </form>
 
       {isPending && (
-        <TransactionStatus variant="pending" network={stellarNetwork} status="Claiming…" />
+        <TransactionStatus
+          variant="pending"
+          network={stellarNetwork}
+          status={mode === 'redeem' ? 'Redeeming…' : 'Claiming…'}
+        />
       )}
       {!isPending && txHash && (
-        <TransactionStatus hash={txHash} network={stellarNetwork} status="Claim confirmed" />
+        <TransactionStatus hash={txHash} network={stellarNetwork} status="Transaction confirmed" />
+      )}
+
+      {!isPending && redeemResult && (
+        <div
+          className="claim-redeem-result"
+          style={{
+            background: 'rgba(34, 197, 94, 0.1)',
+            border: '1px solid rgba(34, 197, 94, 0.3)',
+            borderRadius: '8px',
+            padding: '10px 14px',
+            marginTop: '8px',
+            fontSize: '0.9rem',
+          }}
+        >
+          Redeemed {redeemResult.points} points → received {redeemResult.asset} tokens
+        </div>
       )}
 
       {isError && error && (

@@ -78,7 +78,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+                  "u64": "0"
+                },
+                {
                   "bool": true
+                },
+                {
+                  "vec": []
                 }
               ]
             }
@@ -154,7 +160,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+                  "u64": "0"
+                },
+                {
                   "bool": false
+                },
+                {
+                  "vec": []
                 }
               ]
             }

@@ -286,89 +286,91 @@ export default function CampaignLeaderboard({
           </div>
 
           {/* Table header */}
-          <div
-            className="lb-table"
-            role="table"
-            aria-label="Campaign leaderboard"
-            aria-rowcount={total + 1}
-          >
-            <div className="lb-row lb-row-header" role="row" aria-rowindex={1}>
-              <span className="lb-col-rank" role="columnheader">
-                Rank
-              </span>
-              <span className="lb-col-address" role="columnheader">
-                Wallet
-              </span>
-              <span className="lb-col-points" role="columnheader">
-                Points
-              </span>
-              <span className="lb-col-claimed" role="columnheader">
-                Claimed
-              </span>
-              <span className="lb-col-net" role="columnheader">
-                Net Balance
-              </span>
-            </div>
+          <div className="lb-table">
+            <div
+              className="lb-table-inner"
+              role="table"
+              aria-label="Campaign leaderboard"
+              aria-rowcount={total + 1}
+            >
+              <div className="lb-row lb-row-header" role="row" aria-rowindex={1}>
+                <span className="lb-col-rank" role="columnheader">
+                  Rank
+                </span>
+                <span className="lb-col-address" role="columnheader">
+                  Wallet
+                </span>
+                <span className="lb-col-points" role="columnheader">
+                  Points
+                </span>
+                <span className="lb-col-claimed" role="columnheader">
+                  Claimed
+                </span>
+                <span className="lb-col-net" role="columnheader">
+                  Net Balance
+                </span>
+              </div>
 
-            {isLoading ? (
-              Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} />)
-            ) : error ? (
-              <div className="lb-state lb-error" role="alert">
-                <p>{error}</p>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => fetchLeaderboard(1, true)}
-                >
-                  Retry
-                </button>
-              </div>
-            ) : participants.length === 0 ? (
-              <div className="lb-state lb-empty">
-                <p className="lb-empty-icon">🏁</p>
-                <p className="lb-empty-heading">No participants yet</p>
-                <p className="lb-empty-sub">
-                  {debouncedSearch
-                    ? 'No participants match that wallet address.'
-                    : 'Be the first to join this campaign and top the leaderboard!'}
-                </p>
-              </div>
-            ) : (
-              <VirtualizedList
-                items={participants}
-                getKey={(p) => p.walletAddress ?? p.rank}
-                estimateSize={56}
-                className="lb-virtual-viewport"
-                containerProps={{ role: 'rowgroup', 'aria-label': 'Leaderboard participants' }}
-                onReachEnd={handleReachEnd}
-                getItemProps={(p, i) => ({
-                  className: `lb-row lb-row-data${isMyRow(p.walletAddress) ? ' lb-row-mine' : ''}`,
-                  role: 'row',
-                  'aria-rowindex': i + 2,
-                  'aria-current': isMyRow(p.walletAddress) ? 'true' : undefined,
-                })}
-                renderItem={(p) => (
-                  <>
-                    <span className="lb-col-rank" role="cell">
-                      <RankMedal rank={p.rank} />
-                    </span>
-                    <span className="lb-col-address" role="cell" title={p.walletAddress}>
-                      {truncateAddress(p.walletAddress)}
-                      {isMyRow(p.walletAddress) && <span className="lb-you-badge">You</span>}
-                    </span>
-                    <span className="lb-col-points" role="cell">
-                      {(p.points ?? 0).toLocaleString()}
-                    </span>
-                    <span className="lb-col-claimed" role="cell">
-                      {(p.claimedPoints ?? 0).toLocaleString()}
-                    </span>
-                    <span className="lb-col-net" role="cell">
-                      {((p.points ?? 0) - (p.claimedPoints ?? 0)).toLocaleString()}
-                    </span>
-                  </>
-                )}
-              />
-            )}
+              {isLoading ? (
+                Array.from({ length: 8 }, (_, i) => <SkeletonRow key={i} />)
+              ) : error ? (
+                <div className="lb-state lb-error" role="alert">
+                  <p>{error}</p>
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => fetchLeaderboard(1, true)}
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : participants.length === 0 ? (
+                <div className="lb-state lb-empty">
+                  <p className="lb-empty-icon">🏁</p>
+                  <p className="lb-empty-heading">No participants yet</p>
+                  <p className="lb-empty-sub">
+                    {debouncedSearch
+                      ? 'No participants match that wallet address.'
+                      : 'Be the first to join this campaign and top the leaderboard!'}
+                  </p>
+                </div>
+              ) : (
+                <VirtualizedList
+                  items={participants}
+                  getKey={(p) => p.walletAddress ?? p.rank}
+                  estimateSize={56}
+                  className="lb-virtual-viewport"
+                  containerProps={{ role: 'rowgroup', 'aria-label': 'Leaderboard participants' }}
+                  onReachEnd={handleReachEnd}
+                  getItemProps={(p, i) => ({
+                    className: `lb-row lb-row-data${isMyRow(p.walletAddress) ? ' lb-row-mine' : ''}`,
+                    role: 'row',
+                    'aria-rowindex': i + 2,
+                    'aria-current': isMyRow(p.walletAddress) ? 'true' : undefined,
+                  })}
+                  renderItem={(p) => (
+                    <>
+                      <span className="lb-col-rank" role="cell">
+                        <RankMedal rank={p.rank} />
+                      </span>
+                      <span className="lb-col-address" role="cell" title={p.walletAddress}>
+                        {truncateAddress(p.walletAddress)}
+                        {isMyRow(p.walletAddress) && <span className="lb-you-badge">You</span>}
+                      </span>
+                      <span className="lb-col-points" role="cell">
+                        {(p.points ?? 0).toLocaleString()}
+                      </span>
+                      <span className="lb-col-claimed" role="cell">
+                        {(p.claimedPoints ?? 0).toLocaleString()}
+                      </span>
+                      <span className="lb-col-net" role="cell">
+                        {((p.points ?? 0) - (p.claimedPoints ?? 0)).toLocaleString()}
+                      </span>
+                    </>
+                  )}
+                />
+              )}
+            </div>
           </div>
 
           {/* Load more */}
