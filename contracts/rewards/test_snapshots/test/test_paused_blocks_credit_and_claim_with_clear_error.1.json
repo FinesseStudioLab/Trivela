@@ -20,7 +20,13 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
+                  "u64": "0"
+                },
+                {
                   "bool": true
+                },
+                {
+                  "vec": []
                 }
               ]
             }

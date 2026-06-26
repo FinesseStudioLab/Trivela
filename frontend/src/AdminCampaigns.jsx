@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import Header from './components/Header';
+import PageMeta from './components/PageMeta';
 import CreateCampaign from './CreateCampaign';
+import AuditLog from './components/AuditLog';
+import AdminControlPanel from './components/AdminControlPanel';
+import AllowlistUpload from './components/AllowlistUpload';
 import { apiClient } from './lib/apiClient';
 import { logSafeEvent } from './lib/safeAnalytics';
 import './Landing.css';
@@ -20,6 +25,7 @@ export default function AdminCampaigns({
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [selectedCampaignId, setSelectedCampaignId] = useState('');
 
   const loadCampaigns = async () => {
     setLoading(true);
@@ -42,6 +48,11 @@ export default function AdminCampaigns({
 
   return (
     <div className="landing">
+      <PageMeta
+        title="Admin campaigns | Trivela"
+        description="Manage Trivela campaigns, on-chain controls, and operator analytics."
+        path="/admin"
+      />
       <Header
         theme={theme}
         onToggleTheme={onToggleTheme}
@@ -79,6 +90,76 @@ export default function AdminCampaigns({
           ) : null}
 
           <CreateCampaign campaigns={campaigns} onCampaignCreated={loadCampaigns} />
+
+          {campaigns.length > 0 ? (
+            <section className="section admin-analytics-links">
+              <h3 className="section-title">Campaign analytics</h3>
+              <ul className="admin-analytics-list">
+                {campaigns.map((campaign) => (
+                  <li key={campaign.id}>
+                    <Link
+                      to={`/admin/campaigns/${campaign.id}/analytics`}
+                      className="admin-analytics-link"
+                    >
+                      {campaign.name}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
+          {/* #294 — Merkle allowlist generator. Computes the tree
+              client-side; admin pastes the root into the on-chain
+              setter and distributes the proofs JSON to participants. */}
+          <AllowlistUpload />
+
+          {campaigns.length > 0 && (
+            <section className="section admin-control-section">
+              <div className="admin-control-header">
+                <h3 className="section-title">On-Chain Campaign Controls</h3>
+                <p className="section-subtitle">
+                  Manage campaign settings directly on the Stellar blockchain.
+                </p>
+              </div>
+
+              <div className="campaign-selector">
+                <label htmlFor="campaign-select" className="campaign-selector-label">
+                  Select Campaign for On-Chain Management
+                </label>
+                <select
+                  id="campaign-select"
+                  value={selectedCampaignId}
+                  onChange={(e) => setSelectedCampaignId(e.target.value)}
+                  className="campaign-selector-input"
+                >
+                  <option value="">Choose a campaign...</option>
+                  {campaigns
+                    .filter((campaign) => campaign.contractId)
+                    .map((campaign) => (
+                      <option key={campaign.id} value={campaign.id}>
+                        {campaign.name} ({campaign.contractId})
+                      </option>
+                    ))}
+                </select>
+                {campaigns.filter((c) => c.contractId).length === 0 && (
+                  <small className="campaign-selector-hint">
+                    No campaigns with contract IDs found. Create a campaign with a contract ID
+                    first.
+                  </small>
+                )}
+              </div>
+
+              {selectedCampaignId && (
+                <AdminControlPanel
+                  contractId={campaigns.find((c) => c.id === selectedCampaignId)?.contractId}
+                />
+              )}
+            </section>
+          )}
+        </section>
+
+        <section className="section" style={{ marginTop: 0, paddingTop: 0 }}>
+          <AuditLog />
         </section>
       </main>
     </div>

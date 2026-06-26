@@ -35,7 +35,10 @@ function campaignShapeAssertions(campaign) {
   assert.equal(typeof campaign.active, 'boolean');
   assert.equal(typeof campaign.rewardPerAction, 'number');
   assert.equal(typeof campaign.createdAt, 'string');
-  assert.ok(['active', 'upcoming', 'ended'].includes(campaign.status), `unexpected status: ${campaign.status}`);
+  assert.ok(
+    ['active', 'upcoming', 'ended'].includes(campaign.status),
+    `unexpected status: ${campaign.status}`,
+  );
   assert.ok(campaign.startDate === null || typeof campaign.startDate === 'string');
   assert.ok(campaign.endDate === null || typeof campaign.endDate === 'string');
 }
@@ -83,6 +86,23 @@ test('GET /api/v1/campaigns/:id returns 404 for a missing campaign', async () =>
     const body = await response.json();
     assert.equal(body.error, 'Campaign not found');
     assert.equal(body.code, 'CAMPAIGN_NOT_FOUND');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/campaigns/:id/stats returns analytics payload', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns/1/stats?range=7d`);
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.campaignId, '1');
+    assert.ok(body.summary);
+    assert.ok(Array.isArray(body.registrationsByDay));
+    assert.ok(Array.isArray(body.pointsByDay));
+    assert.equal(typeof body.onChainSynced, 'boolean');
   } finally {
     await stopTestServer(server);
   }
@@ -236,7 +256,10 @@ test('GET /api/v1/config exposes explicit stellar network metadata', async () =>
 
     const payload = await response.json();
     assert.equal(payload.stellar.network, 'mainnet');
-    assert.equal(payload.stellar.networkPassphrase, 'Public Global Stellar Network ; September 2015');
+    assert.equal(
+      payload.stellar.networkPassphrase,
+      'Public Global Stellar Network ; September 2015',
+    );
     assert.equal(payload.stellar.sorobanRpcUrl, 'https://soroban-mainnet.stellar.org');
     assert.equal(payload.stellar.horizonUrl, 'https://horizon.stellar.org');
     assert.equal(
@@ -561,9 +584,30 @@ test('PUT /api/v1/campaigns/:id with partial fields preserves untouched fields',
 
 test('GET /api/v1/campaigns?active=true returns only active campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '3', name: 'Active Two', description: '', active: true, rewardPerAction: 10, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '3',
+      name: 'Active Two',
+      description: '',
+      active: true,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -580,8 +624,22 @@ test('GET /api/v1/campaigns?active=true returns only active campaigns', async ()
 
 test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -598,8 +656,22 @@ test('GET /api/v1/campaigns?active=false returns only inactive campaigns', async
 
 test('GET /api/v1/campaigns?active=invalid ignores the filter and returns all campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -615,8 +687,22 @@ test('GET /api/v1/campaigns?active=invalid ignores the filter and returns all ca
 
 test('GET /api/v1/campaigns without active param returns all campaigns', async () => {
   const seed = [
-    { id: '1', name: 'Active One', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { id: '2', name: 'Inactive One', description: '', active: false, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      id: '1',
+      name: 'Active One',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      id: '2',
+      name: 'Inactive One',
+      description: '',
+      active: false,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -675,7 +761,12 @@ test('POST /api/v1/campaigns accepts startDate and endDate and returns computed 
     const activeResp = await fetch(`${baseUrl}/api/v1/campaigns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: 'Live Campaign', rewardPerAction: 5, startDate: past, endDate: future }),
+      body: JSON.stringify({
+        name: 'Live Campaign',
+        rewardPerAction: 5,
+        startDate: past,
+        endDate: future,
+      }),
     });
     assert.equal(activeResp.status, 201);
     const active = await activeResp.json();
@@ -935,8 +1026,20 @@ test('createApp defaults to deny-by-default CORS in production when not configur
 // #232 — featured flag: ordering and admin toggle
 test('GET /api/v1/campaigns returns featured campaigns first', async () => {
   const seed = [
-    { name: 'Regular A', description: '', active: true, rewardPerAction: 1, createdAt: new Date().toISOString() },
-    { name: 'Regular B', description: '', active: true, rewardPerAction: 1, createdAt: new Date().toISOString() },
+    {
+      name: 'Regular A',
+      description: '',
+      active: true,
+      rewardPerAction: 1,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Regular B',
+      description: '',
+      active: true,
+      rewardPerAction: 1,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -988,8 +1091,20 @@ test('PUT /api/v1/campaigns/:id can set and unset featured', async () => {
 // #234 — hidden flag: moderation
 test('hidden campaigns do not appear in GET /api/v1/campaigns list', async () => {
   const seed = [
-    { name: 'Visible Campaign', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
-    { name: 'Spam Campaign', description: '', active: true, rewardPerAction: 5, createdAt: new Date().toISOString() },
+    {
+      name: 'Visible Campaign',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Spam Campaign',
+      description: '',
+      active: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
   ];
   const { server, baseUrl } = await startTestServer({ campaigns: seed });
 
@@ -1076,6 +1191,238 @@ test('GET /api/v1/explorer returns correct URL for mainnet', async () => {
     const body = await response.json();
     assert.equal(body.network, 'mainnet');
     assert.equal(body.explorerUrl, 'https://stellar.expert/explorer/public');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('API response compression is applied to payloads larger than 1KB', async () => {
+  const largeCampaign = {
+    name: 'A'.repeat(600),
+    description: 'B'.repeat(600),
+    active: true,
+    rewardPerAction: 10,
+    createdAt: new Date().toISOString(),
+  };
+  const { server, baseUrl } = await startTestServer({ campaigns: [largeCampaign] });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      headers: {
+        'Accept-Encoding': 'gzip',
+      },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('content-encoding'), 'gzip');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('API response compression is NOT applied to payloads smaller than 1KB', async () => {
+  const smallCampaign = {
+    name: 'Small',
+    description: 'Short',
+    active: true,
+    rewardPerAction: 10,
+    createdAt: new Date().toISOString(),
+  };
+  const { server, baseUrl } = await startTestServer({ campaigns: [smallCampaign] });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`, {
+      headers: {
+        'Accept-Encoding': 'gzip',
+      },
+    });
+    assert.equal(response.status, 200);
+    assert.strictEqual(response.headers.get('content-encoding'), null);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+// #493 — API migration compatibility shim
+test('?api_version=v0 compatibility shim rewrites v1 routes to legacy patterns', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?api_version=v0`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('deprecation'), 'true');
+    assert.equal(response.headers.get('sunset'), 'Sat, 01 Jul 2026 00:00:00 GMT');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('?api_version=v0 compatibility shim returns Deprecation header on create', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns?api_version=v0`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Compat Test', rewardPerAction: 10 }),
+    });
+    assert.equal(response.status, 201);
+    assert.equal(response.headers.get('deprecation'), 'true');
+    const body = await response.json();
+    assert.equal(body.name, 'Compat Test');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('requests without api_version=v0 do not include Deprecation header', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/campaigns`);
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('deprecation'), null);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+// #467 — Admin dashboard endpoint
+test('GET /api/v1/admin/dashboard requires master key authentication', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/dashboard`);
+    assert.equal(response.status, 401);
+    const body = await response.json();
+    assert.equal(body.code, 'UNAUTHORIZED');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/dashboard returns aggregated stats with master key', async () => {
+  const seedCampaigns = [
+    {
+      name: 'Active Campaign',
+      active: true,
+      hidden: false,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Draft Campaign',
+      active: false,
+      hidden: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Archived Campaign',
+      active: false,
+      hidden: false,
+      rewardPerAction: 15,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  const { server, baseUrl } = await startTestServer({
+    campaigns: seedCampaigns,
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+
+    assert.ok(body.campaigns);
+    assert.equal(body.campaigns.total, 3);
+    assert.equal(body.campaigns.byStatus.draft, 1);
+    assert.equal(body.campaigns.byStatus.published, 1);
+    assert.equal(body.campaigns.byStatus.archived, 1);
+    assert.ok(body.participants);
+    assert.ok(typeof body.participants.total === 'number');
+    assert.ok(body.rewards);
+    assert.ok(Array.isArray(body.activity));
+    assert.equal(body.activity.length, 30);
+    assert.ok(body.errors);
+    assert.ok(body.rpc);
+    assert.ok(body.timestamp);
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/dashboard caches response for 60 seconds', async () => {
+  const { server, baseUrl } = await startTestServer({
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response1 = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response1.status, 200);
+    assert.equal(response1.headers.get('x-cache'), 'MISS');
+
+    const response2 = await fetch(`${baseUrl}/api/v1/admin/dashboard`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response2.status, 200);
+    assert.equal(response2.headers.get('x-cache'), 'HIT');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/campaigns requires master key authentication', async () => {
+  const { server, baseUrl } = await startTestServer();
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/campaigns`);
+    assert.equal(response.status, 401);
+    const body = await response.json();
+    assert.equal(body.code, 'UNAUTHORIZED');
+  } finally {
+    await stopTestServer(server);
+  }
+});
+
+test('GET /api/v1/admin/campaigns returns all campaigns including hidden with master key', async () => {
+  const seedCampaigns = [
+    {
+      name: 'Public Campaign',
+      active: true,
+      hidden: false,
+      rewardPerAction: 10,
+      createdAt: new Date().toISOString(),
+    },
+    {
+      name: 'Hidden Campaign',
+      active: true,
+      hidden: true,
+      rewardPerAction: 5,
+      createdAt: new Date().toISOString(),
+    },
+  ];
+  const { server, baseUrl } = await startTestServer({
+    campaigns: seedCampaigns,
+    masterKey: 'test-master-key',
+  });
+
+  try {
+    const response = await fetch(`${baseUrl}/api/v1/admin/campaigns`, {
+      headers: { 'X-API-Key': 'test-master-key' },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+
+    assert.ok(Array.isArray(body.data));
+    assert.equal(body.data.length, 2);
+    assert.ok(body.data.some((c) => c.name === 'Public Campaign'));
+    assert.ok(body.data.some((c) => c.name === 'Hidden Campaign'));
+    assert.ok(body.pagination);
   } finally {
     await stopTestServer(server);
   }

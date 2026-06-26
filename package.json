@@ -3,23 +3,36 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "npm@10.9.7",
   "description": "Trivela - Stellar Soroban Campaign & Rewards Platform",
   "scripts": {
-    "build": "npm run build:contracts && npm run build:backend && npm run build:frontend",
+    "build": "npm run build:contracts && turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "dev": "turbo run dev",
     "build:contracts": "cd contracts/rewards && stellar contract build 2>/dev/null || cargo build --target wasm32-unknown-unknown --release",
     "build:backend": "npm run build --workspace=backend",
     "build:frontend": "npm run build --workspace=frontend",
     "dev:backend": "npm run dev --workspace=backend",
     "dev:frontend": "npm run dev --workspace=frontend",
-    "test": "npm run test:contracts && npm run test:backend && npm run test:frontend",
     "test:contracts": "cargo test --workspace",
     "test:backend": "npm run test --workspace=backend",
     "test:frontend": "npm run test --workspace=frontend",
     "deploy:testnet": "bash ./scripts/deploy-testnet.sh",
+    "deploy:mainnet": "STELLAR_NETWORK=mainnet MAINNET_CONFIRMED=true bash ./scripts/deploy-testnet.sh",
+    "contracts:build-bindings": "node scripts/build-bindings.js",
     "env:validate": "node ./scripts/validate-env.mjs",
     "labels:sync": "node ./scripts/sync-github-labels.js",
+    "load-test": "bash ./scripts/run-load-test.sh",
+    "docs:contracts": "cargo doc --package trivela-campaign-contract --package trivela-rewards-contract --no-deps && rm -rf docs/contract-api && cp -r target/doc docs/contract-api",
     "format": "prettier --write \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
-    "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\""
+    "format:check": "prettier --check \"backend/src/**/*.{js,json}\" \"**/*.{md,yaml,yml}\"",
+    "merkle:generate": "node scripts/generate-merkle.mjs",
+    "check:bundle": "node scripts/check-bundle-size.mjs",
+    "dev:devnet": "docker compose --profile devnet up --build",
+    "dev:devnet:down": "docker compose --profile devnet down -v",
+    "codegen": "cd sdk/client && npm install && npm run generate",
+    "codegen:check": "cd sdk/client && npm install && npm run check-drift"
   },
   "workspaces": [
     "backend",
@@ -33,7 +46,8 @@
     "campaign"
   ],
   "devDependencies": {
-    "prettier": "^3.3.0"
+    "prettier": "^3.3.0",
+    "turbo": "^2.9.0"
   },
   "license": "Apache-2.0",
   "repository": {

@@ -1,0 +1,405 @@
+.lb-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+.lb-main {
+  flex: 1;
+  padding: 4rem 1rem;
+}
+
+.lb-container {
+  max-width: 900px;
+  margin: 0 auto;
+}
+
+.lb-nav {
+  margin-bottom: 2.5rem;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.lb-header {
+  margin-bottom: 2rem;
+}
+
+.lb-eyebrow {
+  color: var(--accent);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.lb-title {
+  font-family: var(--font-heading);
+  font-size: clamp(1.8rem, 4vw, 2.8rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  margin: 0 0 0.5rem;
+}
+
+.lb-subtitle {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+/* ── My Rank Banner ──────────────────────────────────────────────────────── */
+
+.lb-my-rank-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  padding: 1rem 1.5rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  margin-bottom: 1.5rem;
+}
+
+.lb-my-rank-text {
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.lb-my-rank-text strong {
+  color: var(--accent);
+  font-size: 1.1rem;
+}
+
+.lb-share-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.lb-share-btn {
+  font-size: 0.8rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.lb-share-btn:hover {
+  opacity: 0.85;
+}
+
+.lb-share-twitter {
+  background: #000;
+  color: #fff;
+}
+
+.lb-share-discord {
+  background: #5865f2;
+  color: #fff;
+}
+
+/* ── Search Row ──────────────────────────────────────────────────────────── */
+
+.lb-search-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.lb-search-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 0.6rem 1rem;
+  font-size: 0.9rem;
+  background: var(--bg-card-solid);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+}
+
+.lb-search-input:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.lb-total-count {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.lb-table {
+  background: var(--bg-card);
+  border: 1px solid var(--border-strong);
+  border-radius: 20px;
+  overflow: hidden;
+  backdrop-filter: blur(16px);
+  /* Horizontal scroll on narrow viewports (issue #519) */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.lb-table-inner {
+  min-width: 520px;
+}
+
+/* Scrollable viewport for the virtualized participant rows (issue #629).
+   A bounded height lets the windowing only render the visible rows, so large
+   leaderboards (thousands of participants) stay smooth without DOM bloat. */
+.lb-virtual-viewport {
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.lb-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 110px 110px 110px;
+  align-items: center;
+  padding: 0.75rem 1.25rem;
+  gap: 0.5rem;
+}
+
+.lb-row-header {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-strong);
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.lb-row-data {
+  border-bottom: 1px solid var(--border);
+  transition: background 0.15s ease;
+}
+
+.lb-row-data:last-child {
+  border-bottom: none;
+}
+
+.lb-row-data:hover {
+  background: var(--accent-soft);
+}
+
+.lb-row-mine {
+  background: rgba(76, 141, 255, 0.12);
+  border-left: 3px solid var(--accent);
+}
+
+.lb-row-mine:hover {
+  background: rgba(76, 141, 255, 0.2);
+}
+
+/* ── Columns ─────────────────────────────────────────────────────────────── */
+
+.lb-col-rank {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  font-size: 1rem;
+  display: flex;
+  align-items: center;
+}
+
+.lb-col-address {
+  font-family: monospace;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-col-points,
+.lb-col-claimed,
+.lb-col-net {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: right;
+}
+
+.lb-col-net {
+  color: var(--accent);
+}
+
+/* ── Rank display ────────────────────────────────────────────────────────── */
+
+.lb-medal {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.lb-rank-num {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-family: var(--font-heading);
+  font-weight: 700;
+}
+
+/* ── You badge ───────────────────────────────────────────────────────────── */
+
+.lb-you-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  border-radius: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  flex-shrink: 0;
+}
+
+/* ── Skeleton loading ────────────────────────────────────────────────────── */
+
+.lb-row-skeleton {
+  border-bottom: 1px solid var(--border);
+  pointer-events: none;
+}
+
+.lb-skeleton-block {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--border) 25%,
+    var(--border-strong) 50%,
+    var(--border) 75%
+  );
+  background-size: 200% 100%;
+  animation: lb-shimmer 1.4s infinite;
+  height: 14px;
+}
+
+.lb-skeleton-sm {
+  width: 40px;
+}
+.lb-skeleton-md {
+  width: 70px;
+  margin-left: auto;
+}
+.lb-skeleton-lg {
+  width: 120px;
+}
+
+@keyframes lb-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* ── States ──────────────────────────────────────────────────────────────── */
+
+.lb-state {
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.lb-error {
+  color: var(--danger);
+}
+
+.lb-error p {
+  margin-bottom: 1rem;
+}
+
+.lb-empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.lb-empty-heading {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+.lb-empty-sub {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+/* ── Load more ───────────────────────────────────────────────────────────── */
+
+.lb-load-more-row {
+  display: flex;
+  justify-content: center;
+  margin-top: 1.5rem;
+}
+
+.lb-load-more-btn {
+  min-width: 140px;
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+
+.lb-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: 2.5rem 1rem;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 700px) {
+  .lb-row {
+    grid-template-columns: 56px 1fr 80px 80px 80px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.85rem;
+  }
+
+  .lb-title {
+    font-size: 1.8rem;
+  }
+
+  .lb-my-rank-banner {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .lb-col-claimed {
+    display: none;
+  }
+
+  .lb-row-header .lb-col-claimed {
+    display: none;
+  }
+
+  .lb-main {
+    padding: 2rem 0.75rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .lb-row {
+    grid-template-columns: 48px 1fr 70px 70px;
+  }
+
+  .lb-col-claimed {
+    display: none;
+  }
+
+  .lb-row-header .lb-col-claimed {
+    display: none;
+  }
+}
