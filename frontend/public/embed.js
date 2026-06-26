@@ -17,6 +17,7 @@
  *   const widget = new TrivelaWidget({ campaign: 'id', partner: 'pid' });
  *   widget.on('trivela:ready',          (e) => console.log('loaded', e))
  *         .on('trivela:register_click', (e) => console.log('register clicked', e))
+ *         .on('trivela:claim',          (e) => console.log('reward claimed', e))
  *         .mount(document.getElementById('my-container'));
  *
  * Security:
@@ -104,6 +105,7 @@
    * Supported events:
    *   'trivela:ready'           — widget iframe has loaded the campaign
    *   'trivela:register_click'  — user clicked "Register on Trivela"
+   *   'trivela:claim'           — user completed a reward claim inside the widget
    *
    * @param {string}   event
    * @param {Function} handler
@@ -216,6 +218,9 @@
       if (!data || typeof data !== 'object') return;
       if (data.source !== 'trivela-widget') return;
       if (typeof data.type !== 'string') return;
+      // Allowlist forwarded event types to prevent arbitrary event injection.
+      var ALLOWED_EVENTS = { 'trivela:ready': 1, 'trivela:register_click': 1, 'trivela:claim': 1 };
+      if (!ALLOWED_EVENTS[data.type]) return;
       self._emit(data.type, data.payload);
     };
 
