@@ -84,7 +84,7 @@ proptest! {
         // Register `num_participants` distinct addresses
         for _ in 0..num_participants {
             let p = Address::generate(&env);
-            let registered = client.register(&p, &leaf, &proof, &None);
+            let registered = client.register(&p, &leaf, &proof, &None, &None);
             assert!(registered, "First registration should return true");
             participants.push(p);
         }
@@ -94,7 +94,7 @@ proptest! {
             if should_retry && !participants.is_empty() {
                 let idx = participants.len() / 2;
                 let p = &participants[idx];
-                let registered = client.register(p, &leaf, &proof, &None);
+                let registered = client.register(p, &leaf, &proof, &None, &None);
                 assert!(!registered, "Re-registration should return false");
             }
         }
@@ -134,7 +134,7 @@ proptest! {
         // Fill to capacity
         for _ in 0..cap {
             let p = Address::generate(&env);
-            let registered = client.register(&p, &leaf, &proof, &None);
+            let registered = client.register(&p, &leaf, &proof, &None, &None);
             assert!(registered, "Registration should succeed before cap");
         }
 
@@ -142,7 +142,7 @@ proptest! {
 
         // Next registration must fail
         let overflow_participant = Address::generate(&env);
-        let result = client.try_register(&overflow_participant, &leaf, &proof, &None);
+        let result = client.try_register(&overflow_participant, &leaf, &proof, &None, &None);
         assert_eq!(result, Err(Ok(Error::CapReached)));
 
         // Count must not have changed
@@ -182,7 +182,7 @@ proptest! {
         env.ledger().with_mut(|li| li.timestamp = test_time);
 
         let in_window = test_time >= start && test_time <= end;
-        let result = client.try_register(&participant, &leaf, &proof, &None);
+        let result = client.try_register(&participant, &leaf, &proof, &None, &None);
 
         if in_window {
             assert!(result.is_ok(), "Registration should succeed within window");
@@ -247,13 +247,13 @@ proptest! {
         let (leaf, proof) = no_proof_args(&env);
 
         // Referrer must register first
-        let registered = client.register(&referrer, &leaf, &proof, &None);
+        let registered = client.register(&referrer, &leaf, &proof, &None, &None);
         assert!(registered, "First registration should return true");
 
         // Register multiple referees
         for _ in 0..num_referrals {
             let referee = Address::generate(&env);
-            let registered = client.register(&referee, &leaf, &proof, &Some(referrer.clone()));
+            let registered = client.register(&referee, &leaf, &proof, &None, &Some(referrer.clone()));
             assert!(registered, "Referee registration should return true");
         }
 
@@ -262,7 +262,7 @@ proptest! {
 
         // Self-referral must fail
         let self_ref = Address::generate(&env);
-        let result = client.try_register(&self_ref, &leaf, &proof, &Some(self_ref.clone()));
+        let result = client.try_register(&self_ref, &leaf, &proof, &None, &Some(self_ref.clone()));
         assert_eq!(result, Err(Ok(Error::SelfReferral)));
     }
 }
@@ -290,7 +290,7 @@ proptest! {
 
         for _ in 0..num_attempts {
             let p = Address::generate(&env);
-            let result = client.try_register(&p, &leaf, &proof, &None);
+            let result = client.try_register(&p, &leaf, &proof, &None, &None);
             assert_eq!(result, Err(Ok(Error::CampaignInactive)));
         }
 
@@ -324,7 +324,7 @@ proptest! {
         // Register participants
         for _ in 0..num_participants {
             let p = Address::generate(&env);
-            client.register(&p, &leaf, &proof, &None);
+            client.register(&p, &leaf, &proof, &None, &None);
             participants.push(p);
         }
 
@@ -438,7 +438,7 @@ proptest! {
             match op {
                 CampaignOp::Register => {
                     let p = Address::generate(&env);
-                    let _ = client.try_register(&p, &leaf, &proof, &None);
+                    let _ = client.try_register(&p, &leaf, &proof, &None, &None);
                     participants.push(p);
                 }
                 CampaignOp::SetWindow(s, e) => {

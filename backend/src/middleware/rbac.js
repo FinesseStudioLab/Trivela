@@ -69,3 +69,38 @@ export function requirePermission(perm) {
     return next();
   };
 }
+
+/**
+ * Enforce granular key-level scopes (#611).
+ *
+ * Env-sourced keys (`req.auth.source === 'env'`) carry no scopes array and are
+ * treated as fully-privileged (backward-compatible with pre-scope deployments).
+ * Database-backed keys must have the requested scope in their `scopes` array.
+ *
+ * A missing or insufficient scope returns 403 with no detail about which scope
+ * is required (prevents enumeration).
+ *
+ * @param {string} scope — one of VALID_API_KEY_SCOPES
+ */
+export function requireScope(scope) {
+  return function scopeMiddleware(req, res, next) {
+    const auth = req.auth;
+
+    // No auth object at all → should have been caught by requireApiKey, but guard anyway.
+    if (!auth) {
+      return res.status(403).json({ error: 'Forbidden.', code: 'FORBIDDEN' });
+    }
+
+    // Env-sourced keys are fully trusted (no scope restriction).
+    if (auth.source === 'env') {
+      return next();
+    }
+
+    const scopes = auth.scopes;
+    if (!Array.isArray(scopes) || !scopes.includes(scope)) {
+      return res.status(403).json({ error: 'Forbidden.', code: 'INSUFFICIENT_SCOPE' });
+    }
+
+    return next();
+  };
+}

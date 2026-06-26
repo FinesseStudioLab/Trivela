@@ -129,8 +129,7 @@ export default function CampaignAnalytics({
         onConnectWallet={onConnectWallet}
         onDisconnectWallet={onDisconnectWallet}
       />
-
-      <main className="analytics-main">
+      <main id="main-content" className="analytics-main" tabIndex="-1">
         <div className="analytics-container">
           <nav className="analytics-nav">
             <Link to="/admin" className="back-link">

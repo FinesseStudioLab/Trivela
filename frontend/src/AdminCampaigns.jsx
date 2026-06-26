@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import Header from './components/Header';
 import PageMeta from './components/PageMeta';
 import CreateCampaign from './CreateCampaign';
+import AuditLog from './components/AuditLog';
 import AdminControlPanel from './components/AdminControlPanel';
 import AllowlistUpload from './components/AllowlistUpload';
 import { apiClient } from './lib/apiClient';
@@ -155,6 +156,10 @@ export default function AdminCampaigns({
               )}
             </section>
           )}
+        </section>
+
+        <section className="section" style={{ marginTop: 0, paddingTop: 0 }}>
+          <AuditLog />
         </section>
       </main>
     </div>

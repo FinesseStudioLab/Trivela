@@ -13,7 +13,14 @@ import './Explore.css';
 const CAMPAIGNS_PER_PAGE = 9;
 const RAIL_LIMIT = 6;
 
-const VALID_SORT_KEYS = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'reward_desc']);
+const VALID_SORT_KEYS = new Set([
+  'newest',
+  'oldest',
+  'name_asc',
+  'name_desc',
+  'reward_desc',
+  'urgency',
+]);
 
 function normalizeSortKey(raw) {
   return VALID_SORT_KEYS.has(raw) ? raw : 'newest';

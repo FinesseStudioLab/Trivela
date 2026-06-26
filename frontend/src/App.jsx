@@ -1,6 +1,9 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
-import { Routes, Route, useLocation } from 'react-router-dom';
+import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import Landing from './Landing';
+import NotificationSettings from './NotificationSettings';
+import CreateCampaign from './CreateCampaign';
 import PageMeta from './components/PageMeta';
 import WalletModal from './components/WalletModal';
 import RequireAdmin from './components/RequireAdmin';
@@ -16,6 +19,8 @@ const About = lazy(() => import('./About'));
 const TransactionHistory = lazy(() => import('./TransactionHistory'));
 const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
+const UserProfile = lazy(() => import('./pages/UserProfile'));
+const WebhookManagement = lazy(() => import('./pages/WebhookManagement'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -39,6 +44,7 @@ export default function App() {
   const [isRewardsPointsLoading, setIsRewardsPointsLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const { showHelpModal, setShowHelpModal, announcement } = useKeyboardShortcuts(true);
 
   useEffect(() => {
     applyTheme(theme);
@@ -151,6 +157,7 @@ export default function App() {
   };
 
   const location = useLocation();
+  const navigate = useNavigate();
   const defaultPath = location.pathname || '/';
 
   return (
@@ -290,6 +297,34 @@ export default function App() {
             }
           />
           <Route
+            path="/admin/campaigns/new"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <CreateCampaign
+                  standalone
+                  campaigns={[]}
+                  onCampaignCreated={(c) => navigate(`/campaign/${c.id}`)}
+                />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/webhooks"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <WebhookManagement />
+              </RequireAdmin>
+            }
+          />
+          <Route
             path="/about"
             element={
               <About
@@ -325,6 +360,57 @@ export default function App() {
           />
           <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
           <Route path="/u/:address" element={<PublicProfile />} />
+          <Route
+            path="/profile"
+            element={
+              <UserProfile
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
+          <Route
+            path="/analytics"
+            element={
+              <CampaignAnalytics
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
+          <Route
+            path="/notification-settings"
+            element={
+              <NotificationSettings
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
         </Routes>
       </Suspense>
       <WalletModal
@@ -334,6 +420,201 @@ export default function App() {
         isLoading={isWalletLoading}
         error={walletError}
       />
+      <div
+        className="sr-only"
+        aria-live="assertive"
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: 0,
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          border: 0,
+        }}
+      >
+        {announcement}
+      </div>
+      {showHelpModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-modal-title"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowHelpModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #1e293b)',
+              padding: '24px',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border, #334155)',
+              width: '100%',
+              maxWidth: '450px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="shortcuts-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem' }}>
+              Keyboard Shortcuts
+            </h2>
+            <ul
+              style={{
+                listStyle: 'none',
+                padding: 0,
+                margin: '0 0 20px',
+                textAlign: 'left',
+                lineHeight: '2',
+              }}
+            >
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  /
+                </kbd>{' '}
+                : Focus search bar
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  n
+                </kbd>{' '}
+                : New campaign
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  h
+                </kbd>{' '}
+                : Go home
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  p
+                </kbd>{' '}
+                : Go to profile
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  a
+                </kbd>{' '}
+                : Go to admin dashboard
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  Esc
+                </kbd>{' '}
+                : Close open modals
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  ?
+                </kbd>{' '}
+                : Open this help menu
+              </li>
+            </ul>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ width: '100%' }}
+              onClick={() => setShowHelpModal(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

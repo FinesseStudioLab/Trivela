@@ -3,6 +3,7 @@
 extern crate std;
 
 use super::*;
+use ed25519_dalek::{Signer, SigningKey};
 use soroban_sdk::testutils::{Address as _, Events as _, Ledger};
 use soroban_sdk::{symbol_short, vec, Address, Env, IntoVal};
 use soroban_sdk::{BytesN, Vec as SdkVec};
@@ -15,6 +16,28 @@ fn seed_users(env: &Env, count: usize) -> StdVec<Address> {
         users.push(Address::generate(env));
     }
     users
+}
+
+/// Generate a deterministic ed25519 keypair for multisig tests, keyed by a
+/// single seed byte so each co-admin gets a distinct key.
+fn gen_keypair(seed: u8) -> SigningKey {
+    let bytes = [seed; 32];
+    SigningKey::from_bytes(&bytes)
+}
+
+fn sign_op(
+    env: &Env,
+    signing_key: &SigningKey,
+    op: u32,
+    nonce: u64,
+    args_hash: &BytesN<32>,
+) -> BytesN<64> {
+    let mut buf = [0u8; 44];
+    buf[0..4].copy_from_slice(&op.to_be_bytes());
+    buf[4..12].copy_from_slice(&nonce.to_be_bytes());
+    buf[12..44].copy_from_slice(&args_hash.to_array());
+    let sig = signing_key.sign(&buf);
+    BytesN::from_array(env, &sig.to_bytes())
 }
 
 #[test]
@@ -258,7 +281,7 @@ fn test_paused_blocks_credit_and_claim_with_clear_error() {
     client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
 
     env.mock_all_auths();
-    client.set_paused(&admin, &true);
+    client.set_paused(&admin, &0, &true, &Vec::new(&env));
 
     assert_eq!(
         client.try_credit(&admin, &user, &10),
@@ -295,7 +318,7 @@ fn test_campaign_rewards_integration_flow() {
     //    any further reads.
     let dummy_leaf: BytesN<32> = BytesN::from_array(&env, &[0u8; 32]);
     let empty_proof: SdkVec<BytesN<32>> = SdkVec::new(&env);
-    assert!(campaign.register(&user, &dummy_leaf, &empty_proof, &None));
+    assert!(campaign.register(&user, &dummy_leaf, &empty_proof, &None, &None));
     assert_eq!(
         env.events().all(),
         vec![
@@ -381,8 +404,8 @@ fn test_campaign_rewards_integration_multi_user() {
     let empty_proof: SdkVec<BytesN<32>> = SdkVec::new(&env);
 
     // Both users register.
-    assert!(campaign.register(&alice, &dummy_leaf, &empty_proof, &None));
-    assert!(campaign.register(&bob, &dummy_leaf, &empty_proof, &None));
+    assert!(campaign.register(&alice, &dummy_leaf, &empty_proof, &None, &None));
+    assert!(campaign.register(&bob, &dummy_leaf, &empty_proof, &None, &None));
     assert_eq!(campaign.get_participant_count(), 2);
 
     // Configure a 1.5x multiplier for campaign 7 and credit Alice through it.
@@ -467,7 +490,7 @@ fn test_campaign_window_gates_rewards_flow() {
     env.ledger().with_mut(|li| li.timestamp = 500);
     assert!(!campaign.is_within_window());
     assert_eq!(
-        campaign.try_register(&user, &dummy_leaf, &empty_proof, &None),
+        campaign.try_register(&user, &dummy_leaf, &empty_proof, &None, &None),
         Err(Ok(CampaignError::OutsideTimeWindow))
     );
     assert!(!campaign.is_participant(&user));
@@ -475,7 +498,7 @@ fn test_campaign_window_gates_rewards_flow() {
     // Inside the window, registration succeeds and the rewards flow runs.
     env.ledger().with_mut(|li| li.timestamp = 1_500);
     assert!(campaign.is_within_window());
-    assert!(campaign.register(&user, &dummy_leaf, &empty_proof, &None));
+    assert!(campaign.register(&user, &dummy_leaf, &empty_proof, &None, &None));
     rewards.credit(&admin, &user, &200);
     rewards.claim(&user, &50);
 
@@ -491,7 +514,7 @@ fn test_campaign_window_gates_rewards_flow() {
     // rejected, even though the campaign is otherwise active.
     let latecomer = Address::generate(&env);
     assert_eq!(
-        campaign.try_register(&latecomer, &dummy_leaf, &empty_proof, &None),
+        campaign.try_register(&latecomer, &dummy_leaf, &empty_proof, &None, &None),
         Err(Ok(CampaignError::OutsideTimeWindow))
     );
     assert_eq!(campaign.get_participant_count(), 1);
@@ -1353,9 +1376,349 @@ fn test_paused_blocks_referral_bonus() {
     let referee = Address::generate(&env);
     env.mock_all_auths();
     client.set_referral_config(&admin, &1_000, &0);
-    client.set_paused(&admin, &true);
+    client.set_paused(&admin, &0, &true, &Vec::new(&env));
     assert_eq!(
         client.try_pay_referral_bonus(&admin, &referrer, &referee, &1_000),
         Err(Ok(Error::ContractPaused))
     );
+}
+// ── nonce pruning (#451) ───────────────────────────────────────────────────
+
+#[test]
+fn test_prune_used_nonces_empty_is_noop() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    assert_eq!(client.prune_used_nonces(&10), 0);
+}
+
+#[test]
+fn test_prune_used_nonces_removes_stale_entries() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    let co1 = Address::generate(&env);
+    let key1 = gen_keypair(1);
+    let pub1 = BytesN::from_array(&env, &key1.verifying_key().to_bytes());
+    client.add_co_admin(&admin, &co1, &pub1);
+    client.set_multisig_threshold(&admin, &1);
+
+    let mut buf = [0u8; 1];
+    buf[0] = true as u8;
+    let args_hash: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf)).into();
+
+    let nonce = 7u64;
+    let sig = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash);
+    client.set_paused(&admin, &nonce, &true, &vec![&env, (co1, sig)]);
+    let (_, nonce_count, _) = client.storage_stats();
+    assert_eq!(nonce_count, 1);
+
+    // Not yet expired.
+    assert_eq!(client.prune_used_nonces(&10), 0);
+
+    env.ledger()
+        .with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
+    let pruned = client.prune_used_nonces(&10);
+    assert_eq!(pruned, 1);
+
+    let (_, _, expired) = client.storage_stats();
+    assert_eq!(expired, 0);
+}
+
+#[test]
+fn test_prune_used_nonces_respects_max_entries_cap() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    let co1 = Address::generate(&env);
+    let key1 = gen_keypair(1);
+    let pub1 = BytesN::from_array(&env, &key1.verifying_key().to_bytes());
+    client.add_co_admin(&admin, &co1, &pub1);
+    client.set_multisig_threshold(&admin, &1);
+
+    let mut buf = [0u8; 1];
+    buf[0] = true as u8;
+    let args_hash: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf)).into();
+
+    for nonce in 0..5u64 {
+        let sig = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash);
+        client.set_paused(&admin, &nonce, &true, &vec![&env, (co1.clone(), sig)]);
+    }
+    let (_, nonce_count, _) = client.storage_stats();
+    assert_eq!(nonce_count, 5);
+
+    env.ledger()
+        .with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
+
+    assert_eq!(client.prune_used_nonces(&2), 2);
+    assert_eq!(client.prune_used_nonces(&2), 2);
+    assert_eq!(client.prune_used_nonces(&2), 1);
+    assert_eq!(client.prune_used_nonces(&2), 0);
+}
+
+// ── co-admin multisig for set_paused (#454) ─────────────────────────────────
+
+#[test]
+fn test_multisig_2_of_3_one_signature_fails() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    let co1 = Address::generate(&env);
+    let co2 = Address::generate(&env);
+    let co3 = Address::generate(&env);
+    let key1 = gen_keypair(1);
+    let key2 = gen_keypair(2);
+    let key3 = gen_keypair(3);
+    let pub1 = BytesN::from_array(&env, &key1.verifying_key().to_bytes());
+    let pub2 = BytesN::from_array(&env, &key2.verifying_key().to_bytes());
+    let pub3 = BytesN::from_array(&env, &key3.verifying_key().to_bytes());
+
+    client.add_co_admin(&admin, &co1, &pub1);
+    client.add_co_admin(&admin, &co2, &pub2);
+    client.add_co_admin(&admin, &co3, &pub3);
+    client.set_multisig_threshold(&admin, &2);
+    assert_eq!(client.multisig_threshold(), 2);
+
+    let mut buf = [0u8; 1];
+    buf[0] = true as u8;
+    let args_hash: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf)).into();
+    let nonce = 1u64;
+    let sig1 = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash);
+
+    let result = client.try_set_paused(&admin, &nonce, &true, &vec![&env, (co1, sig1)]);
+    assert_eq!(result, Err(Ok(Error::InsufficientSignatures)));
+    assert!(!client.is_paused());
+}
+
+#[test]
+fn test_multisig_2_of_3_two_signatures_succeed_and_nonce_replay_fails() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    let co1 = Address::generate(&env);
+    let co2 = Address::generate(&env);
+    let co3 = Address::generate(&env);
+    let key1 = gen_keypair(1);
+    let key2 = gen_keypair(2);
+    let key3 = gen_keypair(3);
+    let pub1 = BytesN::from_array(&env, &key1.verifying_key().to_bytes());
+    let pub2 = BytesN::from_array(&env, &key2.verifying_key().to_bytes());
+    let pub3 = BytesN::from_array(&env, &key3.verifying_key().to_bytes());
+
+    client.add_co_admin(&admin, &co1, &pub1);
+    client.add_co_admin(&admin, &co2, &pub2);
+    client.add_co_admin(&admin, &co3, &pub3);
+    client.set_multisig_threshold(&admin, &2);
+
+    let mut buf = [0u8; 1];
+    buf[0] = true as u8;
+    let args_hash: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf)).into();
+    let nonce = 1u64;
+    let sig1 = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash);
+    let sig2 = sign_op(&env, &key2, OP_SET_PAUSED, nonce, &args_hash);
+
+    client.set_paused(
+        &admin,
+        &nonce,
+        &true,
+        &vec![&env, (co1.clone(), sig1), (co2.clone(), sig2)],
+    );
+    assert!(client.is_paused());
+
+    // Replaying the same nonce fails even with valid signatures over different args.
+    let mut buf2 = [0u8; 1];
+    buf2[0] = false as u8;
+    let args_hash2: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf2)).into();
+    let sig1b = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash2);
+    let sig2b = sign_op(&env, &key2, OP_SET_PAUSED, nonce, &args_hash2);
+    let result = client.try_set_paused(
+        &admin,
+        &nonce,
+        &false,
+        &vec![&env, (co1, sig1b), (co2, sig2b)],
+    );
+    assert_eq!(result, Err(Ok(Error::NonceReused)));
+    assert!(client.is_paused());
+}
+
+// ── SEP-41 allowance / approve / transfer_from / burn_from tests (#550) ──────
+
+fn setup_sep41(env: &Env) -> (Address, RewardsContractClient<'_>, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+    client.enable_token_mode(
+        &admin,
+        &symbol_short!("Trivela"),
+        &symbol_short!("TVL"),
+        &7u32,
+    );
+    (admin, client, contract_id)
+}
+
+#[test]
+fn test_sep41_approve_and_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    // Credit owner so they have a balance
+    client.credit(&admin, &owner, &100);
+    // Grant allowance, no expiry
+    client.sep41_approve(&owner, &spender, &50, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+}
+
+#[test]
+fn test_sep41_transfer_from_consumes_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &40, &0);
+
+    client.sep41_transfer_from(&spender, &owner, &recipient, &30);
+
+    assert_eq!(client.sep41_balance(&owner), 70);
+    assert_eq!(client.sep41_balance(&recipient), 30);
+    // Remaining allowance
+    assert_eq!(client.sep41_allowance(&owner, &spender), 10);
+}
+
+#[test]
+fn test_sep41_over_spend_rejected() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &20, &0);
+
+    // Attempt to spend 50 with only 20 allowed
+    let result = client.try_sep41_transfer_from(&spender, &owner, &spender, &50);
+    assert_eq!(result, Err(Ok(Error::AllowanceExceeded)));
+}
+
+#[test]
+fn test_sep41_expired_approval_rejected() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+
+    // Set approval expiring at ledger 10
+    env.ledger().set_sequence_number(5);
+    client.sep41_approve(&owner, &spender, &50, &10);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+
+    // Advance past expiry
+    env.ledger().set_sequence_number(11);
+    let result = client.try_sep41_transfer_from(&spender, &owner, &spender, &10);
+    assert_eq!(result, Err(Ok(Error::ApprovalExpired)));
+}
+
+#[test]
+fn test_sep41_re_approve_resets_amount_and_expiry() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    env.ledger().set_sequence_number(5);
+
+    client.sep41_approve(&owner, &spender, &20, &10);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 20);
+
+    // Re-approve with higher amount and later expiry
+    client.sep41_approve(&owner, &spender, &80, &20);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 80);
+
+    // Still within new expiry
+    env.ledger().set_sequence_number(15);
+    client.sep41_transfer_from(&spender, &owner, &spender, &80);
+    assert_eq!(client.sep41_balance(&owner), 20);
+}
+
+#[test]
+fn test_sep41_zero_amount_approve_clears_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &50, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+
+    // Re-approve with zero effectively revokes
+    client.sep41_approve(&owner, &spender, &0, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 0);
+}
+
+#[test]
+fn test_sep41_burn_from_uses_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &30, &0);
+
+    client.sep41_burn_from(&spender, &owner, &20);
+
+    assert_eq!(client.sep41_balance(&owner), 80);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 10);
+}
+
+#[test]
+fn test_sep41_token_mode_disabled_rejects_approve() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    // token_mode is not enabled — all SEP-41 ops should fail
+    let result = client.try_sep41_approve(&admin, &spender, &100, &0);
+    assert_eq!(result, Err(Ok(Error::TokenModeNotEnabled)));
 }

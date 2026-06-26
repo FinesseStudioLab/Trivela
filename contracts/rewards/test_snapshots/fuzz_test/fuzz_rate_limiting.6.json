@@ -20,10 +20,10 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u32": 3
+                  "u32": 9
                 },
                 {
-                  "u32": 14
+                  "u32": 52
                 }
               ]
             }
@@ -106,23 +106,7 @@
           "sub_invocations": []
         }
       ]
-    ],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    [],
-    []
+    ]
   ],
   "ledger": {
     "protocol_version": 25,
@@ -201,7 +185,7 @@
                         "symbol": "ratlmax"
                       },
                       "val": {
-                        "u32": 3
+                        "u32": 9
                       }
                     },
                     {
@@ -209,7 +193,7 @@
                         "symbol": "ratlwin"
                       },
                       "val": {
-                        "u32": 14
+                        "u32": 52
                       }
                     },
                     {
@@ -358,5 +342,29 @@
       }
     ]
   },
-  "events": []
+  "events": [
+    {
+      "event": {
+        "ext": "v0",
+        "contract_id": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAD2KM",
+        "type_": "contract",
+        "body": {
+          "v0": {
+            "topics": [
+              {
+                "symbol": "credit"
+              },
+              {
+                "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
+              }
+            ],
+            "data": {
+              "u64": "100"
+            }
+          }
+        }
+      },
+      "failed_call": false
+    }
+  ]
 }
