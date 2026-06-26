@@ -1,6 +1,11 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Landing from './Landing';
+import CampaignDetail from './CampaignDetail';
+import AdminCampaigns from './AdminCampaigns';
+import About from './About';
+import CampaignAnalytics from './CampaignAnalytics';
+import NotificationSettings from './NotificationSettings';
 import PageMeta from './components/PageMeta';
 import WalletModal from './components/WalletModal';
 import RequireAdmin from './components/RequireAdmin';
@@ -334,6 +339,41 @@ export default function App() {
         isLoading={isWalletLoading}
         error={walletError}
       />
+      <Route
+        path="/analytics"
+        element={
+          <CampaignAnalytics
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            stellarNetwork={runtimeConfig.stellar.network}
+            onChangeStellarNetwork={handleChangeStellarNetwork}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
+          />
+        }
+      />
+      <Route
+        path="/notification-settings"
+        element={
+          <NotificationSettings
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            stellarNetwork={runtimeConfig.stellar.network}
+            onChangeStellarNetwork={handleChangeStellarNetwork}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
+          />
+        }
+      />
+    </Routes>
     </>
   );
 }
