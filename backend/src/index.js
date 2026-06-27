@@ -77,6 +77,8 @@ import { createStellarTomlRoute } from './routes/stellarToml.js';
 import { createSponsoredAccountRoutes } from './routes/sponsoredAccounts.js';
 import { createClaimableBalancesRoutes } from './routes/claimableBalances.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
+import { createSep10AuthRoutes } from './routes/sep10Auth.js';
+import { createRequireWalletAuth } from './middleware/walletAuth.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -2154,6 +2156,57 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, ...guard, claimableBalancesRouter);
   }
+
+  // #547 — SEP-10 web auth (sign in with Stellar wallet)
+  const sep10AuthRouter = createSep10AuthRoutes({});
+  app.use('/auth/sep10', sep10AuthRouter);
+
+  // #543 — ZK proving service: serve public inputs for client-side proof generation
+  app.get(`${API_V1_PREFIX}/campaigns/:id/zk-inputs`, rateLimiter, (req, res) => {
+    try {
+      const { id } = req.params;
+      const commitment = typeof req.query.commitment === 'string' ? req.query.commitment.trim() : '';
+
+      if (!commitment) {
+        return res.status(400).json({
+          error: 'Missing required query parameter: commitment',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+
+      if (!commitment.startsWith('0x') || commitment.length !== 66) {
+        return res.status(400).json({
+          error: 'Invalid commitment format (expected 0x + 64 hex chars)',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+
+      const campaign = campaignRepository.getById(id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+
+      const merkleRoot = campaign.merkleRoot || null;
+
+      const entry = allowlistRepository.getProof(id, commitment.slice(2));
+      const merklePath = entry?.merkle_proof ? JSON.parse(entry.merkle_proof) : [];
+
+      res.json({
+        campaignId: id,
+        merkleRoot,
+        commitment,
+        merklePath,
+        circuitMetadata: {
+          circuitId: 'trivela-registration-v1',
+          publicSignals: ['merkle_root', 'commitment', 'nullifier_hash'],
+          provingKeyUrl: '/keys/registration_pk.key',
+        },
+      });
+    } catch (err) {
+      log.error({ err, campaignId: req.params.id }, 'Failed to serve ZK inputs');
+      res.status(500).json({ error: 'Failed to generate ZK inputs', code: 'ZK_INPUTS_ERROR' });
+    }
+  });
 
   // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
   const stellarTomlRouter = createStellarTomlRoute({ env: process.env });

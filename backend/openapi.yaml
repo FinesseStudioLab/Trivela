@@ -39,6 +39,10 @@ tags:
     description: "CAP-33 Stellar reserve sponsorship for new accounts — #556"
   - name: ClaimableBalances
     description: "Claimable balance lifecycle for unclaimed/expired rewards (CAP-23) — #548"
+  - name: Sep10Auth
+    description: "SEP-10 Stellar Web Authentication — sign in with wallet — #547"
+  - name: ZKProving
+    description: "ZK proving service — public inputs for client-side proof generation — #543"
 
 security:
   - ApiKeyAuth: []
@@ -1460,6 +1464,125 @@ paths:
       responses:
         '200':
           description: Balances marked as reclaimed
+        '404':
+          description: Campaign not found
+
+  /auth/sep10/challenge:
+    get:
+      summary: Generate a SEP-10 challenge transaction
+      tags: [Sep10Auth]
+      security: []
+      operationId: getSep10Challenge
+      parameters:
+        - in: query
+          name: account
+          required: true
+          schema: { type: string }
+          description: Stellar G... address to authenticate
+      responses:
+        '200':
+          description: Challenge transaction
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  transaction: { type: string, description: Base64-encoded challenge XDR }
+                  serverSignature: { type: string }
+                  networkPassphrase: { type: string }
+        '400':
+          description: Invalid account address
+
+  /auth/sep10/token:
+    post:
+      summary: Verify signed challenge and issue JWT
+      tags: [Sep10Auth]
+      security: []
+      operationId: postSep10Token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transaction, account]
+              properties:
+                transaction: { type: string, description: Signed challenge XDR }
+                account: { type: string, description: Stellar G... address }
+      responses:
+        '200':
+          description: JWT token pair
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  refreshToken: { type: string }
+                  account: { type: string }
+        '401':
+          description: Invalid or expired challenge
+
+  /auth/sep10/refresh:
+    post:
+      summary: Refresh an expired wallet JWT
+      tags: [Sep10Auth]
+      security: []
+      operationId: postSep10Refresh
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: New JWT pair
+        '401':
+          description: Invalid refresh token
+
+  /api/v1/campaigns/{id}/zk-inputs:
+    get:
+      summary: Get public ZK proving inputs for a campaign
+      tags: [ZKProving]
+      security:
+        - ApiKeyAuth: []
+      operationId: getCampaignZkInputs
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: commitment
+          required: true
+          schema: { type: string }
+          description: Hex-encoded commitment (0x + 64 hex chars)
+      responses:
+        '200':
+          description: ZK proving inputs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaignId: { type: string }
+                  merkleRoot: { type: string, nullable: true }
+                  commitment: { type: string }
+                  merklePath:
+                    type: array
+                    items: { type: string }
+                  circuitMetadata:
+                    type: object
+                    properties:
+                      circuitId: { type: string }
+                      publicSignals: { type: array, items: { type: string } }
+                      provingKeyUrl: { type: string }
+        '400':
+          description: Invalid commitment
         '404':
           description: Campaign not found
 
