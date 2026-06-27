@@ -347,6 +347,53 @@ paths:
               schema:
                 $ref: '#/components/schemas/Error'
 
+  /api/v1/campaigns/{id}/stats:
+    get:
+      summary: Get campaign analytics and stats
+      tags:
+        - Campaigns
+      operationId: getCampaignStats
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Campaign ID
+          schema:
+            type: string
+        - name: range
+          in: query
+          description: Time range (7d, 30d, all)
+          schema:
+            type: string
+            enum: [7d, 30d, all]
+            default: 7d
+        - name: from
+          in: query
+          description: Start date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: End date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Campaign statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignStats'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/campaigns/by-slug/{slug}:
     get:
       summary: Get campaign by slug
@@ -1996,3 +2043,73 @@ components:
           type: string
           enum: [pending, accepted, revoked, expired]
           description: Invitation status
+
+    CampaignStats:
+      type: object
+      required:
+        - campaignId
+        - onChainSynced
+        - range
+        - summary
+        - registrationsByDay
+        - pointsByDay
+      properties:
+        campaignId:
+          type: string
+          description: Campaign ID
+        onChainSynced:
+          type: boolean
+          description: Whether on-chain data has been synced
+        range:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        summary:
+          type: object
+          required:
+            - totalParticipants
+            - totalPoints
+            - claimRate
+            - timeRemainingMs
+          properties:
+            totalParticipants:
+              type: integer
+              description: Total registered participants
+            totalPoints:
+              type: integer
+              description: Total points awarded
+            claimRate:
+              type: number
+              description: Percentage of points claimed
+            timeRemainingMs:
+              type: integer
+              description: Milliseconds until campaign ends
+        registrationsByDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              count:
+                type: integer
+          description: Daily registration counts
+        pointsByDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              credited:
+                type: integer
+              claimed:
+                type: integer
+          description: Daily credited and claimed points
