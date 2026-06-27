@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import Landing from './Landing';
 import CampaignDetail from './CampaignDetail';
 import AdminCampaigns from './AdminCampaigns';
@@ -45,6 +46,7 @@ export default function App() {
   const [isRewardsPointsLoading, setIsRewardsPointsLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const { showHelpModal, setShowHelpModal, announcement } = useKeyboardShortcuts(true);
 
   useEffect(() => {
     applyTheme(theme);
@@ -392,6 +394,56 @@ export default function App() {
         }
       />
     </Routes>
+      <div className="sr-only" aria-live="assertive" style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', border: 0 }}>
+        {announcement}
+      </div>
+      {showHelpModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="shortcuts-modal-title"
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowHelpModal(false)}
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #1e293b)',
+              padding: '24px',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border, #334155)',
+              width: '100%',
+              maxWidth: '450px',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="shortcuts-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem' }}>Keyboard Shortcuts</h2>
+            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', textAlign: 'left', lineHeight: '2' }}>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>/</kbd> : Focus search bar</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>n</kbd> : New campaign</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>h</kbd> : Go home</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>p</kbd> : Go to profile</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>a</kbd> : Go to admin dashboard</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>Esc</kbd> : Close open modals</li>
+              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>?</kbd> : Open this help menu</li>
+            </ul>
+            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShowHelpModal(false)}>
+              Close
+            </button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

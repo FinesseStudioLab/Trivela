@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { QRCodeCanvas } from 'qrcode.react';
 import { apiUrl, DEFAULT_OG_IMAGE } from './config';
 import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
@@ -32,6 +33,39 @@ export default function CampaignDetail({
   const [bonusEarned, setBonusEarned] = useState(0);
   const [refLinkCopied, setRefLinkCopied] = useState(false);
   const [embedSnippetCopied, setEmbedSnippetCopied] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
+  const [qrSize, setQrSize] = useState(256);
+
+  const handleDownloadQR = () => {
+    const canvas = document.getElementById('campaign-qr-code');
+    if (canvas) {
+      const url = canvas.toDataURL('image/png');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `trivela-campaign-${campaign?.name?.toLowerCase().replace(/\s+/g, '-') ?? 'qr'}-${new Date().toISOString().slice(0, 10)}.png`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
+  const handleCopyQRToClipboard = async () => {
+    const canvas = document.getElementById('campaign-qr-code');
+    if (canvas) {
+      try {
+        canvas.toBlob(async (blob) => {
+          if (blob) {
+            await navigator.clipboard.write([
+              new ClipboardItem({ 'image/png': blob })
+            ]);
+            alert('QR Code copied to clipboard!');
+          }
+        });
+      } catch (err) {
+        console.error('Failed to copy QR code: ', err);
+      }
+    }
+  };
 
   const incomingRef = searchParams.get('ref');
   const isLoading = !campaign && !error;
@@ -175,6 +209,13 @@ export default function CampaignDetail({
                 onClick={refresh}
               >
                 {isPolling ? 'Refreshing...' : 'Refresh'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary detail-print-btn"
+                onClick={() => window.print()}
+              >
+                Print / Save as PDF
               </button>
               <Link
                 to={`/campaign/${id}/leaderboard`}
@@ -324,6 +365,14 @@ export default function CampaignDetail({
                       >
                         {refLinkCopied ? 'Copied!' : 'Copy link'}
                       </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary qr-code-btn"
+                        onClick={() => setShowQRModal(true)}
+                        style={{ marginLeft: '8px' }}
+                      >
+                        QR Code
+                      </button>
                     </div>
 
                     <div
@@ -428,6 +477,107 @@ export default function CampaignDetail({
           <p>Copyright 2026 Trivela - Built for Stellar Wave</p>
         </div>
       </footer>
+      {showQRModal && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.75)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+          }}
+          onClick={() => setShowQRModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="qr-modal-title"
+        >
+          <div
+            style={{
+              backgroundColor: 'var(--color-surface, #1e293b)',
+              padding: '24px',
+              borderRadius: '8px',
+              border: '1px solid var(--color-border, #334155)',
+              width: '100%',
+              maxWidth: '400px',
+              textAlign: 'center',
+              boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="qr-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem', color: 'var(--color-text, #f8fafc)' }}>Campaign QR Code</h2>
+            
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+              <button
+                type="button"
+                className={`btn btn-sm ${qrSize === 128 ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setQrSize(128)}
+                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+              >
+                Small (128px)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${qrSize === 256 ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setQrSize(256)}
+                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+              >
+                Medium (256px)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-sm ${qrSize === 512 ? 'btn-primary' : 'btn-secondary'}`}
+                onClick={() => setQrSize(512)}
+                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
+              >
+                Large (512px)
+              </button>
+            </div>
+
+            <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', display: 'inline-block', marginBottom: '16px' }}>
+              <QRCodeCanvas
+                id="campaign-qr-code"
+                value={buildInviteLink()}
+                size={qrSize}
+                level="H"
+                includeMargin={true}
+              />
+            </div>
+
+            <p style={{ margin: '0 0 16px', fontWeight: 'bold', fontSize: '0.9rem', color: 'var(--color-text, #f8fafc)' }}>
+              {campaign?.name}
+            </p>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleDownloadQR}
+              >
+                Download PNG
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={handleCopyQRToClipboard}
+              >
+                Copy to Clipboard
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowQRModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
