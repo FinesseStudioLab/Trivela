@@ -263,6 +263,8 @@ export default function CampaignDetail({
                     <RegisterCampaign
                       walletAddress={walletAddress}
                       onRegistered={handleRegistered}
+                      privacyMode={campaign?.privacyMode || (campaign?.merkleRoot ? 'merkle' : 'none')}
+                      allowFallback
                     />
                   ) : (
                     <div>

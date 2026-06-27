@@ -32,6 +32,7 @@ import {
   normalizeError,
 } from './stellar';
 import { logSafeEvent } from './lib/safeAnalytics';
+import { useSep10Auth } from './lib/wallet/sep10Auth';
 
 export default function App() {
   const [theme, setTheme] = useState(() => getPreferredTheme());
@@ -44,6 +45,7 @@ export default function App() {
   const [isRewardsPointsLoading, setIsRewardsPointsLoading] = useState(false);
   const [walletError, setWalletError] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
+  const sep10Auth = useSep10Auth();
 
   useEffect(() => {
     applyTheme(theme);
@@ -118,10 +120,20 @@ export default function App() {
     setWalletError('');
 
     try {
-      const { address } = await connectWalletProvider(providerName);
+      const { address, signTransaction } = await connectWalletProvider(providerName);
       setWalletAddress(address);
       logSafeEvent('wallet_connected', { provider: providerName });
       await loadWalletBalance(address);
+
+      // Authenticate via SEP-10 after wallet connection
+      if (signTransaction) {
+        try {
+          await sep10Auth.signIn(address, signTransaction);
+          logSafeEvent('wallet_authenticated', { provider: providerName });
+        } catch {
+          // SEP-10 auth is optional — wallet is connected but not authenticated
+        }
+      }
     } catch (error) {
       setWalletAddress('');
       setWalletBalance('');
@@ -139,6 +151,7 @@ export default function App() {
     setWalletBalance('');
     setRewardsPoints('');
     setWalletError('');
+    sep10Auth.signOut();
   };
 
   const handleChangeStellarNetwork = async (nextNetwork) => {
