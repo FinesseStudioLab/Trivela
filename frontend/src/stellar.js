@@ -204,6 +204,65 @@ export async function submitClaimTransaction(walletAddress, amount) {
   return { hash, newBalance };
 }
 
+/**
+ * Build, sign, submit, and poll a `redeem(user, points_amount)` call
+ * on the rewards contract. Returns the amount of asset tokens received.
+ *
+ * @param {string} walletAddress - The user's Stellar public key
+ * @param {number} pointsAmount - Points to redeem
+ * @returns {Promise<{ hash: string, assetAmount: string }>}
+ */
+export async function submitRedeemTransaction(walletAddress, pointsAmount) {
+  const contractId = getRewardsContractId();
+  if (!contractId) {
+    throw new Error('Set VITE_REWARDS_CONTRACT_ID before redeeming.');
+  }
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+    publicKey: walletAddress,
+    signTransaction: async (txXdr) => {
+      const signedTxXdr = await walletManager.signTransaction(txXdr, {
+        networkPassphrase: getNetworkPassphrase(),
+        address: walletAddress,
+      });
+      return { signedTxXdr };
+    },
+  });
+
+  const tx = await client.redeem({
+    user: walletAddress,
+    points_amount: BigInt(pointsAmount),
+  });
+
+  const assetAmountVal = await tx.signAndSend();
+  const hash = tx.signed.hash().toString('hex');
+  const assetAmount = formatPoints(assetAmountVal);
+
+  return { hash, assetAmount };
+}
+
+/**
+ * Fetch the current payout reserve balance from the rewards contract.
+ * @returns {Promise<string>}
+ */
+export async function fetchPayoutReserveBalance() {
+  const contractId = getRewardsContractId();
+  if (!contractId) return '0';
+
+  const client = new RewardsClient({
+    rpcUrl: getSorobanRpcUrl(),
+    networkPassphrase: getNetworkPassphrase(),
+    contractId,
+  });
+
+  const tx = await client.payout_reserve_balance();
+  const result = await tx.simulate();
+  return formatPoints(result);
+}
+
 /* ---------- campaign contract helpers ---------- */
 
 export async function fetchCampaignOnChainState(contractId) {
