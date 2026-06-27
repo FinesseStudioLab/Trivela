@@ -941,9 +941,15 @@ impl RewardsContract {
             .unwrap_or(0)
     }
 
+    /// Alias for redemption_reserve — returns the current payout reserve balance.
+    pub fn payout_reserve_balance(env: Env) -> i128 {
+        Self::redemption_reserve(env) as i128
+    }
+
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
-    pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<(), Error> {
+    /// Returns the amount of asset tokens transferred.
+    pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_not_paused(&env)?;
 
@@ -1005,7 +1011,7 @@ impl RewardsContract {
             .publish((REDEEM_EVENT, user), (points_amount, asset_amount));
         env.storage().instance().extend_ttl(50, 100);
 
-        Ok(())
+        Ok(asset_amount)
     }
 
     /// Withdraw asset tokens from redemption reserve (admin only).

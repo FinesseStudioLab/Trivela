@@ -113,11 +113,12 @@ export interface Client {
    * Construct and simulate a redeem transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Redeem points for asset tokens.
    * Burns points_amount from user balance, transfers asset tokens to user.
+   * Returns the amount of asset tokens transferred.
    */
   redeem: (
     { user, points_amount }: { user: string; points_amount: u64 },
     options?: MethodOptions,
-  ) => Promise<AssembledTransaction<Result<void>>>;
+  ) => Promise<AssembledTransaction<Result<i128>>>;
 
   /**
    * Construct and simulate a balance transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
@@ -428,6 +429,12 @@ export interface Client {
   redemption_reserve: (options?: MethodOptions) => Promise<AssembledTransaction<u64>>;
 
   /**
+   * Construct and simulate a payout_reserve_balance transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
+   * Alias for redemption_reserve — returns the current payout reserve balance.
+   */
+  payout_reserve_balance: (options?: MethodOptions) => Promise<AssembledTransaction<i128>>;
+
+  /**
    * Construct and simulate a campaign_multiplier transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Returns multiplier in basis points for campaign, defaults to 10_000.
    */
@@ -670,6 +677,7 @@ export class Client extends ContractClient {
     get_tier_for_rank: this.txFromJSON<u64>,
     pay_referral_bonus: this.txFromJSON<Result<u64>>,
     redemption_reserve: this.txFromJSON<u64>,
+    payout_reserve_balance: this.txFromJSON<i128>,
     campaign_multiplier: this.txFromJSON<u32>,
     credit_for_campaign: this.txFromJSON<Result<u64>>,
     max_credit_per_call: this.txFromJSON<u64>,

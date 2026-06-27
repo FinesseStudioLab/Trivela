@@ -77,6 +77,8 @@ import { createStellarTomlRoute } from './routes/stellarToml.js';
 import { createSponsoredAccountRoutes } from './routes/sponsoredAccounts.js';
 import { createClaimableBalancesRoutes } from './routes/claimableBalances.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
+import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
+import { createZkInputsRoutes } from './routes/zkInputs.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -2159,6 +2161,24 @@ export async function createApp(options = {}) {
   const stellarTomlRouter = createStellarTomlRoute({ env: process.env });
   app.use(stellarTomlRouter);
 
+  // #547 — SEP-10 Stellar Web Authentication
+  const sep10Router = createSep10Routes({
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+    networkPassphrase: process.env.STELLAR_NETWORK,
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+  });
+  app.use(rateLimiter, sep10Router);
+
+  // Expose requireWalletAuth for routes that need wallet-based auth
+  const requireWalletAuth = createRequireWalletAuth({
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+  });
+
+  // #543 — ZK proving inputs (public, no auth — secrets never leave the device)
+  const zkInputsRouter = createZkInputsRoutes({ campaignRepository });
+  app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
+
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
 
@@ -2196,6 +2216,9 @@ export async function createApp(options = {}) {
     isShuttingDown = true;
     try { dal.db.close(); } catch (_) {}
   };
+
+  // Expose wallet auth middleware for use by routes and tests
+  app._requireWalletAuth = requireWalletAuth;
 
   return app;
 }

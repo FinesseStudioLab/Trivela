@@ -53,6 +53,12 @@ pub enum Error {
     NoPendingAdmin = 108,
     SelfReferral = 109,
     ReferrerNotRegistered = 110,
+    /// The campaign's privacy mode does not match the registration path used.
+    InvalidPrivacyMode = 111,
+    /// The ZK proof is empty or malformed.
+    InvalidProof = 112,
+    /// The nullifier has already been used for a registration in this campaign.
+    NullifierAlreadyUsed = 113,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -144,6 +150,23 @@ const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
 const PENDING_ADMIN: Symbol = symbol_short!("padmin");
 const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
 const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
+
+// ── Privacy mode (issue #544) ────────────────────────────────────────────────
+// Per-campaign registration mode: open, Merkle-gated, or ZK-gated.
+const PRIVACY_MODE: Symbol = symbol_short!("privmode");
+const SET_PRIVACY_MODE_EVENT: Symbol = symbol_short!("privmode");
+const FALLBACK_ALLOWED: Symbol = symbol_short!("fballowed");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum PrivacyMode {
+    /// Open registration — no proofs required.
+    None = 0,
+    /// Merkle allowlist — standard leaf + proof registration.
+    Merkle = 1,
+    /// ZK registration — requires a zero-knowledge proof.
+    Zk = 2,
+}
 
 #[contract]
 pub struct CampaignContract;
@@ -381,6 +404,123 @@ impl CampaignContract {
         env.storage().instance().get(&MERKLE_ROOT)
     }
 
+    /// Set the privacy mode for this campaign (admin only).
+    ///
+    /// Controls which registration path is used:
+    /// - `None`: open registration, no proofs required.
+    /// - `Merkle`: standard Merkle allowlist registration.
+    /// - `Zk`: zero-knowledge proof registration (requires `register_private`).
+    ///
+    /// `fallback_allowed`: when true and the user's browser cannot prove in ZK
+    /// mode, the frontend may fall back to Merkle registration.
+    pub fn set_privacy_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: PrivacyMode,
+        fallback_allowed: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&PRIVACY_MODE, &mode);
+        env.storage().instance().set(&FALLBACK_ALLOWED, &fallback_allowed);
+        env.events()
+            .publish((SET_PRIVACY_MODE_EVENT,), (mode as u32, fallback_allowed));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current privacy mode.
+    /// Defaults to `PrivacyMode::None` (open) when not set.
+    pub fn get_privacy_mode(env: Env) -> PrivacyMode {
+        env.storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None)
+    }
+
+    /// Check whether fallback to Merkle registration is allowed for ZK campaigns.
+    pub fn is_fallback_allowed(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&FALLBACK_ALLOWED)
+            .unwrap_or(false)
+    }
+
+    /// Register a participant using a ZK proof (private registration).
+    ///
+    /// Only callable when the campaign's privacy mode is `Zk`.
+    /// The `proof` field carries the ZK proof bytes; the contract verifies
+    /// that the proof is non-empty as a basic sanity check. Full on-chain
+    /// verification is out of scope (see NEW-001/002).
+    ///
+    /// Returns `true` on first registration, `false` if already registered.
+    pub fn register_private(
+        env: Env,
+        participant: Address,
+        nullifier: BytesN<32>,
+        proof: Vec<BytesN<32>>,
+        referrer: Option<Address>,
+    ) -> Result<bool, Error> {
+        participant.require_auth();
+
+        // Enforce ZK mode
+        let mode: PrivacyMode = env
+            .storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None);
+        if mode != PrivacyMode::Zk {
+            return Err(Error::InvalidPrivacyMode);
+        }
+
+        // Basic sanity: proof must be non-empty
+        if proof.is_empty() {
+            return Err(Error::InvalidProof);
+        }
+
+        // Nullifier uniqueness — prevents double-registration via ZK
+        let nullifier_key = (symbol_short!("znul"), nullifier.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::NullifierAlreadyUsed);
+        }
+
+        // Delegate to shared registration logic
+        let was_new = do_register(&env, participant.clone(), referrer)?;
+
+        // Mark nullifier as used (only on successful new registration)
+        if was_new {
+            env.storage().persistent().set(&nullifier_key, &true);
+            env.storage().persistent().extend_ttl(
+                &nullifier_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+        }
+
+        Ok(was_new)
+    }
+
+    /// Register a participant with uniqueness proof (ZK unique registration).
+    ///
+    /// Alias for `register_private` that emphasizes the uniqueness guarantee
+    /// provided by the nullifier.
+    pub fn register_unique(
+        env: Env,
+        participant: Address,
+        nullifier: BytesN<32>,
+        proof: Vec<BytesN<32>>,
+        referrer: Option<Address>,
+    ) -> Result<bool, Error> {
+        Self::register_private(env, participant, nullifier, proof, referrer)
+    }
+
     /// Register a participant.
     ///
     /// `leaf`  – the 32-byte leaf value committed in the Merkle tree for this
@@ -411,6 +551,16 @@ impl CampaignContract {
     ) -> Result<bool, Error> {
         participant.require_auth();
 
+        // Privacy mode enforcement (issue #544)
+        let mode: PrivacyMode = env
+            .storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None);
+        if mode == PrivacyMode::Zk {
+            return Err(Error::InvalidPrivacyMode);
+        }
+
         let active: bool = env
             .storage()
             .instance()
@@ -435,114 +585,7 @@ impl CampaignContract {
             }
         }
 
-        // #280 — Participant records live in PERSISTENT storage.
-        // Instance storage is shared with the contract code and caps
-        // at ~64KB total, which would brick a high-traffic campaign
-        // somewhere north of ~1.8k participants. Per-user data
-        // belongs in persistent storage where every key has its own
-        // TTL slot.
-        let key = (PARTICIPANT, participant.clone());
-        if env
-            .storage()
-            .persistent()
-            .get::<_, bool>(&key)
-            .unwrap_or(false)
-        {
-            return Ok(false);
-        }
-
-        // On-chain referral validation (issue #455). A referrer must be an
-        // already-registered participant and cannot be the registrant
-        // themselves. Validated before any state mutation so an invalid
-        // referrer aborts the whole registration atomically.
-        if let Some(referrer) = referrer.clone() {
-            if referrer == participant {
-                return Err(Error::SelfReferral);
-            }
-            let referrer_registered: bool = env
-                .storage()
-                .persistent()
-                .get(&(PARTICIPANT, referrer))
-                .unwrap_or(false);
-            if !referrer_registered {
-                return Err(Error::ReferrerNotRegistered);
-            }
-        }
-
-        let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
-        if max_cap > 0 {
-            let count: u64 = env
-                .storage()
-                .instance()
-                .get(&PARTICIPANT_COUNT)
-                .unwrap_or(0);
-            if count >= max_cap {
-                return Err(Error::CapReached);
-            }
-        }
-
-        env.storage().persistent().set(&key, &true);
-        // Extend the new persistent key's TTL alongside the write
-        // so the participant record stays alive across the campaign
-        // window. Threshold / extend-to values mirror the existing
-        // pattern used elsewhere in the workspace; the deployer can
-        // tune via a future admin-only setter without changing the
-        // storage tier.
-        env.storage().persistent().extend_ttl(
-            &key,
-            PARTICIPANT_TTL_THRESHOLD,
-            PARTICIPANT_TTL_EXTEND_TO,
-        );
-
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&PARTICIPANT_COUNT)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&PARTICIPANT_COUNT, &(count + 1));
-
-        env.events()
-            .publish((REGISTER_EVENT, participant.clone()), ());
-
-        // Log the registration to the activity ring buffer (issue #453)
-        log_activity(&env, ActivityKind::Register, participant.clone(), None);
-
-        // Record the referral edge and bump the referrer's tally (issue #455).
-        // Only reached on first-time registration with a validated referrer.
-        if let Some(referrer) = referrer {
-            let referral_key = (REFERRAL, participant.clone());
-            env.storage().persistent().set(&referral_key, &referrer);
-            env.storage().persistent().extend_ttl(
-                &referral_key,
-                PARTICIPANT_TTL_THRESHOLD,
-                PARTICIPANT_TTL_EXTEND_TO,
-            );
-
-            let count_key = (REFERRAL_COUNT, referrer.clone());
-            let referral_total: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
-            env.storage()
-                .persistent()
-                .set(&count_key, &(referral_total + 1));
-            env.storage().persistent().extend_ttl(
-                &count_key,
-                PARTICIPANT_TTL_THRESHOLD,
-                PARTICIPANT_TTL_EXTEND_TO,
-            );
-
-            env.events()
-                .publish((REFERRED_EVENT, participant, referrer), ());
-        }
-
-        // Instance storage still holds aggregate state
-        // (PARTICIPANT_COUNT, ADMIN, etc.) so keep its TTL fresh
-        // too.
-        env.storage().instance().extend_ttl(50, 100);
-        env.storage()
-            .instance()
-            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
-        Ok(true)
+        do_register(&env, participant, referrer)
     }
 
     /// Deregister a participant.
@@ -752,6 +795,104 @@ impl CampaignContract {
             .get(&ACTIVITY_LOG_SIZE)
             .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE)
     }
+}
+
+/// Shared registration logic used by both `register` and `register_private`.
+/// Expects auth and pre-condition checks (active, window, merkle) to have
+/// been performed by the caller.
+fn do_register(
+    env: &Env,
+    participant: Address,
+    referrer: Option<Address>,
+) -> Result<bool, Error> {
+    // #280 — Participant records live in PERSISTENT storage.
+    let key = (PARTICIPANT, participant.clone());
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&key)
+        .unwrap_or(false)
+    {
+        return Ok(false);
+    }
+
+    // On-chain referral validation (issue #455).
+    if let Some(referrer) = referrer.clone() {
+        if referrer == participant {
+            return Err(Error::SelfReferral);
+        }
+        let referrer_registered: bool = env
+            .storage()
+            .persistent()
+            .get(&(PARTICIPANT, referrer))
+            .unwrap_or(false);
+        if !referrer_registered {
+            return Err(Error::ReferrerNotRegistered);
+        }
+    }
+
+    let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
+    if max_cap > 0 {
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_COUNT)
+            .unwrap_or(0);
+        if count >= max_cap {
+            return Err(Error::CapReached);
+        }
+    }
+
+    env.storage().persistent().set(&key, &true);
+    env.storage().persistent().extend_ttl(
+        &key,
+        PARTICIPANT_TTL_THRESHOLD,
+        PARTICIPANT_TTL_EXTEND_TO,
+    );
+
+    let count: u64 = env
+        .storage()
+        .instance()
+        .get(&PARTICIPANT_COUNT)
+        .unwrap_or(0);
+    env.storage()
+        .instance()
+        .set(&PARTICIPANT_COUNT, &(count + 1));
+
+    env.events()
+        .publish((REGISTER_EVENT, participant.clone()), ());
+
+    log_activity(env, ActivityKind::Register, participant.clone(), None);
+
+    if let Some(referrer) = referrer {
+        let referral_key = (REFERRAL, participant.clone());
+        env.storage().persistent().set(&referral_key, &referrer);
+        env.storage().persistent().extend_ttl(
+            &referral_key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+
+        let count_key = (REFERRAL_COUNT, referrer.clone());
+        let referral_total: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&count_key, &(referral_total + 1));
+        env.storage().persistent().extend_ttl(
+            &count_key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+
+        env.events()
+            .publish((REFERRED_EVENT, participant, referrer), ());
+    }
+
+    env.storage().instance().extend_ttl(50, 100);
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+    Ok(true)
 }
 
 fn do_deregister(env: &Env, participant: Address) -> bool {

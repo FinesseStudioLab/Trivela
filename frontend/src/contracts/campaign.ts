@@ -260,6 +260,59 @@ export interface Client {
   ) => Promise<AssembledTransaction<Result<void>>>;
 
   /**
+   * Set the privacy mode for this campaign (admin only).
+   *
+   * Controls which registration path is used:
+   * - 0 (None): open registration, no proofs required.
+   * - 1 (Merkle): standard Merkle allowlist registration.
+   * - 2 (Zk): zero-knowledge proof registration (requires `register_private`).
+   */
+  set_privacy_mode: (
+    { admin, nonce, mode, fallback_allowed }: { admin: string; nonce: u64; mode: i32; fallback_allowed: boolean },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Result<void>>>;
+
+  /**
+   * Get the current privacy mode. Defaults to 0 (None/open) when not set.
+   */
+  get_privacy_mode: (options?: MethodOptions) => Promise<AssembledTransaction<i32>>;
+
+  /**
+   * Check whether fallback to Merkle registration is allowed for ZK campaigns.
+   */
+  is_fallback_allowed: (options?: MethodOptions) => Promise<AssembledTransaction<boolean>>;
+
+  /**
+   * Register a participant using a ZK proof (private registration).
+   *
+   * Only callable when the campaign's privacy mode is Zk (2).
+   * Returns `true` on first registration, `false` if already registered.
+   */
+  register_private: (
+    { participant, nullifier, proof, referrer }: {
+      participant: string;
+      nullifier: Buffer;
+      proof: Buffer[];
+      referrer?: string;
+    },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Result<boolean>>>;
+
+  /**
+   * Register a participant with uniqueness proof (ZK unique registration).
+   * Alias for `register_private`.
+   */
+  register_unique: (
+    { participant, nullifier, proof, referrer }: {
+      participant: string;
+      nullifier: Buffer;
+      proof: Buffer[];
+      referrer?: string;
+    },
+    options?: MethodOptions,
+  ) => Promise<AssembledTransaction<Result<boolean>>>;
+
+  /**
    * Construct and simulate a admin_deregister transaction. Returns an `AssembledTransaction` object which will have a `result` field containing the result of the simulation. If this transaction changes contract state, you will need to call `signAndSend()` on the returned object.
    * Deregister a participant by the admin.
    *
@@ -366,6 +419,11 @@ export class Client extends ContractClient {
     schema_version: this.txFromJSON<u32>,
     get_merkle_root: this.txFromJSON<Option<Buffer>>,
     set_merkle_root: this.txFromJSON<Result<void>>,
+    set_privacy_mode: this.txFromJSON<Result<void>>,
+    get_privacy_mode: this.txFromJSON<i32>,
+    is_fallback_allowed: this.txFromJSON<boolean>,
+    register_private: this.txFromJSON<Result<boolean>>,
+    register_unique: this.txFromJSON<Result<boolean>>,
     admin_deregister: this.txFromJSON<Result<boolean>>,
     is_within_window: this.txFromJSON<boolean>,
     cancel_admin_transfer: this.txFromJSON<Result<void>>,
