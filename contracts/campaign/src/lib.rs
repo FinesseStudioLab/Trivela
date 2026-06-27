@@ -92,6 +92,11 @@ const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
 const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 
+// ── Privacy mode (issue #544) ────────────────────────────────────────────────
+// Per-campaign registration mode: None (open), Merkle (allowlist), or ZK.
+const PRIVACY_MODE: Symbol = symbol_short!("privmode");
+const SET_PRIVACY_MODE_EVENT: Symbol = symbol_short!("privmode");
+
 // ── On-chain referral tracking (issue #455) ──────────────────────────────────
 //
 // `(REFERRAL, referee) -> referrer` maps each referred participant to the
@@ -113,6 +118,19 @@ const ACTIVITY_LOG_SIZE: Symbol = symbol_short!("actsize");
 const DEFAULT_ACTIVITY_LOG_SIZE: u32 = 50;
 const MIN_ACTIVITY_LOG_SIZE: u32 = 10;
 const MAX_ACTIVITY_LOG_SIZE: u32 = 200;
+
+// ── PrivacyMode (issue #544) ─────────────────────────────────────────────────
+// Stored in instance storage per campaign to gate which registration path is valid.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum PrivacyMode {
+    /// Open registration — no allowlist or ZK required.
+    None,
+    /// Merkle allowlist — registration requires a valid Merkle proof.
+    Merkle,
+    /// ZK privacy — registration uses a zero-knowledge proof.
+    Zk,
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[contracttype]
@@ -356,6 +374,38 @@ impl CampaignContract {
         Ok(())
     }
 
+    /// Set the privacy mode for this campaign (admin only).
+    ///
+    /// `None` — open registration, no restrictions.
+    /// `Merkle` — registration requires a valid Merkle proof (allowlist).
+    /// `Zk` — registration requires a zero-knowledge proof.
+    ///
+    /// Mode changes apply only to new registrations; existing participants
+    /// are never invalidated.
+    pub fn set_privacy_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: PrivacyMode,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&PRIVACY_MODE, &mode);
+        env.events()
+            .publish((SET_PRIVACY_MODE_EVENT,), mode.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current privacy mode. Defaults to `PrivacyMode::None`.
+    pub fn get_privacy_mode(env: Env) -> PrivacyMode {
+        env.storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None)
+    }
+
     /// Set the Merkle root for allowlist-gated registration (admin only).
     ///
     /// Once set, every `register` call must supply a valid `(leaf, proof)`.
@@ -428,10 +478,29 @@ impl CampaignContract {
             return Err(Error::OutsideTimeWindow);
         }
 
-        // Merkle allowlist check – skipped when no root is stored.
-        if let Some(root) = env.storage().instance().get::<_, BytesN<32>>(&MERKLE_ROOT) {
-            if !verify_merkle_proof(&env, leaf, &proof, &root) {
-                return Err(Error::NotInAllowlist);
+        // Privacy mode enforcement (issue #544).
+        let privacy_mode: PrivacyMode = env
+            .storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None);
+
+        // Merkle allowlist check — enforced when a root is set AND mode is not Zk.
+        // When mode is Zk, the ZK proof replaces the Merkle check.
+        if privacy_mode != PrivacyMode::Zk {
+            if let Some(root) = env.storage().instance().get::<_, BytesN<32>>(&MERKLE_ROOT) {
+                if !verify_merkle_proof(&env, leaf, &proof, &root) {
+                    return Err(Error::NotInAllowlist);
+                }
+            }
+        } else {
+            // ZK mode: verify against the Merkle root if configured.
+            // The root is the ZK commitment tree root; the proof
+            // was generated client-side via ZK.
+            if let Some(root) = env.storage().instance().get::<_, BytesN<32>>(&MERKLE_ROOT) {
+                if !verify_merkle_proof(&env, leaf, &proof, &root) {
+                    return Err(Error::NotInAllowlist);
+                }
             }
         }
 

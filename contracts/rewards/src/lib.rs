@@ -1546,6 +1546,199 @@ impl RewardsContract {
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
+
+    // ── Payout Asset (issue #546) ──────────────────────────────────────────────
+    // Real asset payout on claim: lets a campaign fund a reserve in a chosen
+    // Stellar Asset Contract (SAC) asset and pay that asset out to the user
+    // on claim, at a configured points→asset rate.
+
+    /// Set the payout asset configuration (admin only).
+    ///
+    /// `sac` — address of the Stellar Asset Contract token.
+    /// `rate_num` / `rate_den` — conversion rate: asset_out = points * rate_num / rate_den.
+    pub fn set_payout_asset(
+        env: Env,
+        admin: Address,
+        sac: Address,
+        rate_num: u32,
+        rate_den: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if rate_num == 0 || rate_den == 0 {
+            return Err(Error::InvalidRedemptionRate);
+        }
+        env.storage().instance().set(&REDEMPTION_ASSET, &sac);
+        env.storage()
+            .instance()
+            .set(&REDEMPTION_RATE, &(rate_num, rate_den));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the payout asset configuration.
+    /// Returns `(sac_address, rate_num, rate_den)` or `None` if not configured.
+    pub fn payout_asset_config(env: Env) -> Option<(Address, u32, u32)> {
+        let asset: Option<Address> = env.storage().instance().get(&REDEMPTION_ASSET);
+        let rate: Option<(u32, u32)> = env.storage().instance().get(&REDEMPTION_RATE);
+        match (asset, rate) {
+            (Some(a), Some((n, d))) => Some((a, n, d)),
+            _ => None,
+        }
+    }
+
+    /// Fund the payout reserve by transferring SAC tokens into the contract.
+    /// Callable by anyone (typically admin or campaign funder).
+    pub fn fund_payout_reserve(env: Env, from: Address, amount: i128) -> Result<(), Error> {
+        from.require_auth();
+        if amount <= 0 {
+            return Err(Error::Overflow);
+        }
+
+        let asset_address: Address = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_ASSET)
+            .ok_or(Error::InvalidRedemptionRate)?;
+
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&from, env.current_contract_address(), &amount);
+
+        let current_reserve: u64 = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_RESERVE)
+            .unwrap_or(0);
+        let amount_u64 = amount as u64;
+        let new_reserve = current_reserve.checked_add(amount_u64).ok_or(Error::Overflow)?;
+        env.storage()
+            .instance()
+            .set(&REDEMPTION_RESERVE, &new_reserve);
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current payout reserve balance.
+    pub fn payout_reserve_balance(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&REDEMPTION_RESERVE)
+            .unwrap_or(0)
+    }
+
+    /// Claim real asset payout: burns `points` from the user's balance and
+    /// transfers the equivalent SAC asset amount to the user.
+    ///
+    /// `asset_out = points * rate_num / rate_den` (floor division).
+    /// Reverts if the computed payout exceeds the reserve.
+    pub fn claim_asset(env: Env, user: Address, points: u64) -> Result<i128, Error> {
+        user.require_auth();
+        ensure_not_paused(&env)?;
+
+        let (asset_address, rate_num, rate_den): (Address, u32, u32) = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_ASSET)
+            .zip(env.storage().instance().get(&REDEMPTION_RATE))
+            .map(|(a, (n, d))| (a, n, d))
+            .ok_or(Error::InvalidRedemptionRate)?;
+
+        // Compute asset amount: points * rate_num / rate_den (floor division)
+        let asset_amount_u128 = (points as u128)
+            .checked_mul(rate_num as u128)
+            .ok_or(Error::Overflow)?
+            / (rate_den as u128);
+
+        if asset_amount_u128 > i128::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let asset_amount = asset_amount_u128 as i128;
+
+        // Check reserve is sufficient
+        let current_reserve: u64 = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_RESERVE)
+            .unwrap_or(0);
+        if (asset_amount as u64) > current_reserve {
+            return Err(Error::InsufficientReserve);
+        }
+
+        // Burn points from user balance (CEI: checks done, now effects)
+        let balance_key = (BALANCE, user.clone());
+        let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current_balance
+            .checked_sub(points)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Update reserve
+        let new_reserve = current_reserve.saturating_sub(asset_amount as u64);
+        env.storage()
+            .instance()
+            .set(&REDEMPTION_RESERVE, &new_reserve);
+
+        // Transfer SAC tokens to user
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&env.current_contract_address(), &user, &asset_amount);
+
+        // Emit event
+        env.events()
+            .publish((REDEEM_EVENT, user), (points, asset_amount));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(asset_amount)
+    }
+
+    /// Withdraw payout reserve to a specified address (admin only).
+    pub fn withdraw_payout_reserve(
+        env: Env,
+        admin: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if amount <= 0 {
+            return Err(Error::Overflow);
+        }
+
+        let asset_address: Address = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_ASSET)
+            .ok_or(Error::InvalidRedemptionRate)?;
+
+        let current_reserve: u64 = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_RESERVE)
+            .unwrap_or(0);
+        if (amount as u64) > current_reserve {
+            return Err(Error::InsufficientReserve);
+        }
+
+        let new_reserve = current_reserve.saturating_sub(amount as u64);
+        env.storage()
+            .instance()
+            .set(&REDEMPTION_RESERVE, &new_reserve);
+
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&env.current_contract_address(), &to, &amount);
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
 }
 
 fn sort_tiers(_env: &Env, tiers: Vec<(u64, u64)>) -> Vec<(u64, u64)> {

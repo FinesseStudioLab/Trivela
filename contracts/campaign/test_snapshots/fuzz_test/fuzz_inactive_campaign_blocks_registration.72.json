@@ -1,6 +1,6 @@
 {
   "generators": {
-    "address": 10,
+    "address": 12,
     "nonce": 0,
     "mux_id": 0
   },
@@ -32,6 +32,8 @@
         }
       ]
     ],
+    [],
+    [],
     [],
     [],
     [],

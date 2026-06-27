@@ -20,7 +20,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAFCT4"
                 },
                 {
-                  "u64": "701"
+                  "u64": "723"
                 }
               ]
             }
@@ -45,7 +45,7 @@
                   "address": "CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAHK3M"
                 },
                 {
-                  "u64": "162"
+                  "u64": "65"
                 }
               ]
             }
@@ -116,7 +116,7 @@
                         "symbol": "mxcredit"
                       },
                       "val": {
-                        "u64": "701"
+                        "u64": "723"
                       }
                     },
                     {
@@ -147,7 +147,7 @@
                         ]
                       },
                       "val": {
-                        "u64": "162"
+                        "u64": "65"
                       }
                     }
                   ]
@@ -232,7 +232,7 @@
               }
             ],
             "data": {
-              "u64": "162"
+              "u64": "65"
             }
           }
         }
