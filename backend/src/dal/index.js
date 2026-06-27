@@ -21,6 +21,7 @@ import { SqliteOrganizationRepository } from './sqliteOrganizationRepository.js'
 import { createSqliteOrgMemberRepository } from './sqliteOrgMemberRepository.js';
 import { createSqliteUsageRepository } from './sqliteUsageRepository.js';
 import { createSqliteFeatureFlagRepository } from './sqliteFeatureFlagRepository.js';
+import { createSqliteIdempotencyRepository } from './sqliteIdempotencyRepository.js';
 
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
@@ -94,6 +95,7 @@ export async function createDal({
     orgMembers: createSqliteOrgMemberRepository({ db }),
     usage: createSqliteUsageRepository({ db }),
     featureFlags: createSqliteFeatureFlagRepository({ db }),
+    idempotency: createSqliteIdempotencyRepository({ db }),
     db,
     pgPool,
   };

@@ -56,6 +56,14 @@ pub enum Error {
     InvalidReferralConfig = 19,
     /// The computed referral bonus rounded down to zero.
     ZeroReferralBonus = 20,
+    /// SEP-41 token mode is not enabled.
+    TokenModeNotEnabled = 21,
+    /// SEP-41: allowance not sufficient for transfer_from.
+    AllowanceExceeded = 22,
+    /// SEP-41: approval expiration ledger has passed.
+    ApprovalExpired = 23,
+    /// SEP-41: invalid expiration ledger (must be > current ledger).
+    InvalidExpiration = 24,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -168,6 +176,20 @@ const REF_BONUS_EVENT: Symbol = symbol_short!("refbonus");
 // Upper bound on the configurable rate (1000%) to guard against fat-finger
 // configuration and keep `qualifying_amount * rate_bps` comfortably in range.
 const MAX_REFERRAL_RATE_BPS: u32 = 100_000;
+
+// ── SEP-41 Token Interface (issue #530) ─────────────────────────────────────
+// Optional token-backed mode where reward points are SEP-41-compliant tokens.
+// When token_mode is enabled, the contract exposes standard token functions.
+const TOKEN_MODE: Symbol = symbol_short!("tokmode");
+const TOKEN_DECIMALS: Symbol = symbol_short!("tokdec");
+const TOKEN_NAME: Symbol = symbol_short!("tokname");
+const TOKEN_SYMBOL: Symbol = symbol_short!("toksym");
+const ALLOWANCE: Symbol = symbol_short!("allow");
+
+// SEP-41 Events
+const SEP41_TRANSFER_EVENT: Symbol = symbol_short!("transfer");
+const SEP41_APPROVE_EVENT: Symbol = symbol_short!("approve");
+const SEP41_BURN_EVENT: Symbol = symbol_short!("burn");
 
 #[contract]
 pub struct RewardsContract;
@@ -1217,6 +1239,312 @@ impl RewardsContract {
     /// The referrer that was rewarded for `referee`, if any.
     pub fn rewarded_referrer_of(env: Env, referee: Address) -> Option<Address> {
         env.storage().instance().get(&(REF_PAID, referee))
+    }
+
+    // ── SEP-41 Token Interface (issue #530) ──────────────────────────────────
+
+    /// Enable token mode (admin only). One-way: once enabled, cannot be disabled.
+    /// This enables SEP-41-compliant token interface alongside existing points API.
+    pub fn enable_token_mode(
+        env: Env,
+        admin: Address,
+        name: Symbol,
+        symbol: Symbol,
+        decimals: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if decimals > 18 {
+            return Err(Error::InvalidMultiplier);
+        }
+        env.storage().instance().set(&TOKEN_MODE, &true);
+        env.storage().instance().set(&TOKEN_NAME, &name);
+        env.storage().instance().set(&TOKEN_SYMBOL, &symbol);
+        env.storage().instance().set(&TOKEN_DECIMALS, &decimals);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Check if token mode is enabled.
+    pub fn is_token_mode(env: Env) -> bool {
+        env.storage().instance().get(&TOKEN_MODE).unwrap_or(false)
+    }
+
+    /// SEP-41: Returns the balance of `id` as i128.
+    /// Maps internal u64 points to i128 per SEP-41 standard.
+    pub fn sep41_balance(env: Env, id: Address) -> i128 {
+        let balance: u64 = env.storage().instance().get(&(BALANCE, id)).unwrap_or(0);
+        balance as i128
+    }
+
+    /// SEP-41: Transfer `amount` from `from` to `to`.
+    /// Requires authorization from `from`.
+    pub fn sep41_transfer(
+        env: Env,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let to_key = (BALANCE, to.clone());
+        let to_balance: u64 = env.storage().instance().get(&to_key).unwrap_or(0);
+        let new_to_balance = to_balance.checked_add(amount_u64).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&to_key, &new_to_balance);
+
+        env.events()
+            .publish((SEP41_TRANSFER_EVENT, from, to), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Transfer `amount` from `from` to `to` using allowance.
+    /// Requires authorization from `spender`.
+    pub fn sep41_transfer_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        to: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        spender.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        let (allowed, expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+
+        if expiration > 0 && env.ledger().sequence() > expiration {
+            env.storage().instance().remove(&allowance_key);
+            return Err(Error::ApprovalExpired);
+        }
+
+        if allowed < amount_u64 {
+            return Err(Error::AllowanceExceeded);
+        }
+
+        let new_allowed = allowed - amount_u64;
+        if new_allowed == 0 {
+            env.storage().instance().remove(&allowance_key);
+        } else {
+            env.storage().instance().set(&allowance_key, &(new_allowed, expiration));
+        }
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let to_key = (BALANCE, to.clone());
+        let to_balance: u64 = env.storage().instance().get(&to_key).unwrap_or(0);
+        let new_to_balance = to_balance.checked_add(amount_u64).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&to_key, &new_to_balance);
+
+        env.events()
+            .publish((SEP41_TRANSFER_EVENT, from, to), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Set allowance for `spender` to spend `amount` from caller's balance.
+    /// If expiration_ledger is 0, the allowance does not expire.
+    pub fn sep41_approve(
+        env: Env,
+        from: Address,
+        spender: Address,
+        amount: i128,
+        expiration_ledger: u32,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+
+        if expiration_ledger > 0 && expiration_ledger <= env.ledger().sequence() {
+            return Err(Error::InvalidExpiration);
+        }
+
+        let amount_u64 = amount as u64;
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        env.storage()
+            .instance()
+            .set(&allowance_key, &(amount_u64, expiration_ledger));
+
+        env.events()
+            .publish((SEP41_APPROVE_EVENT, from, spender), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Returns the allowance `owner` has granted to `spender`.
+    pub fn sep41_allowance(env: Env, owner: Address, spender: Address) -> i128 {
+        let allowance_key = (ALLOWANCE, owner, spender);
+        let (allowed, _expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+        allowed as i128
+    }
+
+    /// SEP-41: Returns the number of decimals used for display.
+    pub fn sep41_decimals(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&TOKEN_DECIMALS)
+            .unwrap_or(0)
+    }
+
+    /// SEP-41: Returns the name of the token.
+    pub fn sep41_name(env: Env) -> Symbol {
+        env.storage()
+            .instance()
+            .get(&TOKEN_NAME)
+            .unwrap_or_else(|| symbol_short!("Trivela"))
+    }
+
+    /// SEP-41: Returns the symbol of the token.
+    pub fn sep41_symbol(env: Env) -> Symbol {
+        env.storage()
+            .instance()
+            .get(&TOKEN_SYMBOL)
+            .unwrap_or_else(|| symbol_short!("TVL"))
+    }
+
+    /// SEP-41: Burn `amount` from `from`'s balance.
+    /// Requires authorization from `from`.
+    pub fn sep41_burn(env: Env, from: Address, amount: i128) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        from.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount_u64));
+
+        env.events()
+            .publish((SEP41_BURN_EVENT, from), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// SEP-41: Burn `amount` from `from`'s balance using allowance.
+    /// Requires authorization from `spender`.
+    pub fn sep41_burn_from(
+        env: Env,
+        spender: Address,
+        from: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if !Self::is_token_mode(env.clone()) {
+            return Err(Error::TokenModeNotEnabled);
+        }
+        spender.require_auth();
+        ensure_not_paused(&env)?;
+
+        if amount < 0 {
+            return Err(Error::Overflow);
+        }
+        let amount_u64 = amount as u64;
+
+        let allowance_key = (ALLOWANCE, from.clone(), spender.clone());
+        let (allowed, expiration): (u64, u32) = env
+            .storage()
+            .instance()
+            .get(&allowance_key)
+            .unwrap_or((0, 0));
+
+        if expiration > 0 && env.ledger().sequence() > expiration {
+            env.storage().instance().remove(&allowance_key);
+            return Err(Error::ApprovalExpired);
+        }
+
+        if allowed < amount_u64 {
+            return Err(Error::AllowanceExceeded);
+        }
+
+        let new_allowed = allowed - amount_u64;
+        if new_allowed == 0 {
+            env.storage().instance().remove(&allowance_key);
+        } else {
+            env.storage().instance().set(&allowance_key, &(new_allowed, expiration));
+        }
+
+        let from_key = (BALANCE, from.clone());
+        let from_balance: u64 = env.storage().instance().get(&from_key).unwrap_or(0);
+        let new_from_balance = from_balance
+            .checked_sub(amount_u64)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&from_key, &new_from_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount_u64));
+
+        env.events()
+            .publish((SEP41_BURN_EVENT, from), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
     }
 }
 

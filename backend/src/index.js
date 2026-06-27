@@ -67,8 +67,10 @@ import { requestTimeout } from './middleware/timeout.js';
 import { PoolSaturatedError } from './rpcPool.js';
 import { initializeWebSocket, getWebSocketServer } from './websocket/index.js';
 import { requireScope } from './middleware/rbac.js';
+import { createIdempotencyMiddleware } from './middleware/idempotency.js';
 import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
 import { createExportJob } from './jobs/exportJob.js';
+import { createEventIndexer } from './jobs/eventIndexer.js';
 import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
 import { createDurableJobQueue } from './jobs/durableJobQueue.js';
 import { createStellarTomlRoute } from './routes/stellarToml.js';
@@ -267,6 +269,11 @@ export async function createApp(options = {}) {
   const allowlistRepository = dal.allowlists;
   const orgMemberRepository = dal.orgMembers;
   const usageRepository = options.usageRepository ?? dal.usage;
+  const idempotencyRepository = dal.idempotency;
+
+  const idempotencyMiddleware = createIdempotencyMiddleware({
+    repository: idempotencyRepository,
+  });
 
   const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
     options.storageAdapter ?? createStorageAdapter(process.env)
@@ -452,6 +459,16 @@ export async function createApp(options = {}) {
     logger: log,
     retentionDays: exportRetentionDays,
     uploadDir: process.env.UPLOAD_DIR ?? './uploads',
+  });
+
+  const eventIndexer = createEventIndexer({
+    db: dal.db,
+    rpcPool,
+    logger: log,
+    referralBonus: normalizePositiveInteger(
+      /** @type {any} */ (options.referralBonus) ?? process.env.REFERRAL_BONUS,
+      0,
+    ),
   });
 
   // Durable job queue store — persistent across restarts (#565)
@@ -718,6 +735,18 @@ export async function createApp(options = {}) {
     });
   });
 
+  app.get('/health/indexer', (_req, res) => {
+    const health = eventIndexer?.getHealth?.() ?? {
+      status: 'unavailable',
+      lastLedger: 0,
+      lagLedgers: 0,
+      eventsTotal: 0,
+      errorsTotal: 0,
+    };
+    const isHealthy = health.status === 'ok' || health.status === 'idle';
+    res.status(isHealthy ? 200 : 503).json(health);
+  });
+
   app.get('/metrics', (_req, res) => {
     const uptimeSeconds = process.uptime();
     const routeLines = [...metrics.routeHits.entries()]
@@ -780,6 +809,12 @@ export async function createApp(options = {}) {
       '# HELP trivela_rpc_pool_unhealthy Unhealthy RPC endpoints in the pool.',
       '# TYPE trivela_rpc_pool_unhealthy gauge',
       `trivela_rpc_pool_unhealthy ${poolStatus.unhealthy}`,
+      // Indexer metrics (#532).
+      ...Object.entries(eventIndexer?.getMetrics?.() ?? {}).map(([key, value]) => [
+        `# HELP ${key.replace(/_/g, ' ')} Indexer metric.`,
+        `# TYPE ${key} gauge`,
+        `${key} ${value}`,
+      ]).flat(),
     ]
       .filter(Boolean)
       .join('\n');
@@ -1714,8 +1749,8 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/audit/verify`, rateLimiter, requireMasterKey, verifyAuditChain);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
     app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
-    app.post(`${prefix}/campaigns`, rateLimiter, ...guard, requireScope('campaigns:write'), createCampaign);
-    app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, ...guard, requireScope('campaigns:write'), cloneCampaign);
+    app.post(`${prefix}/campaigns`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), createCampaign);
+    app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), cloneCampaign);
     app.post(`${prefix}/campaigns/:id/image`, rateLimiter, ...guard, requireScope('campaigns:write'), (req, res, next) => {
       imageUpload.single('image')(req, res, (err) => {
         if (err?.code === 'LIMIT_FILE_SIZE') {
@@ -1728,23 +1763,24 @@ export async function createApp(options = {}) {
         return uploadCampaignImageHandler(req, res);
       });
     });
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, ...guard, requireScope('campaigns:write'), updateCampaign);
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), updateCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, requireScope('campaigns:write'), deleteCampaign);
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
-    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, requireApiKey, publishCampaign);
-    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, requireApiKey, archiveCampaign);
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, requireApiKey, updateCampaign);
+    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, idempotencyMiddleware, requireApiKey, publishCampaign);
+    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, idempotencyMiddleware, requireApiKey, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, ...guard, updateCampaign);
-    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, ...guard, publishCampaign);
-    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, ...guard, archiveCampaign);
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, ...guard, updateCampaign);
+    app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, idempotencyMiddleware, ...guard, publishCampaign);
+    app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, idempotencyMiddleware, ...guard, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
-    app.post(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, createApiKeyHandler);
+    app.post(`${prefix}/admin/api-keys`, rateLimiter, idempotencyMiddleware, requireMasterKey, createApiKeyHandler);
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
     app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
     app.put(
       `${prefix}/admin/api-keys/:id/rotate`,
       rateLimiter,
+      idempotencyMiddleware,
       requireMasterKey,
       rotateApiKeyHandler,
     );
@@ -1797,7 +1833,7 @@ export async function createApp(options = {}) {
 
     // Job dead-letter inspection / requeue (Issue #286)
     app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, listFailedJobsHandler);
-    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, ...guard, retryFailedJobHandler);
+    app.post(`${prefix}/jobs/retry/:id`, rateLimiter, idempotencyMiddleware, ...guard, retryFailedJobHandler);
 
     // Durable job queue DLQ admin — inspect and replay dead jobs (#565)
     app.get(`${prefix}/admin/jobs/dlq`, rateLimiter, requireMasterKey, (req, res) => {
@@ -1808,7 +1844,7 @@ export async function createApp(options = {}) {
       return res.json({ data: items, pagination: { total, count: items.length, limit, offset } });
     });
 
-    app.post(`${prefix}/admin/jobs/:id/replay`, rateLimiter, requireMasterKey, async (req, res) => {
+    app.post(`${prefix}/admin/jobs/:id/replay`, rateLimiter, idempotencyMiddleware, requireMasterKey, async (req, res) => {
       const job = jobQueueStore.getById(req.params.id);
       if (!job) {
         return res.status(404).json({ error: 'Job not found', code: 'JOB_NOT_FOUND' });
@@ -1820,7 +1856,7 @@ export async function createApp(options = {}) {
     });
 
     // Webhook routes (Issue #287)
-    app.post(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
+    app.post(`${prefix}/webhooks`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
       const { url, events, secret } = req.body;
       if (!url || !Array.isArray(events) || events.length === 0) {
         return res.status(400).json({
@@ -1852,7 +1888,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.put(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
       const { url, events, active } = req.body;
       const before = webhookRepository.getById(req.params.id);
       if (!before) {

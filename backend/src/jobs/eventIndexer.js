@@ -1,20 +1,28 @@
 /**
- * Event indexer for Trivela Soroban contract events.
+ * Enhanced event indexer for Trivela Soroban contract events.
  *
- * Subscribes to on-chain events and persists them to the database.
- * Snapshot events store a ledger reference so off-chain tools can
- * reconstruct user balances at that point using Horizon getLedgerEntries.
+ * Features:
+ * - Durable cursor persistence in indexer_state table
+ * - Idempotent upserts via UNIQUE(tx_hash, event_index) constraint
+ * - Prometheus metrics for monitoring
+ * - Health status endpoint
+ * - Projection handlers per event type
  */
 
 export function createEventIndexer({
   db,
   rpcPool,
   logger = console,
-  // Bonus (in reward units) auto-credited to a referrer when an on-chain
-  // `referred` event is indexed (issue #455). Defaults to 0 so deployments
-  // opt in explicitly.
   referralBonus = 0,
 } = {}) {
+  const metrics = {
+    lastLedger: 0,
+    lagLedgers: 0,
+    eventsTotal: 0,
+    errorsTotal: 0,
+    lastPollAt: null,
+  };
+
   const handlers = {
     credit: handleCreditEvent,
     claim: handleClaimEvent,
@@ -23,15 +31,45 @@ export function createEventIndexer({
     vclaim: handleVestedClaimEvent,
     referred: (event, database) => handleReferredEvent(event, database, referralBonus),
     refbonus: handleRefBonusEvent,
+    register: handleRegisterEvent,
+    deregister: handleDeregisterEvent,
   };
 
-  async function processEvent(event) {
+  async function processEvent(event, contractId) {
     const topic = event.topic?.[0];
     const handler = handlers[topic];
     if (!handler) return;
+
     try {
+      const txHash = event.txHash || 'unknown';
+      const eventIndex = event.eventIndex || 0;
+      const ledger = event.ledger || 0;
+
+      const existing = db.prepare(
+        'SELECT id FROM indexed_events WHERE tx_hash = ? AND event_index = ?'
+      ).get(txHash, eventIndex);
+
+      if (existing) {
+        return;
+      }
+
+      db.prepare(`
+        INSERT OR IGNORE INTO indexed_events (ledger, tx_hash, contract_id, event_type, topic, data_json, event_index)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        ledger,
+        txHash,
+        contractId,
+        topic,
+        JSON.stringify(event.topic || []),
+        JSON.stringify(event.data),
+        eventIndex,
+      );
+
       await handler(event, db);
+      metrics.eventsTotal++;
     } catch (err) {
+      metrics.errorsTotal++;
       logger.error?.(`eventIndexer:error topic=${topic}`, err);
     }
   }
@@ -44,16 +82,60 @@ export function createEventIndexer({
         cursor,
         limit: 200,
       });
+
       for (const event of events) {
-        await processEvent(event);
+        await processEvent(event, contractId);
       }
+
+      if (nextCursor) {
+        updateCursor(contractId, nextCursor, events.length > 0 ? events[events.length - 1].ledger : 0);
+      }
+
+      metrics.lastPollAt = new Date().toISOString();
       return nextCursor;
     } finally {
       rpcPool.release(rpc);
     }
   }
 
-  return { processEvent, poll };
+  function getCursor(contractId) {
+    const state = db.prepare('SELECT cursor FROM indexer_state WHERE contract_id = ?').get(contractId);
+    return state?.cursor || null;
+  }
+
+  function updateCursor(contractId, cursor, lastLedger) {
+    db.prepare(`
+      INSERT INTO indexer_state (contract_id, cursor, last_ledger, updated_at)
+      VALUES (?, ?, ?, datetime('now'))
+      ON CONFLICT(contract_id) DO UPDATE SET
+        cursor = excluded.cursor,
+        last_ledger = excluded.last_ledger,
+        updated_at = datetime('now')
+    `).run(contractId, cursor, lastLedger);
+    metrics.lastLedger = lastLedger;
+  }
+
+  function getHealth() {
+    return {
+      status: metrics.lastPollAt ? 'ok' : 'idle',
+      lastLedger: metrics.lastLedger,
+      lagLedgers: metrics.lagLedgers,
+      eventsTotal: metrics.eventsTotal,
+      errorsTotal: metrics.errorsTotal,
+      lastPollAt: metrics.lastPollAt,
+    };
+  }
+
+  function getMetrics() {
+    return {
+      indexer_last_ledger: metrics.lastLedger,
+      indexer_lag_ledgers: metrics.lagLedgers,
+      indexer_events_total: metrics.eventsTotal,
+      indexer_errors_total: metrics.errorsTotal,
+    };
+  }
+
+  return { processEvent, poll, getCursor, getHealth, getMetrics };
 }
 
 async function handleCreditEvent(event, db) {
@@ -87,94 +169,6 @@ async function handleClaimEvent(event, db) {
   ]);
 }
 
-/**
- * Index a snapshot event.
- *
- * The contract stores only a ledger reference — not a full balance copy.
- * Off-chain consumers can call Horizon getLedgerEntries with this ledger
- * number to reconstruct all user balances at that exact point in time.
- *
- * Pattern:
- *   1. Read `snapshot_ledger` from this event.
- *   2. Fetch all `BALANCE` storage entries at `snapshot_ledger` from Horizon.
- *   3. Persist the reconstructed balances to `snapshot_balances`.
- */
-/**
- * Index a `referred` event emitted by the campaign contract (issue #455).
- *
- * Topics are `(referred, referee, referrer)`. The contract has already
- * validated that the referrer is a registered participant and is not the
- * referee, so the indexer can trust the edge and auto-credit the referrer's
- * bonus without trusting the frontend.
- *
- * The credit mirrors `handleCreditEvent`: the referrer's balance is bumped and
- * a `credit_events` row records the on-chain reference. Recording is idempotent
- * per (referrer, referee) so re-indexing the same event does not double-credit.
- */
-async function handleReferredEvent(event, db, referralBonus = 0) {
-  const referee = event.topic?.[1];
-  const referrer = event.topic?.[2];
-  if (!referee || !referrer) return;
-
-  // Record the referral edge first; the UNIQUE(referee) guard makes replays
-  // a no-op and lets us skip the credit when nothing was inserted.
-  const recorded = await db.run(
-    `INSERT OR IGNORE INTO referral_credits (referee, referrer, ledger, tx_hash)
-     VALUES (?, ?, ?, ?)`,
-    [referee, referrer, event.ledger, event.txHash],
-  );
-  if (recorded && recorded.changes === 0) return;
-
-  const bonus = BigInt(referralBonus);
-  if (bonus <= 0n) return;
-
-  await db.run(
-    `INSERT OR IGNORE INTO balances (user) VALUES (?)
-     ON CONFLICT(user) DO UPDATE SET balance = balance + ?`,
-    [referrer, bonus.toString()],
-  );
-  await db.run(`INSERT INTO credit_events (user, amount, ledger, tx_hash) VALUES (?, ?, ?, ?)`, [
-    referrer,
-    bonus.toString(),
-    event.ledger,
-    event.txHash,
-  ]);
-}
-
-/**
- * Index a `ref_bonus` event emitted by the rewards contract's on-chain referral
- * engine (issue #656).
- *
- * Topics are `(refbonus, referrer, referee)`, data `(bonus, qualifying_amount)`.
- * The same payout also emits a standard `credit` event for the referrer, which
- * `handleCreditEvent` already applies to balances — so this handler records
- * *instrumentation only* (the attribution edge, bonus, and qualifying amount)
- * for referral-conversion metrics, and never touches balances to avoid
- * double-counting. The `UNIQUE(referee)` guard makes re-indexing idempotent,
- * mirroring the contract's one-bonus-per-referee invariant.
- */
-async function handleRefBonusEvent(event, db) {
-  const referrer = event.topic?.[1];
-  const referee = event.topic?.[2];
-  if (!referrer || !referee) return;
-
-  const [bonus, qualifyingAmount] = Array.isArray(event.data) ? event.data : [0, 0];
-  await db.run(
-    `INSERT OR IGNORE INTO referral_bonus_events
-       (referrer, referee, bonus, qualifying_amount, ledger, tx_hash, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [
-      referrer,
-      referee,
-      String(bonus),
-      String(qualifyingAmount),
-      event.ledger,
-      event.txHash,
-      Date.now(),
-    ],
-  );
-}
-
 async function handleSnapshotEvent(event, db) {
   const snapshotId = BigInt(event.topic?.[1] ?? 0);
   const snapshotLedger = BigInt(event.data ?? 0);
@@ -202,5 +196,74 @@ async function handleVestedClaimEvent(event, db) {
     `INSERT INTO vested_claim_events (user, vest_id, amount, ledger, tx_hash)
      VALUES (?, ?, ?, ?, ?)`,
     [user, String(vestId), String(amount), event.ledger, event.txHash],
+  );
+}
+
+async function handleReferredEvent(event, db, referralBonus = 0) {
+  const referee = event.topic?.[1];
+  const referrer = event.topic?.[2];
+  if (!referee || !referrer) return;
+
+  const recorded = await db.run(
+    `INSERT OR IGNORE INTO referral_credits (referee, referrer, ledger, tx_hash)
+     VALUES (?, ?, ?, ?)`,
+    [referee, referrer, event.ledger, event.txHash],
+  );
+  if (recorded && recorded.changes === 0) return;
+
+  const bonus = BigInt(referralBonus);
+  if (bonus <= 0n) return;
+
+  await db.run(
+    `INSERT OR IGNORE INTO balances (user) VALUES (?)
+     ON CONFLICT(user) DO UPDATE SET balance = balance + ?`,
+    [referrer, bonus.toString()],
+  );
+  await db.run(`INSERT INTO credit_events (user, amount, ledger, tx_hash) VALUES (?, ?, ?, ?)`, [
+    referrer,
+    bonus.toString(),
+    event.ledger,
+    event.txHash,
+  ]);
+}
+
+async function handleRefBonusEvent(event, db) {
+  const referrer = event.topic?.[1];
+  const referee = event.topic?.[2];
+  if (!referrer || !referee) return;
+
+  const [bonus, qualifyingAmount] = Array.isArray(event.data) ? event.data : [0, 0];
+  await db.run(
+    `INSERT OR IGNORE INTO referral_bonus_events
+       (referrer, referee, bonus, qualifying_amount, ledger, tx_hash, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      referrer,
+      referee,
+      String(bonus),
+      String(qualifyingAmount),
+      event.ledger,
+      event.txHash,
+      Date.now(),
+    ],
+  );
+}
+
+async function handleRegisterEvent(event, db) {
+  const user = event.topic?.[1];
+  const campaignId = event.topic?.[2];
+  await db.run(
+    `INSERT OR IGNORE INTO participants (user, campaign_id, registered_at, tx_hash)
+     VALUES (?, ?, ?, ?)`,
+    [user, campaignId, event.ledger, event.txHash],
+  );
+}
+
+async function handleDeregisterEvent(event, db) {
+  const user = event.topic?.[1];
+  const campaignId = event.topic?.[2];
+  await db.run(
+    `DELETE FROM participants WHERE user = ? AND campaign_id = ?`,
+    [user, campaignId],
   );
 }
