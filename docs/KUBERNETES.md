@@ -1,6 +1,7 @@
 # Kubernetes Deployment Guide
 
-This document covers deploying Trivela to a Kubernetes cluster using either the raw manifests in `k8s/` or the Helm chart in `helm/trivela/`.
+This document covers deploying Trivela to a Kubernetes cluster using either the raw manifests in
+`k8s/` or the Helm chart in `helm/trivela/`.
 
 ---
 
@@ -34,8 +35,10 @@ Internet
 ### Prerequisites
 
 - `kubectl` configured against your cluster
-- cert-manager installed: `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
-- ingress-nginx installed: `kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml`
+- cert-manager installed:
+  `kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
+- ingress-nginx installed:
+  `kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.0/deploy/static/provider/cloud/deploy.yaml`
 
 ### 1. Configure Secrets
 
@@ -94,24 +97,26 @@ helm install trivela ./helm/trivela \
 
 ## Files Reference
 
-| File | Purpose |
-|------|---------|
-| `k8s/deployment-backend.yaml` | Backend Deployment (2 replicas, liveness/readiness probes) |
-| `k8s/deployment-frontend.yaml` | Frontend Deployment served by nginx |
-| `k8s/service-backend.yaml` | ClusterIP Service for backend on port 3001 |
-| `k8s/service-frontend.yaml` | ClusterIP or LoadBalancer Service for frontend on port 80 |
-| `k8s/ingress.yaml` | NGINX Ingress with TLS (cert-manager annotation) |
-| `k8s/configmap.yaml` | Non-secret environment variables + nginx config |
-| `k8s/secret.yaml` | Secret template (values NOT committed) |
-| `k8s/hpa.yaml` | HorizontalPodAutoscaler (min 2 / max 10 replicas, CPU 70%) |
+| File                           | Purpose                                                    |
+| ------------------------------ | ---------------------------------------------------------- |
+| `k8s/deployment-backend.yaml`  | Backend Deployment (2 replicas, liveness/readiness probes) |
+| `k8s/deployment-frontend.yaml` | Frontend Deployment served by nginx                        |
+| `k8s/service-backend.yaml`     | ClusterIP Service for backend on port 3001                 |
+| `k8s/service-frontend.yaml`    | ClusterIP or LoadBalancer Service for frontend on port 80  |
+| `k8s/ingress.yaml`             | NGINX Ingress with TLS (cert-manager annotation)           |
+| `k8s/configmap.yaml`           | Non-secret environment variables + nginx config            |
+| `k8s/secret.yaml`              | Secret template (values NOT committed)                     |
+| `k8s/hpa.yaml`                 | HorizontalPodAutoscaler (min 2 / max 10 replicas, CPU 70%) |
 
 ---
 
 ## Scaling
 
-The HPA automatically scales the backend between **2 and 10 replicas** based on CPU utilisation (threshold: 70%).
+The HPA automatically scales the backend between **2 and 10 replicas** based on CPU utilisation
+(threshold: 70%).
 
 To manually scale:
+
 ```bash
 kubectl scale deployment trivela-backend --replicas=5
 ```

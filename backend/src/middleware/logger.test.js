@@ -6,7 +6,7 @@ import requestLogger, { log } from './logger.js';
 
 function makeReqRes({ method = 'GET', path = '/health' } = {}) {
   const req = { method, path };
-  const res = new EventEmitter();
+  const res = /** @type {any} */ (new EventEmitter());
   Object.assign(res, { statusCode: 200, locals: { requestId: 'req_abc' } });
   return { req, res };
 }

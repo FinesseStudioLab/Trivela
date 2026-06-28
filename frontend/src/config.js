@@ -83,6 +83,26 @@ validateFrontendEnv();
 
 export const API_BASE_URL = trimTrailingSlash(import.meta.env.VITE_API_URL || '');
 
+const DEFAULT_POLL_INTERVAL_MS = 30_000;
+
+export function getPollIntervalMs() {
+  const raw = import.meta.env.VITE_POLL_INTERVAL_MS;
+  if (raw === undefined || raw === '') {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+  const parsed = Number.parseInt(String(raw), 10);
+  if (!Number.isFinite(parsed) || parsed < 5_000) {
+    return DEFAULT_POLL_INTERVAL_MS;
+  }
+  return parsed;
+}
+
+export const SITE_URL =
+  trimTrailingSlash(import.meta.env.VITE_SITE_URL || '') ||
+  (typeof window !== 'undefined' ? window.location.origin : '');
+
+export const DEFAULT_OG_IMAGE = '/og-default.png';
+
 const DEV_NETWORK_STORAGE_KEY = 'trivela:stellarNetwork';
 
 let runtimeConfig = {
@@ -112,6 +132,32 @@ export function apiUrl(path) {
   }
 
   return `${API_BASE_URL}${path}`;
+}
+
+/**
+ * Resolve the real-time (SSE) stream URL for a campaign, or '' when real-time
+ * is not configured — in which case consumers fall back to polling.
+ *
+ * Priority:
+ *   1. VITE_REALTIME_URL (an SSE base; the campaignId is appended when present)
+ *   2. VITE_REALTIME_ENABLED=true → derive `${API}/api/v1/campaigns/:id/events`
+ *   3. otherwise '' (real-time disabled → polling only)
+ *
+ * @param {string} [campaignId]
+ * @returns {string}
+ */
+export function getRealtimeUrl(campaignId) {
+  const base = trimTrailingSlash(import.meta.env.VITE_REALTIME_URL || '');
+  if (base) {
+    return campaignId ? `${base}/${encodeURIComponent(campaignId)}` : base;
+  }
+
+  const enabled = String(import.meta.env.VITE_REALTIME_ENABLED || '').toLowerCase() === 'true';
+  if (enabled && campaignId) {
+    return apiUrl(`/api/v1/campaigns/${encodeURIComponent(campaignId)}/events`);
+  }
+
+  return '';
 }
 
 export async function initializeRuntimeConfig(fetchImpl = globalThis.fetch) {
@@ -173,6 +219,14 @@ export function setRuntimeStellarNetwork(network) {
   return getRuntimeConfig();
 }
 
+/**
+ * Returns the currently resolved Stellar network configuration
+ * ({ network, sorobanRpcUrl, horizonUrl, networkPassphrase, ... }).
+ */
+export function resolveStellarNetworkConfig() {
+  return { ...runtimeConfig.stellar };
+}
+
 export function getSorobanRpcUrl() {
   return runtimeConfig.stellar.sorobanRpcUrl;
 }
@@ -209,4 +263,12 @@ export function getRewardsContract() {
 export function getCampaignContract() {
   const contractId = getCampaignContractId();
   return contractId ? new Contract(contractId) : null;
+}
+
+export function getAdminAddresses() {
+  const raw = import.meta.env.VITE_ADMIN_ADDRESSES || '';
+  return raw
+    .split(',')
+    .map((a) => a.trim())
+    .filter(Boolean);
 }

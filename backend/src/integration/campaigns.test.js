@@ -61,10 +61,7 @@ test('POST /api/v1/campaigns creates a new campaign without API key when not con
     active: true,
   };
 
-  const response = await request(app)
-    .post('/api/v1/campaigns')
-    .send(newCampaign)
-    .expect(201);
+  const response = await request(app).post('/api/v1/campaigns').send(newCampaign).expect(201);
 
   assert.equal(response.body.name, 'New Campaign');
   assert.equal(response.body.description, 'New description');
@@ -99,10 +96,7 @@ test('POST /api/v1/campaigns validates required fields', async () => {
     description: 'Missing name and rewardPerAction',
   };
 
-  const response = await request(app)
-    .post('/api/v1/campaigns')
-    .send(invalidCampaign)
-    .expect(400);
+  const response = await request(app).post('/api/v1/campaigns').send(invalidCampaign).expect(400);
 
   assert.equal(response.body.code, 'VALIDATION_ERROR');
   assert.ok(Array.isArray(response.body.details));
@@ -134,10 +128,7 @@ test('PUT /api/v1/campaigns/:id returns 404 for non-existent campaign', async ()
   const app = await createTestApp();
   const updates = { name: 'Updated' };
 
-  const response = await request(app)
-    .put('/api/v1/campaigns/999')
-    .send(updates)
-    .expect(404);
+  const response = await request(app).put('/api/v1/campaigns/999').send(updates).expect(404);
 
   assert.equal(response.body.error, 'Campaign not found');
 });
@@ -181,10 +172,7 @@ test('Campaign CRUD operations maintain data integrity', async () => {
   assert.equal(getResponse.body.name, 'Integrity Test');
   assert.equal(getResponse.body.active, false);
 
-  await request(app)
-    .put(`/api/v1/campaigns/${campaignId}`)
-    .send({ active: true })
-    .expect(200);
+  await request(app).put(`/api/v1/campaigns/${campaignId}`).send({ active: true }).expect(200);
 
   const updatedResponse = await request(app).get(`/api/v1/campaigns/${campaignId}`).expect(200);
   assert.equal(updatedResponse.body.active, true);

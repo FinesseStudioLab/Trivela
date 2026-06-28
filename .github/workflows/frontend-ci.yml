@@ -1,10 +1,9 @@
 name: Frontend CI
 
 on:
+  # Runs on pull requests (full contributor CI). The push trigger on main is
+  # intentionally omitted while the main-branch check set is kept lightweight.
   pull_request:
-  push:
-    branches:
-      - main
 
 jobs:
   frontend:
@@ -38,8 +37,11 @@ jobs:
           fs.appendFileSync(out, 'has_test=' + (pkg.scripts?.test ? 'true' : 'false') + '\n');
           EOF
 
-      - name: Build frontend
-        run: npm run build --workspace=frontend
+      - name: Build frontend (via Turborepo)
+        run: npx turbo run build --filter=frontend
+
+      - name: Bundle size budget gate
+        run: node scripts/check-bundle-size.mjs
 
       - name: Upload frontend build artifact
         if: success()
@@ -51,19 +53,30 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.scripts.outputs.has_test == 'true'
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox webkit
 
-      - name: Lint frontend
+      - name: Lint frontend (via Turborepo)
         if: steps.scripts.outputs.has_lint == 'true'
-        run: npm run lint --workspace=frontend
+        run: npx turbo run lint --filter=frontend
 
       - name: Check frontend formatting
         if: steps.scripts.outputs.has_format_check == 'true'
         run: npm run format:check --workspace=frontend
 
-      - name: Test frontend
+      - name: Test frontend (via Turborepo)
         if: steps.scripts.outputs.has_test == 'true'
-        run: npm run test --workspace=frontend
+        run: npx turbo run test --filter=frontend
+
+      - name: Coverage gate — unit tests with thresholds
+        run: npm run test:coverage --workspace=frontend
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
 
       - name: Upload Playwright artifacts on failure
         if: failure() && steps.scripts.outputs.has_test == 'true'

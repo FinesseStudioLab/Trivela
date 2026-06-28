@@ -1,5 +1,6 @@
 // @ts-check
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { DEFAULT_SCOPES } from '../db/migrations/017_api_key_scopes.js';
 
 function hashKey(rawKey) {
   return createHash('sha256').update(rawKey).digest('hex');
@@ -9,10 +10,22 @@ function generateRawKey() {
   return `tk_${randomBytes(32).toString('base64url')}`;
 }
 
+function parseScopes(raw) {
+  if (!raw) return DEFAULT_SCOPES;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : DEFAULT_SCOPES;
+  } catch {
+    return DEFAULT_SCOPES;
+  }
+}
+
 function rowToApiKey(row) {
   return {
     id: row.id,
     label: row.label,
+    orgId: row.org_id ?? null,
+    scopes: parseScopes(row.scopes),
     createdAt: row.created_at,
     expiresAt: row.expires_at ?? null,
     lastUsedAt: row.last_used_at ?? null,
@@ -21,12 +34,12 @@ function rowToApiKey(row) {
 }
 
 /**
- * @param {{ db: import('better-sqlite3').Database }} params
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} params
  */
 export function createSqliteApiKeyRepository({ db }) {
   const insertStmt = db.prepare(`
-    INSERT INTO api_keys (id, key_hash, label, created_at, expires_at, active)
-    VALUES (?, ?, ?, ?, ?, 1)
+    INSERT INTO api_keys (id, key_hash, label, org_id, scopes, created_at, expires_at, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, 1)
   `);
 
   const findByHashStmt = db.prepare(`
@@ -42,19 +55,22 @@ export function createSqliteApiKeyRepository({ db }) {
   `);
 
   /**
-   * @param {{ label?: string, expiresAt?: string | null }} [opts]
+   * @param {{ label?: string, expiresAt?: string | null, orgId?: string | null, scopes?: string[] }} [opts]
    */
-  function create({ label = '', expiresAt = null } = {}) {
+  function create({ label = '', expiresAt = null, orgId = null, scopes = DEFAULT_SCOPES } = {}) {
     const rawKey = generateRawKey();
     const id = randomUUID();
     const createdAt = new Date().toISOString();
+    const scopesJson = JSON.stringify(scopes);
 
-    insertStmt.run(id, hashKey(rawKey), label, createdAt, expiresAt);
+    insertStmt.run(id, hashKey(rawKey), label, orgId, scopesJson, createdAt, expiresAt);
 
     return {
       key: rowToApiKey({
         id,
         label,
+        org_id: orgId,
+        scopes: scopesJson,
         created_at: createdAt,
         expires_at: expiresAt,
         last_used_at: null,
@@ -65,18 +81,27 @@ export function createSqliteApiKeyRepository({ db }) {
   }
 
   function list() {
-    return db.prepare(`
-      SELECT id, label, created_at, expires_at, last_used_at, active
+    return db
+      .prepare(
+        `
+      SELECT id, label, org_id, scopes, created_at, expires_at, last_used_at, active
       FROM api_keys
       ORDER BY created_at DESC
-    `).all().map(rowToApiKey);
+    `,
+      )
+      .all()
+      .map(rowToApiKey);
   }
 
   function getById(id) {
-    const row = db.prepare(`
-      SELECT id, label, created_at, expires_at, last_used_at, active
+    const row = db
+      .prepare(
+        `
+      SELECT id, label, org_id, scopes, created_at, expires_at, last_used_at, active
       FROM api_keys WHERE id = ?
-    `).get(id);
+    `,
+      )
+      .get(id);
     return row ? rowToApiKey(row) : undefined;
   }
 
@@ -87,7 +112,7 @@ export function createSqliteApiKeyRepository({ db }) {
 
   /**
    * @param {string} rawKey
-   * @returns {{ id: string, label: string } | null}
+   * @returns {{ id: string, label: string, orgId: string | null, scopes: string[] } | null}
    */
   function validate(rawKey) {
     const row = findByHashStmt.get(hashKey(rawKey));
@@ -97,7 +122,12 @@ export function createSqliteApiKeyRepository({ db }) {
       return null;
     }
 
-    return { id: row.id, label: row.label };
+    return {
+      id: row.id,
+      label: row.label,
+      orgId: row.org_id ?? null,
+      scopes: parseScopes(row.scopes),
+    };
   }
 
   function touchLastUsed(id) {
@@ -111,7 +141,12 @@ export function createSqliteApiKeyRepository({ db }) {
     }
 
     revoke(id);
-    return create({ label: existing.label, expiresAt: existing.expiresAt });
+    return create({
+      label: existing.label,
+      expiresAt: existing.expiresAt,
+      orgId: existing.orgId,
+      scopes: existing.scopes,
+    });
   }
 
   function hasActiveKeys() {

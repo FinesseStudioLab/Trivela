@@ -83,6 +83,39 @@ VITE_STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 - `VITE_REWARDS_CONTRACT_ID`: Optional rewards contract ID for frontend Soroban calls.
 - `VITE_CAMPAIGN_CONTRACT_ID`: Optional campaign contract ID for frontend Soroban calls.
 - `VITE_STELLAR_NETWORK_PASSPHRASE`: Optional override for the selected network's passphrase.
+- `VITE_POLL_INTERVAL_MS`: Campaign detail polling interval in milliseconds (default `30000`).
+- `VITE_SITE_URL`: Canonical origin for Open Graph and canonical URLs (defaults to `window.location.origin`).
+
+## Campaign detail polling
+
+The campaign detail page polls `GET /api/v1/campaigns/:id` and on-chain `is_active` / `is_within_window` reads on a configurable interval. Polling pauses while the browser tab is hidden (Page Visibility API) and exposes a manual **Refresh** control.
+
+## Campaign analytics
+
+Operators can open `/admin/campaigns/:id/analytics` for charts and exportable stats backed by `GET /api/v1/campaigns/:id/stats`. Links are available from the admin campaigns page.
+
+## Progressive Web App (PWA)
+
+The frontend uses `vite-plugin-pwa` with:
+
+- Web manifest icons in `public/icons/` (`192x192`, `512x512`)
+- Cache-first Workbox strategy for static assets
+- Network-first strategy for `/api/v1/*` requests
+- Offline and update banners via `PwaStatus`
+
+Build and preview as usual (`npm run build`, `npm run preview`). After deploying, run Lighthouse PWA audits against the production URL.
+
+## SEO and social sharing
+
+Route-level meta tags are managed with `react-helmet-async` (`PageMeta` component). Campaign pages set dynamic `og:title`, `og:description`, `og:url`, and `og:image`. Global defaults are applied from `App.jsx`. `public/robots.txt` allows indexing.
+
+Validate share cards with [opengraph.xyz](https://www.opengraph.xyz/) or the [Twitter Card Validator](https://cards-dev.twitter.com/validator).
+
+## Unit tests
+
+```bash
+npm run test:unit --workspace=frontend
+```
 
 ## Linting and formatting
 

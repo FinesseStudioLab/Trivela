@@ -26,7 +26,9 @@ import fs from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 function usage(exitCode = 1) {
-  console.error('Usage: node scripts/create-github-issues-gh.mjs --file <path> [--repo owner/name] [--start N] [--end N]');
+  console.error(
+    'Usage: node scripts/create-github-issues-gh.mjs --file <path> [--repo owner/name] [--start N] [--end N]',
+  );
   process.exit(exitCode);
 }
 
@@ -91,7 +93,9 @@ function runGh(args, { input } = {}) {
     throw result.error;
   }
   if (result.status !== 0) {
-    throw new Error((result.stderr || result.stdout || '').trim() || `gh exited with ${result.status}`);
+    throw new Error(
+      (result.stderr || result.stdout || '').trim() || `gh exited with ${result.status}`,
+    );
   }
 
   return (result.stdout || '').trim();
@@ -144,7 +148,9 @@ async function main() {
   const start = args.start;
   const end = args.end ?? issues.length - 1;
   if (start > end || end >= issues.length) {
-    throw new Error(`Range out of bounds. File has ${issues.length} issues; got start=${start} end=${end}`);
+    throw new Error(
+      `Range out of bounds. File has ${issues.length} issues; got start=${start} end=${end}`,
+    );
   }
 
   if (!args.dryRun) {
@@ -194,7 +200,17 @@ async function main() {
       continue;
     }
 
-    runGh(['issue', 'create', '--repo', repo, '--title', issue.title, '--body', issue.body, ...labelsArg]);
+    runGh([
+      'issue',
+      'create',
+      '--repo',
+      repo,
+      '--title',
+      issue.title,
+      '--body',
+      issue.body,
+      ...labelsArg,
+    ]);
     existingTitles.add(issue.title);
     created += 1;
     console.log(`[${i}] CREATED: ${issue.title}`);
@@ -211,4 +227,3 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : error);
   process.exit(1);
 });
-

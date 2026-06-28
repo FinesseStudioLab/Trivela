@@ -1,12 +1,12 @@
 apiVersion: v2
 name: trivela
 description: >
-  Helm chart for deploying the Trivela platform – a Soroban-powered
-  sports data and wagering application.  Includes backend API, nginx-served
-  frontend, HPA autoscaling, and NGINX Ingress with TLS.
+  Helm chart for deploying the Trivela platform – a Soroban-powered sports data and wagering
+  application.  Includes backend API, nginx-served frontend, HPA autoscaling, and NGINX Ingress with
+  TLS.
 type: application
 version: 0.1.0
-appVersion: "1.0.0"
+appVersion: '1.0.0'
 keywords:
   - trivela
   - soroban

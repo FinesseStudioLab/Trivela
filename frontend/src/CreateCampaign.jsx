@@ -5,20 +5,32 @@ import { logSafeEvent } from './lib/safeAnalytics';
 import { initializeCampaignContract, getWalletAddress, isWalletConnected } from './stellar';
 import TransactionStatus from './components/TransactionStatus';
 
+const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg'];
+
 /**
- * CreateCampaign — form that submits a new campaign to POST /api/campaigns
+ * CreateCampaign — form that submits a new campaign to POST /api/v1/campaigns
  * and optionally deploys it on-chain with contract initialization.
  *
  * Props
  * ─────
  * @param {function} onCampaignCreated – Called after a campaign is successfully created
  *                                       so the parent can refetch the list.
+ * @param {Array}    campaigns         – Existing campaigns list for the edit dropdown.
+ * @param {boolean}  standalone        – When true, renders as a full page (for /admin/campaigns/new).
  */
-export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
+export default function CreateCampaign({ onCampaignCreated, campaigns = [], standalone = false }) {
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [rewardPerAction, setRewardPerAction] = useState('');
+  const [rewardToken, setRewardToken] = useState('');
+  const [maxParticipants, setMaxParticipants] = useState('');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [allowlistEnabled, setAllowlistEnabled] = useState(false);
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState('');
   const [selectedId, setSelectedId] = useState('');
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [deployOnChain, setDeployOnChain] = useState(false);
@@ -32,6 +44,12 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
   const nameId = useId();
   const descId = useId();
   const rewardId = useId();
+  const rewardTokenId = useId();
+  const maxParticipantsId = useId();
+  const startDateId = useId();
+  const endDateId = useId();
+  const allowlistId = useId();
+  const imageId = useId();
   const apiKeyId = useId();
   const editSelectId = useId();
   const deployToggleId = useId();
@@ -43,7 +61,7 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
     : '';
   const effectiveApiKey = apiKeyInput || storedApiKey;
 
-  const isValid = name.trim().length > 0;
+  const isValid = name.trim().length >= 3 && name.trim().length <= 80;
 
   const loadCampaignForEdit = (campaignId) => {
     setSelectedId(campaignId);
@@ -52,13 +70,63 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
       setName('');
       setDescription('');
       setRewardPerAction('');
+      setRewardToken('');
+      setMaxParticipants('');
+      setStartDate('');
+      setEndDate('');
+      setAllowlistEnabled(false);
       setContractIdInput('');
+      setImageFile(null);
+      setImagePreview('');
       return;
     }
     setName(campaign.name || '');
     setDescription(campaign.description || '');
     setRewardPerAction(String(campaign.rewardPerAction ?? ''));
+    setRewardToken(campaign.rewardToken || '');
+    setMaxParticipants(String(campaign.maxParticipants ?? ''));
+    setStartDate(campaign.startDate || '');
+    setEndDate(campaign.endDate || '');
+    setAllowlistEnabled(campaign.allowlistEnabled || false);
     setContractIdInput(campaign.contractId || '');
+    setImagePreview(campaign.imageUrl || '');
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setError('Image must be PNG or JPG.');
+      return;
+    }
+    if (file.size > MAX_IMAGE_SIZE_BYTES) {
+      setError('Image must be ≤ 2 MB.');
+      return;
+    }
+
+    setError('');
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result || '');
+    reader.readAsDataURL(file);
+  };
+
+  const uploadImage = async (campaignId, apiKey) => {
+    if (!imageFile) return null;
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    const res = await fetch(apiUrl(`/api/v1/campaigns/${campaignId}/image`), {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey },
+      body: formData,
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new Error(body.error || `Image upload failed (${res.status})`);
+    }
+    const data = await res.json();
+    return data.imageUrl || null;
   };
 
   const handleSubmit = async (event) => {
@@ -86,18 +154,26 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
         ? apiUrl(`/api/v1/campaigns/${selectedId}`)
         : apiUrl('/api/v1/campaigns');
       const method = isEditMode ? 'PUT' : 'POST';
+
+      const requestBody = {
+        name: name.trim(),
+        description: description.trim(),
+        rewardPerAction: Number(rewardPerAction) || 0,
+        rewardToken: rewardToken.trim() || null,
+        maxParticipants: maxParticipants !== '' ? Number(maxParticipants) : 0,
+        startDate: startDate || null,
+        endDate: endDate || null,
+        allowlistEnabled,
+        contractId: contractIdInput.trim() || null,
+      };
+
       const response = await fetch(endpoint, {
         method,
         headers: {
           'Content-Type': 'application/json',
           'x-api-key': effectiveApiKey,
         },
-        body: JSON.stringify({
-          name: name.trim(),
-          description: description.trim(),
-          rewardPerAction: Number(rewardPerAction) || 0,
-          contractId: contractIdInput.trim() || null,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -107,14 +183,18 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
 
       let campaign = await response.json();
 
+      /* Step 1b: Upload image if provided */
+      if (imageFile && campaign.id) {
+        setDeploymentStatus('Uploading campaign image...');
+        await uploadImage(campaign.id, effectiveApiKey);
+      }
+
       /* Step 2: Deploy on-chain if enabled and contract ID provided */
       if (deployOnChain && contractIdInput.trim() && !isEditMode) {
         setDeploymentStatus('Checking wallet connection...');
         const walletConnected = await isWalletConnected();
         if (!walletConnected) {
-          throw new Error(
-            'Wallet not connected. Please connect your wallet to deploy on-chain.',
-          );
+          throw new Error('Wallet not connected. Please connect your wallet to deploy on-chain.');
         }
 
         const walletAddress = await getWalletAddress();
@@ -162,18 +242,24 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
       setName('');
       setDescription('');
       setRewardPerAction('');
+      setRewardToken('');
+      setMaxParticipants('');
+      setStartDate('');
+      setEndDate('');
+      setAllowlistEnabled(false);
       setContractIdInput('');
       setSelectedId('');
       setDeployOnChain(false);
+      setImageFile(null);
+      setImagePreview('');
 
       if (onCampaignCreated) {
         onCampaignCreated(campaign);
       }
 
-      // Redirect to campaign detail page after successful deployment
       if (deployOnChain && contractIdInput.trim() && !isEditMode) {
         setTimeout(() => {
-          navigate(`/campaigns/${campaign.id}`);
+          navigate(`/campaign/${campaign.id}`);
         }, 2000);
       }
     } catch (err) {
@@ -187,10 +273,12 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
   return (
     <section className="create-campaign-section" aria-labelledby={headingId}>
       <h3 id={headingId} className="create-campaign-heading">
-        Admin campaign manager
+        {isEditMode ? 'Edit campaign' : 'Create new campaign'}
       </h3>
       <p className="create-campaign-description">
-        Protected admin form for creating and updating campaigns.
+        {isEditMode
+          ? 'Update campaign metadata and on-chain configuration.'
+          : 'Protected admin form for creating campaigns with on-chain deployment.'}
       </p>
 
       <form className="create-campaign-form" onSubmit={handleSubmit}>
@@ -241,8 +329,11 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
             value={name}
             disabled={isSubmitting}
             required
+            minLength={3}
+            maxLength={80}
             onChange={(e) => setName(e.target.value)}
           />
+          <small className="create-campaign-hint">3–80 characters</small>
         </div>
 
         <div className="create-campaign-field">
@@ -252,8 +343,8 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
           <textarea
             id={descId}
             className="create-campaign-input create-campaign-textarea"
-            placeholder="Describe the campaign goals and rules"
-            rows={3}
+            placeholder="Describe the campaign goals and rules (Markdown supported)"
+            rows={4}
             value={description}
             disabled={isSubmitting}
             onChange={(e) => setDescription(e.target.value)}
@@ -261,8 +352,26 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
         </div>
 
         <div className="create-campaign-field">
+          <label htmlFor={rewardTokenId} className="create-campaign-label">
+            Reward token address
+          </label>
+          <input
+            id={rewardTokenId}
+            type="text"
+            className="create-campaign-input"
+            placeholder="Leave empty for native XLM"
+            value={rewardToken}
+            disabled={isSubmitting}
+            onChange={(e) => setRewardToken(e.target.value)}
+          />
+          <small className="create-campaign-hint">
+            Stellar asset contract address. Leave empty to default to native XLM.
+          </small>
+        </div>
+
+        <div className="create-campaign-field">
           <label htmlFor={rewardId} className="create-campaign-label">
-            Reward per action (points)
+            Reward amount per participant
           </label>
           <input
             id={rewardId}
@@ -275,6 +384,95 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [] }) {
             disabled={isSubmitting}
             onChange={(e) => setRewardPerAction(e.target.value)}
           />
+          <small className="create-campaign-hint">
+            Points or token units awarded per qualifying action.
+          </small>
+        </div>
+
+        <div className="create-campaign-field">
+          <label htmlFor={maxParticipantsId} className="create-campaign-label">
+            Max participants
+          </label>
+          <input
+            id={maxParticipantsId}
+            type="number"
+            min="0"
+            step="1"
+            className="create-campaign-input"
+            placeholder="0 = unlimited"
+            value={maxParticipants}
+            disabled={isSubmitting}
+            onChange={(e) => setMaxParticipants(e.target.value)}
+          />
+          <small className="create-campaign-hint">Set to 0 for unlimited participants.</small>
+        </div>
+
+        <div className="create-campaign-field-row">
+          <div className="create-campaign-field">
+            <label htmlFor={startDateId} className="create-campaign-label">
+              Start date
+            </label>
+            <input
+              id={startDateId}
+              type="datetime-local"
+              className="create-campaign-input"
+              value={startDate}
+              disabled={isSubmitting}
+              onChange={(e) => setStartDate(e.target.value)}
+            />
+          </div>
+
+          <div className="create-campaign-field">
+            <label htmlFor={endDateId} className="create-campaign-label">
+              End date
+            </label>
+            <input
+              id={endDateId}
+              type="datetime-local"
+              className="create-campaign-input"
+              value={endDate}
+              disabled={isSubmitting}
+              onChange={(e) => setEndDate(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="create-campaign-field">
+          <label className="create-campaign-checkbox-label">
+            <input
+              id={allowlistId}
+              type="checkbox"
+              checked={allowlistEnabled}
+              disabled={isSubmitting}
+              onChange={(e) => setAllowlistEnabled(e.target.checked)}
+            />
+            <span>Enable allowlist (CSV upload required)</span>
+          </label>
+          <small className="create-campaign-hint">
+            When enabled, only allowlisted addresses can participate. Upload a CSV after creation.
+          </small>
+        </div>
+
+        <div className="create-campaign-field">
+          <label htmlFor={imageId} className="create-campaign-label">
+            Campaign image / banner
+          </label>
+          <input
+            id={imageId}
+            type="file"
+            accept="image/png,image/jpeg"
+            className="create-campaign-input create-campaign-file"
+            disabled={isSubmitting}
+            onChange={handleImageChange}
+          />
+          <small className="create-campaign-hint">PNG or JPG, max 2 MB.</small>
+          {imagePreview && (
+            <img
+              src={imagePreview}
+              alt="Campaign preview"
+              className="create-campaign-image-preview"
+            />
+          )}
         </div>
 
         <div className="create-campaign-field">

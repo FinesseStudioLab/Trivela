@@ -1,52 +1,257 @@
 [
-  { "title": "Add events to rewards contract for credit and claim", "body": "Emit Soroban events in the rewards contract when `credit` and `claim` are called (e.g. user, amount). Document event names and payload in contract README or inline docs.", "labels": ["area: smart-contract", "difficulty: easy", "good first issue"] },
-  { "title": "Add TTL extension for campaign contract storage keys", "body": "In the campaign contract, add `extend_ttl` for instance storage (e.g. after `set_active` and `register`) so entries don't expire too soon. Use similar pattern to the rewards contract.", "labels": ["area: smart-contract", "difficulty: easy"] },
-  { "title": "Add max cap for single credit in rewards contract", "body": "Add a configurable maximum amount per `credit` call (stored in contract or admin-set). Return a dedicated error when exceeded.", "labels": ["area: smart-contract", "difficulty: easy"] },
-  { "title": "Add campaign cap (max participants) in campaign contract", "body": "Add an optional max number of participants. When set, `register` should fail with a clear error when the cap is reached. Add storage and (if needed) an admin setter.", "labels": ["area: smart-contract", "difficulty: medium"] },
-  { "title": "Implement batch credit in rewards contract", "body": "Add a function that credits multiple users in one call (e.g. `batch_credit(env, from, [(user, amount), ...])`) to reduce transaction count.", "labels": ["area: smart-contract", "difficulty: medium"] },
-  { "title": "Add admin transfer in rewards contract", "body": "Allow admin to transfer points from one user to another (debit source, credit destination) with auth checks.", "labels": ["area: smart-contract", "difficulty: easy"] },
-  { "title": "Add contract metadata (name, symbol) to rewards contract", "body": "Expose a `metadata()` or similar view that returns contract name and optional symbol/decimals for the frontend.", "labels": ["area: smart-contract", "difficulty: easy", "good first issue"] },
-  { "title": "Add pause/unpause to rewards contract", "body": "Add a paused flag (admin-only set). When paused, `credit` and `claim` should revert with a clear error.", "labels": ["area: smart-contract", "difficulty: medium"] },
-  { "title": "Add campaign start/end time checks in campaign contract", "body": "Store optional start and end ledger (or timestamp) and ensure `register` and any reward logic only succeed within the window.", "labels": ["area: smart-contract", "difficulty: medium"] },
-  { "title": "Add unit tests for rewards contract edge cases", "body": "Add tests for: claim more than balance (expect error), credit overflow, double register in campaign, uninitialized access.", "labels": ["area: smart-contract", "difficulty: easy", "good first issue"] },
-  { "title": "Add unit tests for campaign contract", "body": "Expand campaign contract tests: set_active only by admin, register when inactive, is_participant for unknown address.", "labels": ["area: smart-contract", "difficulty: easy", "good first issue"] },
-  { "title": "Add custom error enum for campaign contract", "body": "Replace generic errors with a `#[contracterror]` enum (e.g. Unauthorized, CampaignInactive, CapReached) and use it in all fallible functions.", "labels": ["area: smart-contract", "difficulty: easy"] },
-  { "title": "Add deploy script for testnet", "body": "Add a script (bash or Node) that builds both contracts and deploys them to Stellar testnet, outputting contract IDs (and optionally saving to .env or config).", "labels": ["area: smart-contract", "difficulty: medium"] },
-  { "title": "Add integration test: rewards + campaign flow", "body": "Write an integration test that: initializes both contracts, registers a user in campaign, credits and claims in rewards, asserts final balances and events.", "labels": ["area: smart-contract", "difficulty: hard"] },
-  { "title": "Add Merkle-based eligibility in campaign contract", "body": "Allow registering participants via Merkle proof (root stored in contract, optional) so large allowlists can be used without storing every address.", "labels": ["area: smart-contract", "difficulty: hard"] },
-  { "title": "Document Soroban contract build and deploy in README", "body": "Add a \"Building and deploying contracts\" section to the root or contracts README with exact `stellar contract build` and `stellar contract deploy` commands and required env (network, identity).", "labels": ["area: smart-contract", "area: documentation", "difficulty: easy", "good first issue"] },
-  { "title": "Add fuzzing for rewards balance logic", "body": "Add a fuzz target (e.g. with cargo-fuzz or Soroban testutils) that randomizes credit/claim sequences and asserts invariants (e.g. sum of balances + total_claimed is consistent).", "labels": ["area: smart-contract", "difficulty: hard"] },
-  { "title": "Add upgradeability pattern doc for contracts", "body": "Document how we could make the rewards or campaign contract upgradeable (e.g. deployer pattern, migration steps) and add a short \"Future: upgradeability\" section in docs.", "labels": ["area: smart-contract", "area: documentation", "difficulty: medium"] },
-  { "title": "Add GET /api/campaigns filter by active", "body": "Support query param `?active=true|false` on GET /api/campaigns and filter the list accordingly.", "labels": ["area: backend", "difficulty: easy", "good first issue"] },
-  { "title": "Add POST /api/campaigns to create campaign", "body": "Add POST /api/campaigns with body (name, description, rewardPerAction, etc.) and append to in-memory list (or stub for DB later). Return 201 and the created campaign.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add PUT /api/campaigns/:id", "body": "Update an existing campaign by id (name, description, active, rewardPerAction). Return 404 if not found.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add DELETE /api/campaigns/:id", "body": "Remove a campaign by id from the in-memory store. Return 404 if not found.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add request logging middleware", "body": "Add middleware to log method, path, status, and duration for each request (e.g. with a simple logger or `morgan`).", "labels": ["area: backend", "difficulty: easy", "good first issue"] },
-  { "title": "Add rate limiting for API routes", "body": "Add rate limiting (e.g. per IP or per API key) to prevent abuse. Use a simple in-memory store or a library; document in README.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add validation for campaign body (POST/PUT)", "body": "Validate request body (required name, non-negative rewardPerAction, etc.) and return 400 with clear error messages when invalid.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add SQLite or PostgreSQL for campaigns", "body": "Replace in-memory campaigns with a database. Add migrations or schema and implement GET/POST/PUT/DELETE against the DB.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add GET /api/config (Soroban RPC, network)", "body": "Return public config (e.g. SOROBAN_RPC_URL, STELLAR_NETWORK, optional contract IDs) so the frontend can use one source of truth.", "labels": ["area: backend", "difficulty: easy", "good first issue"] },
-  { "title": "Add health check for Soroban RPC", "body": "In /health or a separate /health/rpc, call the configured Soroban RPC (e.g. getLedgerEntries or getNetwork) and include status in the response.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add CORS configuration via env", "body": "Read CORS allowed origins from env (e.g. comma-separated) and configure the CORS middleware accordingly. Default to a safe value for production.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add unit tests for campaign CRUD", "body": "Add tests for GET/POST/PUT/DELETE campaigns (status codes, response shape, 404 on missing id).", "labels": ["area: backend", "difficulty: easy", "good first issue"] },
-  { "title": "Add Dockerfile for backend", "body": "Add a Dockerfile that builds and runs the Node backend. Document how to run with docker run and env vars.", "labels": ["area: backend", "difficulty: easy"] },
-  { "title": "Add API versioning (e.g. /api/v1/)", "body": "Introduce /api/v1/ prefix for all API routes and document in README. Keep backward compatibility or add a short migration note.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add pagination for GET /api/campaigns", "body": "Support ?page=1&limit=10 (or offset/limit). Return campaigns plus total count or next page info.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add optional API key auth for write endpoints", "body": "Protect POST/PUT/DELETE with an optional API key (header or query). If key is configured, require it; otherwise allow open (for dev). Document in README.", "labels": ["area: backend", "difficulty: medium"] },
-  { "title": "Add campaign list loading and error states", "body": "Show a loading spinner while fetching campaigns and an error message if the request fails. Disable or hide list until loaded.", "labels": ["area: frontend", "difficulty: easy", "good first issue"] },
-  { "title": "Add campaign detail page with route", "body": "Add a route (e.g. /campaign/:id) and a detail page that fetches GET /api/campaigns/:id and displays full campaign info.", "labels": ["area: frontend", "difficulty: easy"] },
-  { "title": "Add Stellar wallet connect (Freighter or generic)", "body": "Integrate a Stellar wallet (e.g. Freighter) to connect/disconnect and display truncated public key. Use @stellar/stellar-sdk and wallet docs.", "labels": ["area: frontend", "difficulty: medium"] },
-  { "title": "Display connected wallet balance (XLM or testnet)", "body": "After wallet connect, fetch account balance via Horizon or RPC and show it in the UI (e.g. in header or sidebar).", "labels": ["area: frontend", "difficulty: medium"] },
-  { "title": "Add \"My points\" from rewards contract", "body": "Call the deployed rewards contract `balance(user)` via Soroban RPC and display the result for the connected wallet. Handle not deployed / RPC errors.", "labels": ["area: frontend", "difficulty: medium"] },
-  { "title": "Add form to create campaign (call API)", "body": "Add a form (name, description, reward per action) that submits to POST /api/campaigns and then refetches or redirects to the new campaign.", "labels": ["area: frontend", "difficulty: easy"] },
-  { "title": "Add global error boundary", "body": "Add a React error boundary that catches render errors and shows a friendly message and a \"Retry\" or \"Go home\" action.", "labels": ["area: frontend", "difficulty: easy", "good first issue"] },
-  { "title": "Add responsive layout for mobile", "body": "Improve layout and typography for small screens (e.g. stack elements, readable font size, touch-friendly buttons).", "labels": ["area: frontend", "difficulty: easy"] },
-  { "title": "Add dark mode toggle", "body": "Add a theme toggle (light/dark) and persist preference (localStorage). Apply CSS variables or class for theme.", "labels": ["area: frontend", "difficulty: easy", "good first issue"] },
-  { "title": "Add E2E test with Playwright or Cypress", "body": "Add one E2E test: open app, ensure campaigns list or empty state loads, optionally click into a campaign. Document how to run.", "labels": ["area: frontend", "difficulty: medium"] },
-  { "title": "Add env-based API URL and contract IDs", "body": "Read API base URL and (optional) rewards/campaign contract IDs from VITE_* env and use them in fetch and Soroban calls. Document in frontend README.", "labels": ["area: frontend", "difficulty: easy"] },
-  { "title": "Add \"Register\" button that calls campaign contract", "body": "For connected wallet, add a \"Register in campaign\" button that builds and submits a transaction to the campaign contract's `register(participant)`. Show success/error and refresh participant status.", "labels": ["area: frontend", "difficulty: hard"] },
-  { "title": "Add \"Claim\" flow for rewards contract", "body": "Add UI to enter amount and call rewards contract `claim(user, amount)`. Sign with connected wallet and show tx result and updated balance.", "labels": ["area: frontend", "difficulty: hard"] },
-  { "title": "Add basic accessibility (a11y)", "body": "Improve a11y: semantic HTML, aria-labels where needed, focus styles, and ensure keyboard navigation works for main flows.", "labels": ["area: frontend", "difficulty: easy", "good first issue"] },
-  { "title": "Add CI workflow for frontend build and lint", "body": "Add GitHub Actions workflow that runs npm install, npm run build, and (if present) lint/test for the frontend on PR and push to main.", "labels": ["area: frontend", "difficulty: medium"] },
-  { "title": "Add Storybook and stories for main components", "body": "Set up Storybook and add stories for at least: campaign card, empty state, and header (with optional wallet). Document how to run in README.", "labels": ["area: frontend", "difficulty: medium"] }
+  {
+    "title": "Add events to rewards contract for credit and claim",
+    "body": "Emit Soroban events in the rewards contract when `credit` and `claim` are called (e.g. user, amount). Document event names and payload in contract README or inline docs.",
+    "labels": ["area: smart-contract", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add TTL extension for campaign contract storage keys",
+    "body": "In the campaign contract, add `extend_ttl` for instance storage (e.g. after `set_active` and `register`) so entries don't expire too soon. Use similar pattern to the rewards contract.",
+    "labels": ["area: smart-contract", "difficulty: easy"]
+  },
+  {
+    "title": "Add max cap for single credit in rewards contract",
+    "body": "Add a configurable maximum amount per `credit` call (stored in contract or admin-set). Return a dedicated error when exceeded.",
+    "labels": ["area: smart-contract", "difficulty: easy"]
+  },
+  {
+    "title": "Add campaign cap (max participants) in campaign contract",
+    "body": "Add an optional max number of participants. When set, `register` should fail with a clear error when the cap is reached. Add storage and (if needed) an admin setter.",
+    "labels": ["area: smart-contract", "difficulty: medium"]
+  },
+  {
+    "title": "Implement batch credit in rewards contract",
+    "body": "Add a function that credits multiple users in one call (e.g. `batch_credit(env, from, [(user, amount), ...])`) to reduce transaction count.",
+    "labels": ["area: smart-contract", "difficulty: medium"]
+  },
+  {
+    "title": "Add admin transfer in rewards contract",
+    "body": "Allow admin to transfer points from one user to another (debit source, credit destination) with auth checks.",
+    "labels": ["area: smart-contract", "difficulty: easy"]
+  },
+  {
+    "title": "Add contract metadata (name, symbol) to rewards contract",
+    "body": "Expose a `metadata()` or similar view that returns contract name and optional symbol/decimals for the frontend.",
+    "labels": ["area: smart-contract", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add pause/unpause to rewards contract",
+    "body": "Add a paused flag (admin-only set). When paused, `credit` and `claim` should revert with a clear error.",
+    "labels": ["area: smart-contract", "difficulty: medium"]
+  },
+  {
+    "title": "Add campaign start/end time checks in campaign contract",
+    "body": "Store optional start and end ledger (or timestamp) and ensure `register` and any reward logic only succeed within the window.",
+    "labels": ["area: smart-contract", "difficulty: medium"]
+  },
+  {
+    "title": "Add unit tests for rewards contract edge cases",
+    "body": "Add tests for: claim more than balance (expect error), credit overflow, double register in campaign, uninitialized access.",
+    "labels": ["area: smart-contract", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add unit tests for campaign contract",
+    "body": "Expand campaign contract tests: set_active only by admin, register when inactive, is_participant for unknown address.",
+    "labels": ["area: smart-contract", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add custom error enum for campaign contract",
+    "body": "Replace generic errors with a `#[contracterror]` enum (e.g. Unauthorized, CampaignInactive, CapReached) and use it in all fallible functions.",
+    "labels": ["area: smart-contract", "difficulty: easy"]
+  },
+  {
+    "title": "Add deploy script for testnet",
+    "body": "Add a script (bash or Node) that builds both contracts and deploys them to Stellar testnet, outputting contract IDs (and optionally saving to .env or config).",
+    "labels": ["area: smart-contract", "difficulty: medium"]
+  },
+  {
+    "title": "Add integration test: rewards + campaign flow",
+    "body": "Write an integration test that: initializes both contracts, registers a user in campaign, credits and claims in rewards, asserts final balances and events.",
+    "labels": ["area: smart-contract", "difficulty: hard"]
+  },
+  {
+    "title": "Add Merkle-based eligibility in campaign contract",
+    "body": "Allow registering participants via Merkle proof (root stored in contract, optional) so large allowlists can be used without storing every address.",
+    "labels": ["area: smart-contract", "difficulty: hard"]
+  },
+  {
+    "title": "Document Soroban contract build and deploy in README",
+    "body": "Add a \"Building and deploying contracts\" section to the root or contracts README with exact `stellar contract build` and `stellar contract deploy` commands and required env (network, identity).",
+    "labels": [
+      "area: smart-contract",
+      "area: documentation",
+      "difficulty: easy",
+      "good first issue"
+    ]
+  },
+  {
+    "title": "Add fuzzing for rewards balance logic",
+    "body": "Add a fuzz target (e.g. with cargo-fuzz or Soroban testutils) that randomizes credit/claim sequences and asserts invariants (e.g. sum of balances + total_claimed is consistent).",
+    "labels": ["area: smart-contract", "difficulty: hard"]
+  },
+  {
+    "title": "Add upgradeability pattern doc for contracts",
+    "body": "Document how we could make the rewards or campaign contract upgradeable (e.g. deployer pattern, migration steps) and add a short \"Future: upgradeability\" section in docs.",
+    "labels": ["area: smart-contract", "area: documentation", "difficulty: medium"]
+  },
+  {
+    "title": "Add GET /api/campaigns filter by active",
+    "body": "Support query param `?active=true|false` on GET /api/campaigns and filter the list accordingly.",
+    "labels": ["area: backend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add POST /api/campaigns to create campaign",
+    "body": "Add POST /api/campaigns with body (name, description, rewardPerAction, etc.) and append to in-memory list (or stub for DB later). Return 201 and the created campaign.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add PUT /api/campaigns/:id",
+    "body": "Update an existing campaign by id (name, description, active, rewardPerAction). Return 404 if not found.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add DELETE /api/campaigns/:id",
+    "body": "Remove a campaign by id from the in-memory store. Return 404 if not found.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add request logging middleware",
+    "body": "Add middleware to log method, path, status, and duration for each request (e.g. with a simple logger or `morgan`).",
+    "labels": ["area: backend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add rate limiting for API routes",
+    "body": "Add rate limiting (e.g. per IP or per API key) to prevent abuse. Use a simple in-memory store or a library; document in README.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add validation for campaign body (POST/PUT)",
+    "body": "Validate request body (required name, non-negative rewardPerAction, etc.) and return 400 with clear error messages when invalid.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add SQLite or PostgreSQL for campaigns",
+    "body": "Replace in-memory campaigns with a database. Add migrations or schema and implement GET/POST/PUT/DELETE against the DB.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add GET /api/config (Soroban RPC, network)",
+    "body": "Return public config (e.g. SOROBAN_RPC_URL, STELLAR_NETWORK, optional contract IDs) so the frontend can use one source of truth.",
+    "labels": ["area: backend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add health check for Soroban RPC",
+    "body": "In /health or a separate /health/rpc, call the configured Soroban RPC (e.g. getLedgerEntries or getNetwork) and include status in the response.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add CORS configuration via env",
+    "body": "Read CORS allowed origins from env (e.g. comma-separated) and configure the CORS middleware accordingly. Default to a safe value for production.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add unit tests for campaign CRUD",
+    "body": "Add tests for GET/POST/PUT/DELETE campaigns (status codes, response shape, 404 on missing id).",
+    "labels": ["area: backend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add Dockerfile for backend",
+    "body": "Add a Dockerfile that builds and runs the Node backend. Document how to run with docker run and env vars.",
+    "labels": ["area: backend", "difficulty: easy"]
+  },
+  {
+    "title": "Add API versioning (e.g. /api/v1/)",
+    "body": "Introduce /api/v1/ prefix for all API routes and document in README. Keep backward compatibility or add a short migration note.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add pagination for GET /api/campaigns",
+    "body": "Support ?page=1&limit=10 (or offset/limit). Return campaigns plus total count or next page info.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add optional API key auth for write endpoints",
+    "body": "Protect POST/PUT/DELETE with an optional API key (header or query). If key is configured, require it; otherwise allow open (for dev). Document in README.",
+    "labels": ["area: backend", "difficulty: medium"]
+  },
+  {
+    "title": "Add campaign list loading and error states",
+    "body": "Show a loading spinner while fetching campaigns and an error message if the request fails. Disable or hide list until loaded.",
+    "labels": ["area: frontend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add campaign detail page with route",
+    "body": "Add a route (e.g. /campaign/:id) and a detail page that fetches GET /api/campaigns/:id and displays full campaign info.",
+    "labels": ["area: frontend", "difficulty: easy"]
+  },
+  {
+    "title": "Add Stellar wallet connect (Freighter or generic)",
+    "body": "Integrate a Stellar wallet (e.g. Freighter) to connect/disconnect and display truncated public key. Use @stellar/stellar-sdk and wallet docs.",
+    "labels": ["area: frontend", "difficulty: medium"]
+  },
+  {
+    "title": "Display connected wallet balance (XLM or testnet)",
+    "body": "After wallet connect, fetch account balance via Horizon or RPC and show it in the UI (e.g. in header or sidebar).",
+    "labels": ["area: frontend", "difficulty: medium"]
+  },
+  {
+    "title": "Add \"My points\" from rewards contract",
+    "body": "Call the deployed rewards contract `balance(user)` via Soroban RPC and display the result for the connected wallet. Handle not deployed / RPC errors.",
+    "labels": ["area: frontend", "difficulty: medium"]
+  },
+  {
+    "title": "Add form to create campaign (call API)",
+    "body": "Add a form (name, description, reward per action) that submits to POST /api/campaigns and then refetches or redirects to the new campaign.",
+    "labels": ["area: frontend", "difficulty: easy"]
+  },
+  {
+    "title": "Add global error boundary",
+    "body": "Add a React error boundary that catches render errors and shows a friendly message and a \"Retry\" or \"Go home\" action.",
+    "labels": ["area: frontend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add responsive layout for mobile",
+    "body": "Improve layout and typography for small screens (e.g. stack elements, readable font size, touch-friendly buttons).",
+    "labels": ["area: frontend", "difficulty: easy"]
+  },
+  {
+    "title": "Add dark mode toggle",
+    "body": "Add a theme toggle (light/dark) and persist preference (localStorage). Apply CSS variables or class for theme.",
+    "labels": ["area: frontend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add E2E test with Playwright or Cypress",
+    "body": "Add one E2E test: open app, ensure campaigns list or empty state loads, optionally click into a campaign. Document how to run.",
+    "labels": ["area: frontend", "difficulty: medium"]
+  },
+  {
+    "title": "Add env-based API URL and contract IDs",
+    "body": "Read API base URL and (optional) rewards/campaign contract IDs from VITE_* env and use them in fetch and Soroban calls. Document in frontend README.",
+    "labels": ["area: frontend", "difficulty: easy"]
+  },
+  {
+    "title": "Add \"Register\" button that calls campaign contract",
+    "body": "For connected wallet, add a \"Register in campaign\" button that builds and submits a transaction to the campaign contract's `register(participant)`. Show success/error and refresh participant status.",
+    "labels": ["area: frontend", "difficulty: hard"]
+  },
+  {
+    "title": "Add \"Claim\" flow for rewards contract",
+    "body": "Add UI to enter amount and call rewards contract `claim(user, amount)`. Sign with connected wallet and show tx result and updated balance.",
+    "labels": ["area: frontend", "difficulty: hard"]
+  },
+  {
+    "title": "Add basic accessibility (a11y)",
+    "body": "Improve a11y: semantic HTML, aria-labels where needed, focus styles, and ensure keyboard navigation works for main flows.",
+    "labels": ["area: frontend", "difficulty: easy", "good first issue"]
+  },
+  {
+    "title": "Add CI workflow for frontend build and lint",
+    "body": "Add GitHub Actions workflow that runs npm install, npm run build, and (if present) lint/test for the frontend on PR and push to main.",
+    "labels": ["area: frontend", "difficulty: medium"]
+  },
+  {
+    "title": "Add Storybook and stories for main components",
+    "body": "Set up Storybook and add stories for at least: campaign card, empty state, and header (with optional wallet). Document how to run in README.",
+    "labels": ["area: frontend", "difficulty: medium"]
+  }
 ]

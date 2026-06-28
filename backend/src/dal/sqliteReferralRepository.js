@@ -1,7 +1,7 @@
 // @ts-check
 
 /**
- * @param {{ db: import('better-sqlite3').Database }} opts
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} opts
  */
 export function createSqliteReferralRepository({ db }) {
   /**
@@ -44,15 +44,26 @@ export function createSqliteReferralRepository({ db }) {
   }
 
   /**
-   * Look up whether a referee has already been attributed to a referrer in a campaign.
+   * List all referrals for a campaign.
    * @param {string|number} campaignId
-   * @param {string} refereeAddress
    */
+  function listByCampaign(campaignId) {
+    const rows = db
+      .prepare(`SELECT * FROM referrals WHERE campaign_id = ? ORDER BY created_at ASC`)
+      .all(Number(campaignId));
+
+    return rows.map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      referrerAddress: row.referrer_address,
+      refereeAddress: row.referee_address,
+      createdAt: row.created_at,
+    }));
+  }
+
   function getByRefereeAndCampaign(campaignId, refereeAddress) {
     const row = db
-      .prepare(
-        `SELECT * FROM referrals WHERE campaign_id = ? AND referee_address = ?`,
-      )
+      .prepare(`SELECT * FROM referrals WHERE campaign_id = ? AND referee_address = ?`)
       .get(Number(campaignId), refereeAddress);
 
     if (!row) return null;
@@ -65,5 +76,17 @@ export function createSqliteReferralRepository({ db }) {
     };
   }
 
-  return { create, countByReferrer, getByRefereeAndCampaign };
+  function listAll() {
+    const rows = db.prepare(`SELECT * FROM referrals ORDER BY created_at ASC`).all();
+
+    return rows.map((row) => ({
+      id: String(row.id),
+      campaignId: String(row.campaign_id),
+      referrerAddress: row.referrer_address,
+      refereeAddress: row.referee_address,
+      createdAt: row.created_at,
+    }));
+  }
+
+  return { create, countByReferrer, listByCampaign, getByRefereeAndCampaign, listAll };
 }

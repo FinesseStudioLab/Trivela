@@ -1,10 +1,9 @@
 name: CI Performance (Parallelized)
 
 on:
+  # Runs on pull requests (full contributor CI). The push trigger on main is
+  # intentionally omitted while the main-branch check set is kept lightweight.
   pull_request:
-  push:
-    branches:
-      - main
 
 jobs:
   backend:
@@ -87,6 +86,9 @@ jobs:
             echo "No lint script; skipping."
           fi
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
       - name: Test frontend
         run: |
           if npm --workspace=frontend run | grep -q "  test"; then
@@ -126,4 +128,6 @@ jobs:
         run: cargo test --workspace
 
       - name: Build WASM artifacts
-        run: cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p trivela-campaign-contract
+        run:
+          cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p
+          trivela-campaign-contract

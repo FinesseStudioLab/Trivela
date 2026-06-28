@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { apiUrl, getCampaignContract, getRewardsContract } from './config';
 import { apiClient } from './lib/apiClient';
 import ClaimRewards from './ClaimRewards';
@@ -6,8 +7,16 @@ import './Landing.css';
 import RegisterCampaign from './RegisterCampaign';
 import Header from './components/Header';
 import CampaignCard from './components/CampaignCard';
+import CampaignFilters, { sortKeyToApiParams } from './components/CampaignFilters';
 import EmptyState from './components/EmptyState';
 import { logSafeEvent } from './lib/safeAnalytics';
+import OnboardingTour, { useRestartTour } from './components/OnboardingTour';
+
+const VALID_SORT_KEYS = new Set(['newest', 'oldest', 'name_asc', 'name_desc', 'reward_desc']);
+
+function normalizeSortKey(raw) {
+  return VALID_SORT_KEYS.has(raw) ? raw : 'newest';
+}
 
 const STELLAR_DOCS = 'https://developers.stellar.org/docs';
 const DRIP_WAVE = 'https://www.drips.network/wave/stellar';
@@ -47,13 +56,44 @@ export default function Landing({
   isRewardsPointsLoading,
   onRefreshPoints,
 }) {
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // Hydrate filter/sort state from the URL so the page is shareable and
+  // bookmarkable (Issue #293). Subsequent updates push back into the URL
+  // via updateSearchParams() below.
+  const initialPage = (() => {
+    const raw = Number.parseInt(searchParams.get('page') ?? '', 10);
+    return Number.isFinite(raw) && raw > 0 ? raw : 1;
+  })();
+  const initialQuery = searchParams.get('q') ?? '';
+  const initialActiveOnly = searchParams.get('active') === 'true';
+  const initialSortKey = normalizeSortKey(searchParams.get('sortKey') ?? 'newest');
+
   const [campaigns, setCampaigns] = useState([]);
   const [campaignsError, setCampaignsError] = useState('');
   const [isCampaignsLoading, setIsCampaignsLoading] = useState(true);
-  const [campaignPage, setCampaignPage] = useState(1);
-  const [campaignQuery, setCampaignQuery] = useState('');
+  const [campaignPage, setCampaignPage] = useState(initialPage);
+  const [campaignQuery, setCampaignQuery] = useState(initialQuery);
+  const [activeOnly, setActiveOnly] = useState(initialActiveOnly);
+  const [sortKey, setSortKey] = useState(initialSortKey);
   const [campaignRefreshKey, setCampaignRefreshKey] = useState(0);
-  const [pagination, setPagination] = useState(() => getFallbackPagination([], 1));
+  const [pagination, setPagination] = useState(() => getFallbackPagination([], initialPage));
+
+  // Persist filter/sort state into the URL whenever it changes so the
+  // page survives refresh / share. Only writes params that are non-default
+  // to keep URLs clean.
+  useEffect(() => {
+    const next = new URLSearchParams();
+    if (campaignQuery) next.set('q', campaignQuery);
+    if (activeOnly) next.set('active', 'true');
+    if (sortKey !== 'newest') next.set('sortKey', sortKey);
+    if (campaignPage > 1) next.set('page', String(campaignPage));
+
+    // Avoid pushing identical params (avoids a render loop with router).
+    if (next.toString() !== searchParams.toString()) {
+      setSearchParams(next, { replace: true });
+    }
+  }, [campaignQuery, activeOnly, sortKey, campaignPage, searchParams, setSearchParams]);
   const campaignContract = getCampaignContract();
   const rewardsContract = getRewardsContract();
   const networkLabel = runtimeConfig?.stellar?.network || 'testnet';
@@ -61,6 +101,8 @@ export default function Landing({
   const horizonUrl = runtimeConfig?.stellar?.horizonUrl || 'Not configured';
   const rewardsContractId = runtimeConfig?.contracts?.rewards || '';
   const campaignContractId = runtimeConfig?.contracts?.campaign || '';
+
+  const sortParams = useMemo(() => sortKeyToApiParams(sortKey), [sortKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,6 +114,9 @@ export default function Landing({
         page: campaignPage,
         limit: CAMPAIGNS_PER_PAGE,
         q: campaignQuery.trim() || undefined,
+        active: activeOnly ? true : undefined,
+        sort: sortParams.sort,
+        order: sortParams.order,
       })
       .then((payload) => {
         if (controller.signal.aborted) return;
@@ -104,7 +149,11 @@ export default function Landing({
       });
 
     return () => controller.abort();
-  }, [campaignPage, campaignRefreshKey, campaignQuery]);
+  }, [campaignPage, campaignRefreshKey, campaignQuery, activeOnly, sortParams]);
+
+  const hasActiveFilters = Boolean(campaignQuery || activeOnly || sortKey !== 'newest');
+  const totalCampaigns = pagination?.total ?? campaigns.length;
+  const { restartRef, restart } = useRestartTour();
 
   // Removed local loadPoints effect as it is now handled in App.jsx
 
@@ -147,37 +196,32 @@ export default function Landing({
             rewards. Full stack: Rust contracts, Node API, React frontend.
           </p>
           <div className="hero-cta">
-            <a
-              href={GITHUB_REPO}
-              className="btn btn-primary"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              View repository
+            <a href="#campaigns" className="btn btn-primary">
+              Browse campaigns
             </a>
-            <a
-              href={GITHUB_ISSUES}
+            <button
+              type="button"
               className="btn btn-secondary"
-              target="_blank"
-              rel="noopener noreferrer"
+              onClick={onConnectWallet}
+              disabled={isWalletLoading}
             >
-              Browse contributor issues
-            </a>
+              {isWalletLoading
+                ? 'Connecting…'
+                : walletAddress
+                  ? 'Wallet connected ✓'
+                  : 'Connect wallet'}
+            </button>
           </div>
           <div className="hero-stats" aria-label="Project summary">
-            <span>
-              <strong>50</strong> open issues
-            </span>
-            <span className="hero-stats-dot" aria-hidden="true">
-              ·
-            </span>
-            <span>
-              <strong>3</strong> stacks
-            </span>
+            <span>Stellar Soroban</span>
             <span className="hero-stats-dot" aria-hidden="true">
               ·
             </span>
             <span>Rust · Node · React</span>
+            <span className="hero-stats-dot" aria-hidden="true">
+              ·
+            </span>
+            <span>Apache-2.0</span>
           </div>
         </header>
 
@@ -196,7 +240,9 @@ export default function Landing({
 
             <div className="rewards-balance" aria-live="polite">
               <span className="rewards-balance-label">Available points</span>
-              <strong>{isRewardsPointsLoading ? '…' : rewardsPoints || '—'}</strong>
+              <strong data-tour="rewards">
+                {isRewardsPointsLoading ? '…' : rewardsPoints || '—'}
+              </strong>
             </div>
 
             <div className="rewards-actions">
@@ -231,8 +277,23 @@ export default function Landing({
 
             {(rewardsPoints === 'Unavailable' || walletError) && (
               <p className="rewards-error" role="alert">
-                {walletError ||
-                  'Unable to load your rewards balance. Check your connection or contract deployment.'}
+                {walletError && walletError.toLowerCase().includes('freighter') ? (
+                  <>
+                    Freighter wallet not detected.{' '}
+                    <a
+                      href="https://www.freighter.app"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: 'inherit', textDecoration: 'underline' }}
+                    >
+                      Install Freighter
+                    </a>{' '}
+                    then try again.
+                  </>
+                ) : (
+                  walletError ||
+                  'Unable to load your rewards balance. Check your connection or contract deployment.'
+                )}
               </p>
             )}
 
@@ -391,29 +452,42 @@ export default function Landing({
           </div>
         </section>
 
-        <section className="section campaigns-preview" aria-labelledby="campaigns-title">
+        <section
+          id="campaigns"
+          className="section campaigns-preview"
+          aria-labelledby="campaigns-title"
+          data-tour="campaigns"
+        >
           <h2 id="campaigns-title" className="section-title">
             Live campaigns
           </h2>
           <p className="section-subtitle">
             Paginated from the backend API with keyboard-friendly previous and next controls.
           </p>
-          <div className="campaign-search">
-            <label htmlFor="campaign-search-input" className="campaign-search-label">
-              Search campaigns
-            </label>
-            <input
-              id="campaign-search-input"
-              type="search"
-              value={campaignQuery}
-              onChange={(event) => {
-                setCampaignPage(1);
-                setCampaignQuery(event.target.value);
-              }}
-              className="campaign-search-input"
-              placeholder="Search by campaign name or description"
-            />
-          </div>
+          <CampaignFilters
+            query={campaignQuery}
+            activeOnly={activeOnly}
+            sortKey={sortKey}
+            onQueryChange={(next) => {
+              setCampaignPage(1);
+              setCampaignQuery(next);
+            }}
+            onActiveOnlyChange={(next) => {
+              setCampaignPage(1);
+              setActiveOnly(next);
+            }}
+            onSortKeyChange={(next) => {
+              setCampaignPage(1);
+              setSortKey(normalizeSortKey(next));
+            }}
+          />
+
+          {!isCampaignsLoading && !campaignsError && (
+            <p className="campaign-result-count" aria-live="polite">
+              {totalCampaigns === 1 ? '1 campaign' : `${totalCampaigns} campaigns`}
+              {hasActiveFilters ? ' matching your filters' : ''}
+            </p>
+          )}
 
           <div className="campaigns-panel" aria-busy={isCampaignsLoading}>
             {isCampaignsLoading ? (
@@ -430,11 +504,26 @@ export default function Landing({
                 onAction={() => setCampaignRefreshKey((value) => value + 1)}
               />
             ) : campaigns.length === 0 ? (
-              <EmptyState
-                eyebrow="Campaign API"
-                title="No campaigns yet"
-                description="Create a campaign through the API and it will appear here once saved."
-              />
+              hasActiveFilters ? (
+                <EmptyState
+                  eyebrow="Campaign API"
+                  title="No campaigns found"
+                  description="No campaigns match the current search or filters. Try clearing them or broadening your search."
+                  actionLabel="Clear filters"
+                  onAction={() => {
+                    setCampaignQuery('');
+                    setActiveOnly(false);
+                    setSortKey('newest');
+                    setCampaignPage(1);
+                  }}
+                />
+              ) : (
+                <EmptyState
+                  eyebrow="Campaign API"
+                  title="No campaigns yet"
+                  description="Create a campaign through the API and it will appear here once saved."
+                />
+              )
             ) : (
               <>
                 {featuredCampaigns.length > 0 && (
@@ -542,8 +631,25 @@ export default function Landing({
             </a>
           </div>
           <p className="footer-legal">Part of the Stellar ecosystem. Apache-2.0.</p>
+          <button
+            type="button"
+            className="footer-restart-tour"
+            onClick={restart}
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--color-text-secondary, #94a3b8)',
+              fontSize: '0.8rem',
+              textDecoration: 'underline',
+              padding: 0,
+            }}
+          >
+            Restart Tour
+          </button>
         </div>
       </footer>
+      <OnboardingTour onRestart={restartRef} />
     </div>
   );
 }

@@ -5,6 +5,9 @@ info:
   description: |
     REST API for the Trivela campaign and rewards platform. Handles campaign metadata,
     health checks, and Soroban RPC configuration for the frontend.
+
+    See the [API Migration Guide](../docs/API_MIGRATION.md) for v0 → v1 breaking changes,
+    endpoint changelog, deprecation policy, and migration examples with curl snippets.
   license:
     name: Apache-2.0
     url: https://www.apache.org/licenses/LICENSE-2.0.html
@@ -26,6 +29,17 @@ tags:
     description: Audit log endpoints
   - name: Admin
     description: Administrative API key management
+  - name: Organizations
+    description: Organization and team member management
+  - name: IndexRead
+    description:
+      'Public read API over indexed Soroban event data (cursor-paginated, ETag-cached) — #560'
+  - name: StellarToml
+    description: 'SEP-1 stellar.toml reward-token metadata — #551'
+  - name: SponsoredAccounts
+    description: 'CAP-33 Stellar reserve sponsorship for new accounts — #556'
+  - name: ClaimableBalances
+    description: 'Claimable balance lifecycle for unclaimed/expired rewards (CAP-23) — #548'
 
 security:
   - ApiKeyAuth: []
@@ -327,6 +341,53 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+        '404':
+          description: Campaign not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/campaigns/{id}/stats:
+    get:
+      summary: Get campaign analytics and stats
+      tags:
+        - Campaigns
+      operationId: getCampaignStats
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Campaign ID
+          schema:
+            type: string
+        - name: range
+          in: query
+          description: Time range (7d, 30d, all)
+          schema:
+            type: string
+            enum: [7d, 30d, all]
+            default: 7d
+        - name: from
+          in: query
+          description: Start date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          description: End date (ISO 8601)
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Campaign statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CampaignStats'
         '404':
           description: Campaign not found
           content:
@@ -662,6 +723,750 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations:
+    post:
+      summary: Create a new organization
+      tags:
+        - Organizations
+      operationId: createOrganization
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+                creatorEmail:
+                  type: string
+                  format: email
+      responses:
+        '201':
+          description: Organization created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}:
+    get:
+      summary: Get organization by ID
+      tags:
+        - Organizations
+      operationId: getOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Organization details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Update organization
+      tags:
+        - Organizations
+      operationId: updateOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                slug:
+                  type: string
+      responses:
+        '200':
+          description: Organization updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Organization'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Delete organization
+      tags:
+        - Organizations
+      operationId: deleteOrganization
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Organization deleted
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}/members:
+    get:
+      summary: List organization members
+      tags:
+        - Organizations
+      operationId: listMembers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of members
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationMember'
+
+  /api/v1/organizations/{id}/members/{memberId}:
+    put:
+      summary: Update member role
+      tags:
+        - Organizations
+      operationId: updateMemberRole
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - role
+              properties:
+                role:
+                  type: string
+                  enum: [owner, admin, member]
+      responses:
+        '200':
+          description: Member role updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrganizationMember'
+        '400':
+          description: Validation error or invalid operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Remove member from organization
+      tags:
+        - Organizations
+      operationId: removeMember
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: memberId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Member removed
+        '400':
+          description: Invalid operation (e.g., removing last owner)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Member not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/{id}/invitations:
+    post:
+      summary: Create team invitation
+      tags:
+        - Organizations
+      operationId: createInvitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - role
+              properties:
+                email:
+                  type: string
+                  format: email
+                role:
+                  type: string
+                  enum: [owner, admin, member]
+      responses:
+        '201':
+          description: Invitation created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [invitation_created, invitation_exists, already_member, member_updated]
+                  invitation:
+                    $ref: '#/components/schemas/OrganizationInvitation'
+                  inviteLink:
+                    type: string
+                  member:
+                    $ref: '#/components/schemas/OrganizationMember'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '404':
+          description: Organization not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    get:
+      summary: List organization invitations
+      tags:
+        - Organizations
+      operationId: listInvitations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending, accepted, revoked, expired]
+      responses:
+        '200':
+          description: List of invitations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OrganizationInvitation'
+
+  /api/v1/organizations/{id}/invitations/{invitationId}:
+    delete:
+      summary: Revoke invitation
+      tags:
+        - Organizations
+      operationId: revokeInvitation
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: invitationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invitation revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  invitation:
+                    $ref: '#/components/schemas/OrganizationInvitation'
+        '400':
+          description: Invalid operation
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Invitation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/invite/{token}:
+    get:
+      summary: Get invitation details by token
+      tags:
+        - Organizations
+      operationId: getInvitationByToken
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invitation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  role:
+                    type: string
+                  organization:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                  status:
+                    type: string
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '404':
+          description: Invitation not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/organizations/invite/{token}/accept:
+    post:
+      summary: Accept invitation
+      tags:
+        - Organizations
+      operationId: acceptInvitation
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '200':
+          description: Invitation accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                  member:
+                    $ref: '#/components/schemas/OrganizationMember'
+                  organization:
+                    $ref: '#/components/schemas/Organization'
+        '400':
+          description: Invalid invitation or validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ── #551: SEP-1 stellar.toml ──────────────────────────────────────────────
+  /.well-known/stellar.toml:
+    get:
+      summary: SEP-1 stellar.toml token metadata
+      tags: [StellarToml]
+      security: []
+      responses:
+        '200':
+          description: Valid SEP-1 TOML document
+          headers:
+            Cache-Control:
+              schema: { type: string }
+            Access-Control-Allow-Origin:
+              schema: { type: string }
+          content:
+            text/plain:
+              schema: { type: string }
+
+  # ── #560: Index Read API ───────────────────────────────────────────────────
+  /api/v1/index/campaigns/{id}/participants:
+    get:
+      summary: Cursor-paginated participant list from indexed balances
+      tags: [IndexRead]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: Opaque pagination cursor from previous response
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Paginated participant list with freshness indicator
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        address: { type: string }
+                        balance: { type: string }
+                  cursor: { type: string, nullable: true }
+                  has_more: { type: boolean }
+                  as_of_ledger: { type: integer, nullable: true }
+        '404':
+          description: Campaign not found
+
+  /api/v1/index/campaigns/{id}/events:
+    get:
+      summary: Cursor-paginated credit/claim event log for a campaign
+      tags: [IndexRead]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: type
+          schema: { type: string, enum: [credit, claim] }
+          description: Filter by event type
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Paginated event list
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        user: { type: string }
+                        amount: { type: string }
+                        ledger: { type: integer }
+                        tx_hash: { type: string }
+                        type: { type: string, enum: [credit, claim] }
+                  cursor: { type: string, nullable: true }
+                  has_more: { type: boolean }
+                  as_of_ledger: { type: integer, nullable: true }
+        '404':
+          description: Campaign not found
+
+  /api/v1/index/addresses/{address}/history:
+    get:
+      summary: Full event history for a single Stellar address
+      tags: [IndexRead]
+      security: []
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string }
+        - in: query
+          name: cursor
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        '200':
+          description: Address event history and current balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { type: string }
+                  balance: { type: string }
+                  data: { type: array }
+                  cursor: { type: string, nullable: true }
+                  has_more: { type: boolean }
+                  as_of_ledger: { type: integer, nullable: true }
+
+  /api/v1/index/campaigns/{id}/stats:
+    get:
+      summary: Rollup stats for a campaign (ETag-cached)
+      tags: [IndexRead]
+      security: []
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Campaign stats
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  campaignId: { type: string }
+                  as_of_ledger: { type: integer, nullable: true }
+                  summary:
+                    type: object
+                    properties:
+                      totalParticipants: { type: integer }
+                      totalCredited: { type: string }
+                      totalClaimed: { type: string }
+                      claimRate: { type: number }
+        '304':
+          description: Not Modified (ETag match)
+        '404':
+          description: Campaign not found
+
+  # ── #556: Sponsored accounts ───────────────────────────────────────────────
+  /api/v1/sponsored-accounts:
+    post:
+      summary: Sponsor a new Stellar account (CAP-33)
+      tags: [SponsoredAccounts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [address]
+              properties:
+                address:
+                  type: string
+                  description: Stellar G-address to sponsor
+                accountType:
+                  type: string
+                  enum: [stellar, smart_wallet]
+                  default: stellar
+                trustlineAsset:
+                  type: string
+                  description: '"CODE:ISSUER" trustline to add within the sponsorship envelope'
+      responses:
+        '201':
+          description: Sponsorship created; returns partially-signed transaction XDR
+        '202':
+          description: Sponsorship tracked (SPONSOR_SECRET_KEY not configured)
+        '400':
+          description: Invalid address or asset format
+        '409':
+          description: Address already has an active sponsorship
+
+  /api/v1/sponsored-accounts/{address}:
+    get:
+      summary: Get sponsorship status for an address
+      tags: [SponsoredAccounts]
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Sponsorship record
+        '404':
+          description: Not found
+
+  /api/v1/sponsored-accounts/{address}/revoke:
+    post:
+      summary: Revoke reserve sponsorship (transfer back to account)
+      tags: [SponsoredAccounts]
+      parameters:
+        - in: path
+          name: address
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Revocation XDR built; or tracked-only if key not configured
+        '404':
+          description: No active sponsorship for this address
+
+  # ── #548: Claimable balances ───────────────────────────────────────────────
+  /api/v1/campaigns/{id}/claimable-balances:
+    post:
+      summary: Trigger claimable balance creation for eligible-unclaimed users
+      tags: [ClaimableBalances]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                graceDays:
+                  type: integer
+                  default: 30
+                assetCode:
+                  type: string
+                assetIssuer:
+                  type: string
+      responses:
+        '202':
+          description: Job queued; returns created/skipped counts
+        '404':
+          description: Campaign not found
+    get:
+      summary: List claimable balances for a campaign
+      tags: [ClaimableBalances]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+        - in: query
+          name: status
+          schema:
+            {
+              type: string,
+              enum: [pending, created, claimed_by_user, reclaimed_by_operator, failed],
+            }
+        - in: query
+          name: limit
+          schema: { type: integer, default: 50, maximum: 200 }
+        - in: query
+          name: offset
+          schema: { type: integer, default: 0 }
+      responses:
+        '200':
+          description: Paginated claimable balance list
+
+  /api/v1/campaigns/{id}/claimable-balances/reclaim:
+    post:
+      summary: Operator reclaim of expired unclaimed balances
+      tags: [ClaimableBalances]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Balances marked as reclaimed
+        '404':
+          description: Campaign not found
 
 components:
   securitySchemes:
@@ -1132,3 +1937,184 @@ components:
           items:
             type: string
           description: Validation error details
+
+    Organization:
+      type: object
+      required:
+        - id
+        - name
+        - slug
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: Organization ID
+        name:
+          type: string
+          description: Organization name
+        slug:
+          type: string
+          description: URL-friendly slug
+        createdAt:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updatedAt:
+          type: string
+          format: date-time
+          description: Last update timestamp
+
+    OrganizationMember:
+      type: object
+      required:
+        - id
+        - organizationId
+        - userEmail
+        - role
+        - joinedAt
+      properties:
+        id:
+          type: string
+          description: Member ID
+        organizationId:
+          type: string
+          description: Organization ID
+        userEmail:
+          type: string
+          format: email
+          description: Member email
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: Member role
+        joinedAt:
+          type: string
+          format: date-time
+          description: Join timestamp
+
+    OrganizationInvitation:
+      type: object
+      required:
+        - id
+        - organizationId
+        - email
+        - role
+        - token
+        - invitedBy
+        - invitedAt
+        - expiresAt
+        - status
+      properties:
+        id:
+          type: string
+          description: Invitation ID
+        organizationId:
+          type: string
+          description: Organization ID
+        email:
+          type: string
+          format: email
+          description: Invitee email
+        role:
+          type: string
+          enum: [owner, admin, member]
+          description: Assigned role
+        token:
+          type: string
+          description: Secure invitation token
+        invitedBy:
+          type: string
+          description: Email of inviter
+        invitedAt:
+          type: string
+          format: date-time
+          description: Invitation timestamp
+        expiresAt:
+          type: string
+          format: date-time
+          description: Expiration timestamp
+        acceptedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Acceptance timestamp
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: Revocation timestamp
+        status:
+          type: string
+          enum: [pending, accepted, revoked, expired]
+          description: Invitation status
+
+    CampaignStats:
+      type: object
+      required:
+        - campaignId
+        - onChainSynced
+        - range
+        - summary
+        - registrationsByDay
+        - pointsByDay
+      properties:
+        campaignId:
+          type: string
+          description: Campaign ID
+        onChainSynced:
+          type: boolean
+          description: Whether on-chain data has been synced
+        range:
+          type: object
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+        summary:
+          type: object
+          required:
+            - totalParticipants
+            - totalPoints
+            - claimRate
+            - timeRemainingMs
+          properties:
+            totalParticipants:
+              type: integer
+              description: Total registered participants
+            totalPoints:
+              type: integer
+              description: Total points awarded
+            claimRate:
+              type: number
+              description: Percentage of points claimed
+            timeRemainingMs:
+              type: integer
+              description: Milliseconds until campaign ends
+        registrationsByDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              count:
+                type: integer
+          description: Daily registration counts
+        pointsByDay:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              credited:
+                type: integer
+              claimed:
+                type: integer
+          description: Daily credited and claimed points

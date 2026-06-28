@@ -91,3 +91,116 @@ test('expired database api key is rejected', async () => {
     .send({ name: 'Should Fail', rewardPerAction: 1 })
     .expect(401);
 });
+
+// ── Scope tests (#611) ──────────────────────────────────────────────────────
+
+test('read-only key (campaigns:read only) is denied on write routes', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'readonly', scopes: ['campaigns:read'] })
+    .expect(201);
+
+  assert.deepEqual(created.body.metadata.scopes, ['campaigns:read']);
+
+  // Write blocked
+  await request(app)
+    .post('/api/v1/campaigns')
+    .set('X-API-Key', created.body.key)
+    .send({ name: 'Should Be Blocked', rewardPerAction: 5 })
+    .expect(403);
+});
+
+test('read-only key can still read public campaign data', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'readonly-reads', scopes: ['campaigns:read'] })
+    .expect(201);
+
+  // Public read endpoints are not guarded by scope (no auth required).
+  await request(app).get('/api/v1/campaigns').expect(200);
+});
+
+test('full-scope key can write campaigns', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'writer', scopes: ['campaigns:read', 'campaigns:write'] })
+    .expect(201);
+
+  assert.ok(created.body.metadata.scopes.includes('campaigns:write'));
+
+  await request(app)
+    .post('/api/v1/campaigns')
+    .set('X-API-Key', created.body.key)
+    .send({ name: 'Scoped Write Campaign', rewardPerAction: 5 })
+    .expect(201);
+});
+
+test('api key is org-scoped when orgId is provided', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'org-key', orgId: 'org-abc', scopes: ['campaigns:read', 'campaigns:write'] })
+    .expect(201);
+
+  assert.equal(created.body.metadata.orgId, 'org-abc');
+  assert.ok(Array.isArray(created.body.metadata.scopes));
+});
+
+test('key metadata includes scopes array on list and getById', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'scope-check', scopes: ['campaigns:read', 'allowlist:write'] })
+    .expect(201);
+
+  const listed = await request(app)
+    .get('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .expect(200);
+
+  const found = listed.body.data.find((k) => k.id === created.body.metadata.id);
+  assert.ok(found, 'key should appear in list');
+  assert.deepEqual(found.scopes, ['campaigns:read', 'allowlist:write']);
+});
+
+test('rotated key inherits original scopes and orgId', async () => {
+  const app = await createTestApp();
+
+  const created = await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'rotate-scope', orgId: 'org-xyz', scopes: ['campaigns:read'] })
+    .expect(201);
+
+  const rotated = await request(app)
+    .put(`/api/v1/admin/api-keys/${created.body.metadata.id}/rotate`)
+    .set('X-API-Key', 'master-key-xyz')
+    .expect(200);
+
+  assert.deepEqual(rotated.body.metadata.scopes, ['campaigns:read']);
+  assert.equal(rotated.body.metadata.orgId, 'org-xyz');
+  assert.notEqual(rotated.body.key, created.body.key);
+});
+
+test('invalid scope value is rejected at creation', async () => {
+  const app = await createTestApp();
+
+  await request(app)
+    .post('/api/v1/admin/api-keys')
+    .set('X-API-Key', 'master-key-xyz')
+    .send({ label: 'bad-scope', scopes: ['not:a:valid:scope'] })
+    .expect(400);
+});

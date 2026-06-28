@@ -197,6 +197,7 @@ Implements all `WalletProvider` methods for the Freighter browser extension.
 ### From Direct Freighter Usage
 
 **Before:**
+
 ```javascript
 const freighterApi = window.freighterApi;
 const result = await freighterApi.requestAccess();
@@ -204,6 +205,7 @@ const address = result.address;
 ```
 
 **After:**
+
 ```javascript
 import { connectWallet } from './stellar';
 const { address } = await connectWallet('Freighter');
@@ -212,6 +214,7 @@ const { address } = await connectWallet('Freighter');
 ### Transaction Signing
 
 **Before:**
+
 ```javascript
 const freighterApi = window.freighterApi;
 const signResult = await freighterApi.signTransaction(xdr, options);
@@ -219,6 +222,7 @@ const signedXdr = signResult.signedTxXdr;
 ```
 
 **After:**
+
 ```javascript
 import { walletManager } from './lib/wallet';
 const signedXdr = await walletManager.signTransaction(xdr, options);
