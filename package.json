@@ -19,6 +19,7 @@
     "test:backend": "npm run test --workspace=backend",
     "test:frontend": "npm run test --workspace=frontend",
     "deploy:testnet": "bash ./scripts/deploy-testnet.sh",
+    "deploy:mainnet": "STELLAR_NETWORK=mainnet MAINNET_CONFIRMED=true bash ./scripts/deploy-testnet.sh",
     "contracts:build-bindings": "node scripts/build-bindings.js",
     "env:validate": "node ./scripts/validate-env.mjs",
     "labels:sync": "node ./scripts/sync-github-labels.js",
