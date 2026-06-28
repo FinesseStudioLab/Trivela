@@ -36,7 +36,7 @@ function Skeleton({ width = '100%', height = '1.2em' }) {
 
 /**
  * Private profile page for the connected wallet.
- * Redirects to wallet connect if no wallet is connected.
+ * Redirects home if no wallet is connected.
  */
 export default function UserProfile({
   theme,
@@ -129,93 +129,132 @@ export default function UserProfile({
               </span>
             </div>
           </div>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={copyPublicUrl}
-            aria-label="Copy public profile link"
-          >
-            {copied ? 'Copied!' : 'Share Profile'}
-          </button>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={fetchProfile}
+              disabled={loading}
+              aria-label="Refresh profile data"
+            >
+              {loading ? 'Loading…' : 'Refresh'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={copyPublicUrl}
+              aria-label="Copy public profile link"
+            >
+              {copied ? 'Copied!' : 'Share Profile'}
+            </button>
+          </div>
         </div>
 
         {error && (
-          <p role="alert" style={{ color: 'var(--color-error, #ef4444)', marginBottom: '1.5rem' }}>
-            {error}
-          </p>
+          <div
+            role="alert"
+            style={{ display: 'flex', alignItems: 'center', gap: '12px', color: 'var(--color-error, #ef4444)', marginBottom: '1.5rem', padding: '12px 16px', background: 'rgba(239,68,68,0.08)', borderRadius: '8px', border: '1px solid rgba(239,68,68,0.2)' }}
+          >
+            <span style={{ flex: 1 }}>{error}</span>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ fontSize: '0.8125rem', padding: '4px 12px' }}
+              onClick={fetchProfile}
+            >
+              Retry
+            </button>
+          </div>
         )}
 
-        <section aria-label="Stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
-          {loading ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="profile-stat-card">
-                <Skeleton width="60%" height="2rem" />
-                <Skeleton width="80%" height="1rem" />
-              </div>
-            ))
-          ) : (
-            <>
-              <StatCard label="Campaigns joined" value={profile?.campaignCount ?? 0} />
-              <StatCard label="Points earned" value={profile?.totalPointsEarned ?? 0} />
-              <StatCard label="Points claimed" value={profile?.totalPointsClaimed ?? 0} />
-              <StatCard label="Net balance" value={profile?.netPoints ?? 0} />
-            </>
-          )}
-        </section>
+        {!loading && profile?.empty && (
+          <div
+            role="status"
+            style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--color-text-secondary, #94a3b8)' }}
+          >
+            <p style={{ fontSize: '1.125rem', marginBottom: '0.5rem' }}>No activity yet</p>
+            <p style={{ fontSize: '0.875rem' }}>
+              Join a campaign to start earning rewards.{' '}
+              <a href="/" style={{ color: 'var(--color-primary, #38bdf8)' }}>Browse campaigns →</a>
+            </p>
+          </div>
+        )}
 
-        <section aria-label="Recent activity" style={{ marginBottom: '2rem' }}>
-          <h2 style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>Recent Activity</h2>
-          {loading ? (
-            Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--color-border, #334155)' }}>
-                <Skeleton width="70%" />
-              </div>
-            ))
-          ) : !profile?.recentActivity?.length ? (
-            <p style={{ color: 'var(--color-text-secondary, #94a3b8)' }}>No activity yet.</p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {profile.recentActivity.map((event, i) => (
-                <li
-                  key={i}
-                  style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border, #334155)', display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}
-                >
-                  <span>{event.description ?? event.action}</span>
-                  <time dateTime={event.timestamp} style={{ color: 'var(--color-text-secondary, #94a3b8)', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
-                    {new Date(event.timestamp).toLocaleDateString()}
-                  </time>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        {(loading || !profile?.empty) && (
+          <>
+            <section aria-label="Stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+              {loading ? (
+                Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="profile-stat-card">
+                    <Skeleton width="60%" height="2rem" />
+                    <Skeleton width="80%" height="1rem" />
+                  </div>
+                ))
+              ) : (
+                <>
+                  <StatCard label="Campaigns joined" value={profile?.campaignCount ?? 0} />
+                  <StatCard label="Points earned" value={profile?.totalPointsEarned ?? 0} />
+                  <StatCard label="Points claimed" value={profile?.totalPointsClaimed ?? 0} />
+                  <StatCard label="Net balance" value={profile?.netPoints ?? 0} />
+                </>
+              )}
+            </section>
 
-        <section aria-label="Campaigns participated">
-          <h2 style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>Campaigns</h2>
-          {loading ? (
-            <Skeleton width="100%" height="3rem" />
-          ) : !profile?.campaigns?.length ? (
-            <p style={{ color: 'var(--color-text-secondary, #94a3b8)' }}>No campaigns yet.</p>
-          ) : (
-            <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {profile.campaigns.map((c) => (
-                <li key={c.id}>
-                  <a href={`/campaign/${c.id}`} style={{ color: 'var(--color-primary, #38bdf8)' }}>
-                    {c.name}
-                  </a>
-                  <span style={{ marginLeft: '8px', fontSize: '0.875rem', color: 'var(--color-text-secondary, #94a3b8)' }}>
-                    {c.pointsEarned} pts
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            <section aria-label="Recent activity" style={{ marginBottom: '2rem' }}>
+              <h2 style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>Recent Activity</h2>
+              {loading ? (
+                Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} style={{ padding: '12px 0', borderBottom: '1px solid var(--color-border, #334155)' }}>
+                    <Skeleton width="70%" />
+                  </div>
+                ))
+              ) : !profile?.recentActivity?.length ? (
+                <p style={{ color: 'var(--color-text-secondary, #94a3b8)' }}>No activity yet.</p>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                  {profile.recentActivity.map((event, i) => (
+                    <li
+                      key={i}
+                      style={{ padding: '10px 0', borderBottom: '1px solid var(--color-border, #334155)', display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}
+                    >
+                      <span>{event.description ?? event.action}</span>
+                      <time dateTime={event.timestamp} style={{ color: 'var(--color-text-secondary, #94a3b8)', fontSize: '0.875rem', whiteSpace: 'nowrap' }}>
+                        {new Date(event.timestamp).toLocaleDateString()}
+                      </time>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
 
-        {profile?.joinedDate && (
-          <p style={{ marginTop: '2rem', fontSize: '0.875rem', color: 'var(--color-text-muted, #64748b)' }}>
-            Member since {new Date(profile.joinedDate).toLocaleDateString()}
-          </p>
+            <section aria-label="Campaigns participated">
+              <h2 style={{ fontSize: '1.125rem', marginBottom: '1rem' }}>Campaigns</h2>
+              {loading ? (
+                <Skeleton width="100%" height="3rem" />
+              ) : !profile?.campaigns?.length ? (
+                <p style={{ color: 'var(--color-text-secondary, #94a3b8)' }}>No campaigns yet.</p>
+              ) : (
+                <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {profile.campaigns.map((c) => (
+                    <li key={c.id}>
+                      <a href={`/campaign/${c.id}`} style={{ color: 'var(--color-primary, #38bdf8)' }}>
+                        {c.name}
+                      </a>
+                      <span style={{ marginLeft: '8px', fontSize: '0.875rem', color: 'var(--color-text-secondary, #94a3b8)' }}>
+                        {c.pointsEarned} pts
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            {profile?.joinedDate && (
+              <p style={{ marginTop: '2rem', fontSize: '0.875rem', color: 'var(--color-text-muted, #64748b)' }}>
+                Member since {new Date(profile.joinedDate).toLocaleDateString()}
+              </p>
+            )}
+          </>
         )}
       </main>
     </>

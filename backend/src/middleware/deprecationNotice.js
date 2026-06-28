@@ -2,16 +2,21 @@
 import { DEPRECATION_REGISTRY } from '../deprecations.js';
 
 /**
- * Match a request path+method against the deprecation registry.
+ * @typedef {{ deprecatedAt: string, removedAt: string, replacement: string, message: string }} DeprecationEntry
+ */
+
+/**
+ * Match a request path+method against a deprecation registry.
  * Registry keys are like "GET /api/v1/campaigns/:id/stats"; path segments
  * starting with ":" are treated as wildcards.
  *
  * @param {string} method  e.g. "GET"
  * @param {string} path    e.g. "/api/v1/campaigns/42/stats"
- * @returns {import('../deprecations.js').DeprecationEntry | null}
+ * @param {Record<string, DeprecationEntry>} registry
+ * @returns {DeprecationEntry | null}
  */
-function matchDeprecation(method, path) {
-  for (const [pattern, entry] of Object.entries(DEPRECATION_REGISTRY)) {
+function matchDeprecation(method, path, registry) {
+  for (const [pattern, entry] of Object.entries(registry)) {
     const [patternMethod, ...rest] = pattern.split(' ');
     const patternPath = rest.join(' ');
 
@@ -36,12 +41,12 @@ function matchDeprecation(method, path) {
  * any route registered in the deprecation registry, and WARN-logs usage
  * so operators know which deprecated endpoints are still being hit.
  *
- * @param {{ log?: { warn?: Function } }} [options]
+ * @param {{ log?: { warn?: Function }, registry?: Record<string, DeprecationEntry> }} [options]
  * @returns {import('express').RequestHandler}
  */
-export function createDeprecationMiddleware({ log = console } = {}) {
+export function createDeprecationMiddleware({ log = console, registry = DEPRECATION_REGISTRY } = {}) {
   return function deprecationNotice(req, res, next) {
-    const entry = matchDeprecation(req.method, req.path);
+    const entry = matchDeprecation(req.method, req.path, registry);
 
     if (entry) {
       const deprecationDate = new Date(entry.deprecatedAt).toUTCString();

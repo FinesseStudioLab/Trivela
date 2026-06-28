@@ -15,10 +15,35 @@ description = "Trivela API key pattern"
 regex = '''tvl_[a-zA-Z0-9]{32,}'''
 tags = ["trivela", "api-key"]
 
+[[rules]]
+id = "pem-private-key"
+description = "PEM-encoded private key block"
+regex = '''-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----'''
+tags = ["pem", "private-key"]
+
+[[rules]]
+id = "jwt-secret-env"
+description = "JWT_SECRET value assignment in env files or shell"
+regex = '''JWT_SECRET\s*=\s*['"]?[A-Za-z0-9+/=\-_]{16,}['"]?'''
+tags = ["jwt", "secret"]
+
+[[rules]]
+id = "generic-high-entropy-secret"
+description = "Assignment to variables named *_SECRET or *_PRIVATE_KEY with high-entropy values"
+regex = '''(?i)(secret|private_key)\s*[:=]\s*['"]?[A-Za-z0-9+/]{32,}['"]?'''
+tags = ["generic", "secret"]
+
+[[rules]]
+id = "keeper-secret-key"
+description = "KEEPER_SECRET_KEY Stellar value"
+regex = '''KEEPER_SECRET_KEY\s*=\s*['"]?S[A-Z2-7]{55}['"]?'''
+tags = ["stellar", "keeper"]
+
 [allowlist]
 description = "Safe paths — example files, test fixtures, docs"
 paths = [
   '''.env\.example''',
   '''test[s]?/fixtures/''',
   '''docs/''',
+  '''\.gitleaks\.toml''',
 ]
