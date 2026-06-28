@@ -1,5 +1,7 @@
 # Trivela
 
+[![Secrets Scanning](https://github.com/FinesseStudioLab/Trivela/actions/workflows/secrets-scan.yml/badge.svg)](https://github.com/FinesseStudioLab/Trivela/actions/workflows/secrets-scan.yml)
+
 > **New contributor?** Check out the [📖 FAQ](docs/FAQ.md) for common setup, contract, and contribution questions before getting started.
 > 🔤 **[Glossary](docs/GLOSSARY.md)** — definitions for Soroban, XDR, TTL, Freighter, Horizon, and all Trivela-specific terms.
 
