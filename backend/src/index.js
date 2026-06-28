@@ -41,6 +41,9 @@ import {
 import { createStorageAdapter } from './storage/index.js';
 import { uploadCampaignImage, validateImageUpload, MAX_IMAGE_SIZE_BYTES } from './services/imageUpload.js';
 import { buildCampaignStats } from './services/campaignStatsService.js';
+import { createCampaignExportRoute } from './routes/campaignExport.js';
+import { createDeprecationMiddleware } from './middleware/deprecationNotice.js';
+import { DEPRECATION_REGISTRY } from './deprecations.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -291,6 +294,7 @@ export async function createApp(options = {}) {
   app.use(compression({ threshold: 1024 }));
   app.use(cors(createCorsOptions(allowedOrigins)));
   app.use(securityHeaders);
+  app.use(createDeprecationMiddleware({ log }));
   app.use(traceparentMiddleware());
   app.use(requestLogger);
   app.use(express.json({ limit: jsonBodyLimit }));
@@ -1034,6 +1038,8 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
     app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
     app.get(`${prefix}/campaigns/:id/stats`, rateLimiter, getCampaignStats);
+    app.use(prefix, createCampaignExportRoute({ db: dal.db, campaignRepository, auditLogRepository, requireApiKey }));
+    app.get(`${prefix}/deprecations`, rateLimiter, (_req, res) => res.json({ deprecations: DEPRECATION_REGISTRY }));
     app.get(`${prefix}/audit-logs`, rateLimiter, requireApiKey, listAuditLogs);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
     app.post(`${prefix}/indexer/cursor`, rateLimiter, requireApiKey, setIndexerCursorState);
