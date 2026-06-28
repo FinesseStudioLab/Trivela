@@ -21,6 +21,8 @@ function createTestApp(options = {}) {
   });
 }
 
+// ── GET ──────────────────────────────────────────────────────────────────────
+
 test('GET /api/v1/campaigns returns paginated campaign list', async () => {
   const app = await createTestApp();
   const response = await request(app).get('/api/v1/campaigns').expect(200);
@@ -52,14 +54,24 @@ test('GET /api/v1/campaigns/:id returns 404 for non-existent campaign', async ()
   assert.equal(response.body.code, 'CAMPAIGN_NOT_FOUND');
 });
 
+test('GET /api/v1/campaigns response includes all expected fields', async () => {
+  const app = await createTestApp();
+  const response = await request(app).get('/api/v1/campaigns').expect(200);
+  const campaign = response.body.data[0];
+
+  assert.ok('id' in campaign);
+  assert.ok('name' in campaign);
+  assert.ok('description' in campaign);
+  assert.ok('active' in campaign);
+  assert.ok('rewardPerAction' in campaign);
+  assert.ok('createdAt' in campaign);
+});
+
+// ── POST ─────────────────────────────────────────────────────────────────────
+
 test('POST /api/v1/campaigns creates a new campaign without API key when not configured', async () => {
   const app = await createTestApp();
-  const newCampaign = {
-    name: 'New Campaign',
-    description: 'New description',
-    rewardPerAction: 20,
-    active: true,
-  };
+  const newCampaign = { name: 'New Campaign', description: 'New description', rewardPerAction: 20, active: true };
 
   const response = await request(app).post('/api/v1/campaigns').send(newCampaign).expect(201);
 
@@ -73,11 +85,7 @@ test('POST /api/v1/campaigns creates a new campaign without API key when not con
 
 test('POST /api/v1/campaigns requires API key when configured', async () => {
   const app = await createTestApp({ apiKeys: 'test-key-123' });
-  const newCampaign = {
-    name: 'New Campaign',
-    description: 'New description',
-    rewardPerAction: 20,
-  };
+  const newCampaign = { name: 'New Campaign', description: 'New description', rewardPerAction: 20 };
 
   await request(app).post('/api/v1/campaigns').send(newCampaign).expect(401);
 
@@ -92,31 +100,40 @@ test('POST /api/v1/campaigns requires API key when configured', async () => {
 
 test('POST /api/v1/campaigns validates required fields', async () => {
   const app = await createTestApp();
-  const invalidCampaign = {
-    description: 'Missing name and rewardPerAction',
-  };
 
-  const response = await request(app).post('/api/v1/campaigns').send(invalidCampaign).expect(400);
+  const response = await request(app).post('/api/v1/campaigns').send({ description: 'Missing name' }).expect(400);
 
   assert.equal(response.body.code, 'VALIDATION_ERROR');
   assert.ok(Array.isArray(response.body.details));
   assert.ok(response.body.details.length > 0);
 });
 
+test('POST /api/v1/campaigns response shape includes all required fields', async () => {
+  const app = await createTestApp();
+
+  const response = await request(app)
+    .post('/api/v1/campaigns')
+    .send({ name: 'Shape Test', rewardPerAction: 5 })
+    .expect(201);
+
+  assert.ok('id' in response.body);
+  assert.ok('name' in response.body);
+  assert.ok('active' in response.body);
+  assert.ok('rewardPerAction' in response.body);
+  assert.ok('createdAt' in response.body);
+});
+
+// ── PUT ──────────────────────────────────────────────────────────────────────
+
 test('PUT /api/v1/campaigns/:id updates an existing campaign', async () => {
   const app = await createTestApp({ apiKeys: 'test-key-123' });
   const listResponse = await request(app).get('/api/v1/campaigns');
   const campaignId = listResponse.body.data[0].id;
 
-  const updates = {
-    name: 'Updated Campaign',
-    rewardPerAction: 30,
-  };
-
   const response = await request(app)
     .put(`/api/v1/campaigns/${campaignId}`)
     .set('X-API-Key', 'test-key-123')
-    .send(updates)
+    .send({ name: 'Updated Campaign', rewardPerAction: 30 })
     .expect(200);
 
   assert.equal(response.body.name, 'Updated Campaign');
@@ -126,12 +143,71 @@ test('PUT /api/v1/campaigns/:id updates an existing campaign', async () => {
 
 test('PUT /api/v1/campaigns/:id returns 404 for non-existent campaign', async () => {
   const app = await createTestApp();
-  const updates = { name: 'Updated' };
-
-  const response = await request(app).put('/api/v1/campaigns/999').send(updates).expect(404);
+  const response = await request(app).put('/api/v1/campaigns/999').send({ name: 'Updated' }).expect(404);
 
   assert.equal(response.body.error, 'Campaign not found');
 });
+
+test('PUT /api/v1/campaigns/:id requires API key when configured', async () => {
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  await request(app)
+    .put(`/api/v1/campaigns/${campaignId}`)
+    .send({ name: 'No Auth Update' })
+    .expect(401);
+});
+
+test('PUT /api/v1/campaigns/:id partial update preserves unchanged fields', async () => {
+  const app = await createTestApp();
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  await request(app).put(`/api/v1/campaigns/${campaignId}`).send({ active: false }).expect(200);
+
+  const getResponse = await request(app).get(`/api/v1/campaigns/${campaignId}`).expect(200);
+  assert.equal(getResponse.body.active, false);
+  assert.equal(getResponse.body.name, 'Test Campaign');
+  assert.equal(getResponse.body.description, 'Test description');
+  assert.equal(getResponse.body.rewardPerAction, 10);
+});
+
+test('PUT /api/v1/campaigns/:id updating only description preserves all other fields', async () => {
+  const app = await createTestApp();
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  const response = await request(app)
+    .put(`/api/v1/campaigns/${campaignId}`)
+    .send({ description: 'Updated description only' })
+    .expect(200);
+
+  assert.equal(response.body.description, 'Updated description only');
+  assert.equal(response.body.name, 'Test Campaign');
+  assert.equal(response.body.active, true);
+  assert.equal(response.body.rewardPerAction, 10);
+});
+
+test('PUT /api/v1/campaigns/:id response shape includes all expected fields', async () => {
+  const app = await createTestApp();
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  const response = await request(app)
+    .put(`/api/v1/campaigns/${campaignId}`)
+    .send({ name: 'Shape Check' })
+    .expect(200);
+
+  assert.ok('id' in response.body);
+  assert.ok('name' in response.body);
+  assert.ok('description' in response.body);
+  assert.ok('active' in response.body);
+  assert.ok('rewardPerAction' in response.body);
+  assert.ok('createdAt' in response.body);
+});
+
+// ── DELETE ───────────────────────────────────────────────────────────────────
 
 test('DELETE /api/v1/campaigns/:id deletes a campaign', async () => {
   const app = await createTestApp({ apiKeys: 'test-key-123' });
@@ -153,17 +229,57 @@ test('DELETE /api/v1/campaigns/:id returns 404 for non-existent campaign', async
   assert.equal(response.body.error, 'Campaign not found');
 });
 
+test('DELETE /api/v1/campaigns/:id requires API key when configured', async () => {
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  await request(app).delete(`/api/v1/campaigns/${campaignId}`).expect(401);
+});
+
+test('DELETE /api/v1/campaigns/:id reduces list count', async () => {
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
+
+  await request(app)
+    .post('/api/v1/campaigns')
+    .set('X-API-Key', 'test-key-123')
+    .send({ name: 'Extra Campaign', rewardPerAction: 5 })
+    .expect(201);
+
+  const beforeList = await request(app).get('/api/v1/campaigns').expect(200);
+  const beforeCount = beforeList.body.pagination.total;
+  const campaignId = beforeList.body.data[0].id;
+
+  await request(app)
+    .delete(`/api/v1/campaigns/${campaignId}`)
+    .set('X-API-Key', 'test-key-123')
+    .expect(204);
+
+  const afterList = await request(app).get('/api/v1/campaigns').expect(200);
+  assert.equal(afterList.body.pagination.total, beforeCount - 1);
+});
+
+test('DELETE /api/v1/campaigns/:id response has no body', async () => {
+  const app = await createTestApp({ apiKeys: 'test-key-123' });
+  const listResponse = await request(app).get('/api/v1/campaigns');
+  const campaignId = listResponse.body.data[0].id;
+
+  const response = await request(app)
+    .delete(`/api/v1/campaigns/${campaignId}`)
+    .set('X-API-Key', 'test-key-123')
+    .expect(204);
+
+  assert.equal(response.text, '');
+});
+
+// ── Data integrity ───────────────────────────────────────────────────────────
+
 test('Campaign CRUD operations maintain data integrity', async () => {
   const app = await createTestApp();
 
   const createResponse = await request(app)
     .post('/api/v1/campaigns')
-    .send({
-      name: 'Integrity Test',
-      description: 'Testing data integrity',
-      rewardPerAction: 15,
-      active: false,
-    })
+    .send({ name: 'Integrity Test', description: 'Testing data integrity', rewardPerAction: 15, active: false })
     .expect(201);
 
   const campaignId = createResponse.body.id;
@@ -179,16 +295,15 @@ test('Campaign CRUD operations maintain data integrity', async () => {
   assert.equal(updatedResponse.body.name, 'Integrity Test');
 });
 
+// ── Auth & infra ─────────────────────────────────────────────────────────────
+
 test('API key authentication works with Bearer token', async () => {
   const app = await createTestApp({ apiKeys: 'bearer-test-key' });
 
   await request(app)
     .post('/api/v1/campaigns')
     .set('Authorization', 'Bearer bearer-test-key')
-    .send({
-      name: 'Bearer Auth Test',
-      rewardPerAction: 10,
-    })
+    .send({ name: 'Bearer Auth Test', rewardPerAction: 10 })
     .expect(201);
 });
 
@@ -198,10 +313,7 @@ test('Multiple API keys are supported', async () => {
   await request(app)
     .post('/api/v1/campaigns')
     .set('X-API-Key', 'key2')
-    .send({
-      name: 'Multi Key Test',
-      rewardPerAction: 10,
-    })
+    .send({ name: 'Multi Key Test', rewardPerAction: 10 })
     .expect(201);
 });
 
@@ -216,9 +328,7 @@ test('Rate limiting headers are present', async () => {
 });
 
 test('CORS headers are set correctly', async () => {
-  const app = await createTestApp({
-    corsAllowedOrigins: 'http://localhost:3000',
-  });
+  const app = await createTestApp({ corsAllowedOrigins: 'http://localhost:3000' });
 
   const response = await request(app)
     .get('/api/v1/campaigns')
