@@ -5,7 +5,7 @@ export const log = pino({ level: process.env.LOG_LEVEL ?? 'info' });
 
 /**
  * Logs each request as a structured JSON line including method, path,
- * status code, duration ms, and request ID.
+ * status code, duration ms, request ID, client IP, and User-Agent.
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -21,6 +21,8 @@ export default function requestLogger(req, res, next) {
       path: req.path,
       status: res.statusCode,
       duration_ms: Date.now() - start,
+      ip: req.ip ?? req.socket?.remoteAddress,
+      user_agent: req.headers['user-agent'],
     });
   });
 
