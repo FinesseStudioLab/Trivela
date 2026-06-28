@@ -79,9 +79,12 @@ import { createDurableJobQueue } from './jobs/durableJobQueue.js';
 import { createStellarTomlRoute } from './routes/stellarToml.js';
 import { createSponsoredAccountRoutes } from './routes/sponsoredAccounts.js';
 import { createClaimableBalancesRoutes } from './routes/claimableBalances.js';
+import { createFeeBumpRoutes } from './routes/feeBump.js';
+import { createPathPaymentRoutes } from './routes/pathPayment.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
+import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -651,6 +654,18 @@ export async function createApp(options = {}) {
   });
   if (!options.disableJobs) {
     durableJobQueue.start();
+  }
+
+  // #552 — Operator balance monitoring job
+  const operatorBalanceJob = createOperatorBalanceJob({
+    db: dal.db,
+    stellarConfig,
+    metrics,
+    env: process.env,
+    logger: log,
+  });
+  if (!options.disableJobs) {
+    operatorBalanceJob.start();
   }
 
   async function buildHealthPayload() {
@@ -2174,6 +2189,22 @@ export async function createApp(options = {}) {
       logger: log,
     });
     app.use(prefix, rateLimiter, ...guard, claimableBalancesRouter);
+
+    // #555 — Fee-bump / sponsored transactions (gasless registration & claim)
+    const feeBumpRouter = createFeeBumpRoutes({
+      dal,
+      stellarConfig,
+      env: process.env,
+      logger: log,
+    });
+    app.use(`${prefix}/fee-bump`, rateLimiter, feeBumpRouter);
+
+    // #549 — Path payment support for multi-asset claims
+    const pathPaymentRouter = createPathPaymentRoutes({
+      stellarConfig,
+      fetchImpl,
+    });
+    app.use(`${prefix}/payment-paths`, rateLimiter, pathPaymentRouter);
   }
 
   // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)

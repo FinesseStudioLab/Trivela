@@ -1542,3 +1542,161 @@ fn test_multisig_2_of_3_two_signatures_succeed_and_nonce_replay_fails() {
     assert!(client.is_paused());
 }
 
+// ── SEP-41 allowance / approve / transfer_from / burn_from tests (#550) ──────
+
+fn setup_sep41(env: &Env) -> (Address, RewardsContractClient, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+    client.set_token_mode(&admin, &true);
+    (admin, client, contract_id)
+}
+
+#[test]
+fn test_sep41_approve_and_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    // Credit owner so they have a balance
+    client.credit(&admin, &owner, &100);
+    // Grant allowance, no expiry
+    client.sep41_approve(&owner, &spender, &50, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+}
+
+#[test]
+fn test_sep41_transfer_from_consumes_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+    let recipient = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &40, &0);
+
+    client.sep41_transfer_from(&spender, &owner, &recipient, &30);
+
+    assert_eq!(client.sep41_balance(&owner), 70);
+    assert_eq!(client.sep41_balance(&recipient), 30);
+    // Remaining allowance
+    assert_eq!(client.sep41_allowance(&owner, &spender), 10);
+}
+
+#[test]
+fn test_sep41_over_spend_rejected() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &20, &0);
+
+    // Attempt to spend 50 with only 20 allowed
+    let result = client.try_sep41_transfer_from(&spender, &owner, &spender, &50);
+    assert_eq!(result, Err(Ok(Error::AllowanceExceeded)));
+}
+
+#[test]
+fn test_sep41_expired_approval_rejected() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+
+    // Set approval expiring at ledger 10
+    env.ledger().set_sequence_number(5);
+    client.sep41_approve(&owner, &spender, &50, &10);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+
+    // Advance past expiry
+    env.ledger().set_sequence_number(11);
+    let result = client.try_sep41_transfer_from(&spender, &owner, &spender, &10);
+    assert_eq!(result, Err(Ok(Error::ApprovalExpired)));
+}
+
+#[test]
+fn test_sep41_re_approve_resets_amount_and_expiry() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    env.ledger().set_sequence_number(5);
+
+    client.sep41_approve(&owner, &spender, &20, &10);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 20);
+
+    // Re-approve with higher amount and later expiry
+    client.sep41_approve(&owner, &spender, &80, &20);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 80);
+
+    // Still within new expiry
+    env.ledger().set_sequence_number(15);
+    client.sep41_transfer_from(&spender, &owner, &spender, &80);
+    assert_eq!(client.sep41_balance(&owner), 20);
+}
+
+#[test]
+fn test_sep41_zero_amount_approve_clears_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &50, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 50);
+
+    // Re-approve with zero effectively revokes
+    client.sep41_approve(&owner, &spender, &0, &0);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 0);
+}
+
+#[test]
+fn test_sep41_burn_from_uses_allowance() {
+    let env = Env::default();
+    let (admin, client, _) = setup_sep41(&env);
+    let owner = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    env.mock_all_auths();
+    client.credit(&admin, &owner, &100);
+    client.sep41_approve(&owner, &spender, &30, &0);
+
+    client.sep41_burn_from(&spender, &owner, &20);
+
+    assert_eq!(client.sep41_balance(&owner), 80);
+    assert_eq!(client.sep41_allowance(&owner, &spender), 10);
+}
+
+#[test]
+fn test_sep41_token_mode_disabled_rejects_approve() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let spender = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+
+    // token_mode is not enabled — all SEP-41 ops should fail
+    let result = client.try_sep41_approve(&admin, &spender, &100, &0);
+    assert_eq!(result, Err(Ok(Error::TokenModeNotEnabled)));
+}
+
