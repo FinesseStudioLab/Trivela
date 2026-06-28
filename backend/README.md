@@ -1,17 +1,21 @@
 # Trivela Backend
 
-REST API for the Trivela campaign and rewards platform. Handles campaign metadata, health checks, and Soroban RPC configuration for the frontend.
+REST API for the Trivela campaign and rewards platform. Handles campaign metadata, health checks,
+and Soroban RPC configuration for the frontend.
 
 ## API Documentation
 
-The complete API specification is available in [OpenAPI 3.1 format](./openapi.yaml). You can view it using:
+The complete API specification is available in [OpenAPI 3.1 format](./openapi.yaml). You can view it
+using:
+
 - [Swagger Editor](https://editor.swagger.io/) - paste the spec content
 - [Redoc](https://redocly.github.io/redoc/) - for a clean documentation view
 - Any OpenAPI-compatible tool
 
 ### Migration Guide
 
-See the [API Migration Guide](../docs/API_MIGRATION.md) for details on v0 → v1 breaking changes, endpoint changelog, deprecation policy, and migration examples with curl snippets.
+See the [API Migration Guide](../docs/API_MIGRATION.md) for details on v0 → v1 breaking changes,
+endpoint changelog, deprecation policy, and migration examples with curl snippets.
 
 ## Setup
 
@@ -23,10 +27,12 @@ npm run dev
 
 ## Environment
 
-The backend validates configuration on startup and fails fast with clear messages when values are invalid.
+The backend validates configuration on startup and fails fast with clear messages when values are
+invalid.
 
 - `PORT`: Server port (default `3001`)
-- `CORS_ALLOWED_ORIGINS`: Comma-separated allowed origins for CORS (example: `https://app.example.com,https://admin.example.com`)
+- `CORS_ALLOWED_ORIGINS`: Comma-separated allowed origins for CORS (example:
+  `https://app.example.com,https://admin.example.com`)
 - `CORS_ORIGIN`: Legacy single-origin CORS setting (fallback when `CORS_ALLOWED_ORIGINS` is not set)
 - `JSON_BODY_LIMIT`: Max JSON request body size (default `100kb`; rejects larger bodies with `413`)
 - `STELLAR_NETWORK`: Explicit named network preset, `testnet` or `mainnet`
@@ -35,22 +41,24 @@ The backend validates configuration on startup and fails fast with clear message
 - `STELLAR_NETWORK_PASSPHRASE`: Optional passphrase override for the chosen network preset
 - `REWARDS_CONTRACT_ID`: Optional rewards contract ID exposed by `/api/v1/config`
 - `CAMPAIGN_CONTRACT_ID`: Optional campaign contract ID exposed by `/api/v1/config`
-- `TRIVELA_API_KEYS`: Optional comma-separated API keys for write endpoints (supports rotation; see below)
+- `TRIVELA_API_KEYS`: Optional comma-separated API keys for write endpoints (supports rotation; see
+  below)
 - `TRIVELA_API_KEY`: Legacy single API key (still supported)
 - `RATE_LIMIT_WINDOW_MS`: Rate limit window for `/api/*` and `/api/v1/*` routes (default `60000`)
 - `RATE_LIMIT_MAX_REQUESTS`: Max requests per API key or IP in each window (default `60`)
-- `RPC_HEALTH_POLL_INTERVAL_MS`: Background Soroban RPC health poll interval (default `60000`; set `0` to disable)
+- `RPC_HEALTH_POLL_INTERVAL_MS`: Background Soroban RPC health poll interval (default `60000`; set
+  `0` to disable)
 
 ## API Key Authentication
 
-Write endpoints (`POST`, `PUT`, `DELETE`) are protected by an **optional** API
-key. The behaviour depends on whether `TRIVELA_API_KEYS`/`TRIVELA_API_KEY` is set:
+Write endpoints (`POST`, `PUT`, `DELETE`) are protected by an **optional** API key. The behaviour
+depends on whether `TRIVELA_API_KEYS`/`TRIVELA_API_KEY` is set:
 
-| Config                                         | Behaviour                                                            |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
-| **No keys set** (default)                      | All endpoints are open — convenient for local development.           |
-| `TRIVELA_API_KEYS=old,new` (comma-separated)   | Write endpoints accept any configured key (supports rotation).       |
-| `TRIVELA_API_KEY=single` (legacy)              | Write endpoints accept the single configured key.                    |
+| Config                                       | Behaviour                                                      |
+| -------------------------------------------- | -------------------------------------------------------------- |
+| **No keys set** (default)                    | All endpoints are open — convenient for local development.     |
+| `TRIVELA_API_KEYS=old,new` (comma-separated) | Write endpoints accept any configured key (supports rotation). |
+| `TRIVELA_API_KEY=single` (legacy)            | Write endpoints accept the single configured key.              |
 
 ### Supplying the key
 
@@ -71,10 +79,9 @@ If the key is missing or wrong the API responds with `401 Unauthorized`.
 
 ## Rate limiting
 
-All `/api/*` and `/api/v1/*` routes are protected by an in-memory rate limiter.
-Requests are keyed by API key when one is present, otherwise by client IP.
-When the limit is exceeded the API returns `429 Too Many Requests` with a
-`Retry-After` header.
+All `/api/*` and `/api/v1/*` routes are protected by an in-memory rate limiter. Requests are keyed
+by API key when one is present, otherwise by client IP. When the limit is exceeded the API returns
+`429 Too Many Requests` with a `Retry-After` header.
 
 **Example (rate limit exceeded):**
 
@@ -97,7 +104,8 @@ Legacy routes remain available under `/api/*` for backward compatibility:
 - `GET /api/campaigns/:id`
 - `DELETE /api/campaigns/:id`
 
-**Migration note:** New integrations should use `/api/v1/*`. Existing clients on `/api/*` continue to work.
+**Migration note:** New integrations should use `/api/v1/*`. Existing clients on `/api/*` continue
+to work.
 
 ## Response schema versioning
 
@@ -107,13 +115,18 @@ All responses include a schema version header:
 X-Trivela-Schema-Version: 1
 ```
 
-Clients may also send `X-Trivela-Schema-Version` on requests. When present and unsupported, the API responds with `400` and includes the supported version in both the response header and body.
+Clients may also send `X-Trivela-Schema-Version` on requests. When present and unsupported, the API
+responds with `400` and includes the supported version in both the response header and body.
 
-**Schema stability:** Within a given schema version, responses aim to be backward compatible (additive changes are preferred; breaking changes require a new schema version).
+**Schema stability:** Within a given schema version, responses aim to be backward compatible
+(additive changes are preferred; breaking changes require a new schema version).
 
 ## Security Defaults
 
-The API sets baseline security headers on all responses (for example `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, and a restrictive `Content-Security-Policy`). `Strict-Transport-Security` is only applied when requests are served over HTTPS (or when `X-Forwarded-Proto: https` is present).
+The API sets baseline security headers on all responses (for example `X-Content-Type-Options`,
+`X-Frame-Options`, `Referrer-Policy`, and a restrictive `Content-Security-Policy`).
+`Strict-Transport-Security` is only applied when requests are served over HTTPS (or when
+`X-Forwarded-Proto: https` is present).
 
 ## API Endpoints
 
@@ -528,7 +541,8 @@ curl -X DELETE http://localhost:3001/api/v1/campaigns/campaign-2 \
 
 ## Campaign Payload Validation
 
-`POST /api/v1/campaigns` and `PUT /api/v1/campaigns/:id` validate request bodies and return `400` with a list of errors when invalid.
+`POST /api/v1/campaigns` and `PUT /api/v1/campaigns/:id` validate request bodies and return `400`
+with a list of errors when invalid.
 
 Validation rules:
 
@@ -539,7 +553,8 @@ Validation rules:
 
 ## Audit Logs (Admin)
 
-Write operations on campaigns emit audit log entries. Audit logs are retrievable via an admin-only endpoint.
+Write operations on campaigns emit audit log entries. Audit logs are retrievable via an admin-only
+endpoint.
 
 #### GET /api/v1/audit-logs
 
@@ -554,10 +569,9 @@ Requires API key if `TRIVELA_API_KEY` is set.
 
 ## PostgreSQL (issue #284)
 
-The backend ships with two repository implementations behind a single DAL
-factory. `better-sqlite3` is the default, suitable for local dev and
-single-instance deployments. For multi-instance and managed cloud setups
-(Railway, Render, Fly.io, RDS), point the backend at PostgreSQL via
+The backend ships with two repository implementations behind a single DAL factory. `better-sqlite3`
+is the default, suitable for local dev and single-instance deployments. For multi-instance and
+managed cloud setups (Railway, Render, Fly.io, RDS), point the backend at PostgreSQL via
 `DATABASE_URL`:
 
 ```bash
@@ -568,12 +582,12 @@ npm run dev
 When `DATABASE_URL` starts with `postgres://` or `postgresql://`:
 
 - `dal.campaigns` and `dal.auditLogs` switch to the PG implementations.
-- A connection pool is created lazily with `pg` (`pg.Pool`). Pool size is
-  controlled by `PG_POOL_MAX` (default `10`).
-- SQL migrations in [`src/dal/pg/migrations/`](src/dal/pg/migrations/) run on
-  startup and are tracked in `_schema_migrations`.
-- `dal.webhooks`, `dal.referrals`, and `dal.apiKeys` continue to use SQLite —
-  porting them is a follow-up.
+- A connection pool is created lazily with `pg` (`pg.Pool`). Pool size is controlled by
+  `PG_POOL_MAX` (default `10`).
+- SQL migrations in [`src/dal/pg/migrations/`](src/dal/pg/migrations/) run on startup and are
+  tracked in `_schema_migrations`.
+- `dal.webhooks`, `dal.referrals`, and `dal.apiKeys` continue to use SQLite — porting them is a
+  follow-up.
 
 ### Local dev with Docker
 
@@ -585,9 +599,8 @@ DATABASE_URL=postgres://trivela:trivela@localhost:5432/trivela npm run dev
 
 ### Running the PG integration tests
 
-The unit-test target `npm test` skips the PG repository tests unless
-`TEST_DATABASE_URL` is set so a clean checkout stays green. To run them
-locally:
+The unit-test target `npm test` skips the PG repository tests unless `TEST_DATABASE_URL` is set so a
+clean checkout stays green. To run them locally:
 
 ```bash
 docker run --rm -d -p 55432:5432 -e POSTGRES_PASSWORD=trivela \
@@ -596,28 +609,27 @@ TEST_DATABASE_URL=postgres://postgres:trivela@localhost:55432/postgres \
   node --test src/dal/pg/pgCampaignRepository.test.js
 ```
 
-The CI workflow can mount the `postgres` profile in `compose.yaml` and
-export `TEST_DATABASE_URL` to exercise the same path on every PR.
+The CI workflow can mount the `postgres` profile in `compose.yaml` and export `TEST_DATABASE_URL` to
+exercise the same path on every PR.
 
 ## Docker
 
-The backend ships as a multi-stage Alpine image. The build stage compiles
-native modules (`better-sqlite3`) against Node 20 headers; the runtime
-stage contains only Node, the production `node_modules` tree, the
-application source, and `dumb-init` for clean signal forwarding. The
+The backend ships as a multi-stage Alpine image. The build stage compiles native modules
+(`better-sqlite3`) against Node 20 headers; the runtime stage contains only Node, the production
+`node_modules` tree, the application source, and `dumb-init` for clean signal forwarding. The
 container runs as the unprivileged `node` user (uid/gid `1000`).
 
 ### Build
 
-The Dockerfile expects the build context to be the repo root because the
-monorepo's `package-lock.json` lives there:
+The Dockerfile expects the build context to be the repo root because the monorepo's
+`package-lock.json` lives there:
 
 ```bash
 docker build -f backend/Dockerfile -t trivela-backend .
 ```
 
-A `.dockerignore` at the repo root keeps the context small (excludes
-`node_modules`, `target/`, `frontend/`, etc.).
+A `.dockerignore` at the repo root keeps the context small (excludes `node_modules`, `target/`,
+`frontend/`, etc.).
 
 ### Run
 
@@ -643,14 +655,13 @@ docker run --rm -p 3001:3001 \
   trivela-backend
 ```
 
-See the [Environment](#environment) section above for the full list of
-supported variables.
+See the [Environment](#environment) section above for the full list of supported variables.
 
 ### Persistence
 
-The container's filesystem is read-only for the application user except
-for the working directory. SQLite data lives under `backend/src/db/` by
-default; mount a volume there to persist data across container restarts:
+The container's filesystem is read-only for the application user except for the working directory.
+SQLite data lives under `backend/src/db/` by default; mount a volume there to persist data across
+container restarts:
 
 ```bash
 docker run --rm -p 3001:3001 \
@@ -661,8 +672,8 @@ docker run --rm -p 3001:3001 \
 
 ### Health
 
-The image declares a `HEALTHCHECK` that polls `GET /health` every 30s.
-Orchestrators (Compose, Kubernetes, ECS) can use the resulting status:
+The image declares a `HEALTHCHECK` that polls `GET /health` every 30s. Orchestrators (Compose,
+Kubernetes, ECS) can use the resulting status:
 
 ```bash
 docker inspect --format '{{json .State.Health}}' <container-id>
