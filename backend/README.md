@@ -667,3 +667,35 @@ Orchestrators (Compose, Kubernetes, ECS) can use the resulting status:
 ```bash
 docker inspect --format '{{json .State.Health}}' <container-id>
 ```
+
+---
+
+## API Versioning & Deprecation Policy
+
+All stable endpoints are served under `/api/v1/`. The legacy `/api/` prefix is an alias kept for backwards-compatibility; it will be removed after a 90-day deprecation window.
+
+### Deprecation notices
+
+When an endpoint is deprecated:
+
+1. It is added to `backend/src/deprecations.js` with `deprecatedAt` and `removedAt` dates.
+2. Every response from that endpoint carries three headers (RFC 8594):
+   - `Deprecation: <RFC-7231 date>` — when it was deprecated
+   - `Sunset: <RFC-7231 date>` — when it will be removed (≥ 90 days after deprecation)
+   - `Link: <replacement_url>; rel="successor-version"` — the endpoint to migrate to
+3. A `WARN` log line is emitted for each hit, letting operators see real traffic before removal.
+4. The full registry is available at `GET /api/v1/deprecations` for programmatic checks.
+
+### 90-day notice minimum
+
+No endpoint may be removed until at least 90 days have passed since its `deprecatedAt` date. Operators watching the deprecation headers and the `/deprecations` endpoint will have ample time to migrate.
+
+### Content negotiation (v2 responses)
+
+Select endpoints support an early-access v2 response shape. Opt in with:
+
+```
+Accept: application/vnd.trivela.v2+json
+```
+
+Endpoints that honour this header document it in their section below. All others ignore it.
