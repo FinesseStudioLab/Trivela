@@ -1,0 +1,86 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: trivela-db-backup
+  labels:
+    app: trivela
+    component: backup
+spec:
+  schedule: "0 2 * * *"  # Daily at 02:00 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: trivela
+            component: backup
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command: ["/bin/bash", "/scripts/backup-db.sh"]
+              env:
+                - name: DATABASE_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: trivela-secrets
+                      key: DATABASE_URL
+                - name: STORAGE_BACKEND
+                  valueFrom:
+                    configMapKeyRef:
+                      name: trivela-config
+                      key: BACKUP_STORAGE_BACKEND
+                      optional: true
+                - name: S3_BUCKET
+                  valueFrom:
+                    secretKeyRef:
+                      name: trivela-secrets
+                      key: S3_BACKUP_BUCKET
+                      optional: true
+                - name: AWS_REGION
+                  valueFrom:
+                    configMapKeyRef:
+                      name: trivela-config
+                      key: AWS_REGION
+                      optional: true
+                - name: BACKUP_ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: trivela-secrets
+                      key: BACKUP_ENCRYPTION_PUBKEY
+                      optional: true
+                - name: BACKUP_RETENTION_DAILY
+                  value: "7"
+                - name: BACKUP_RETENTION_WEEKLY
+                  value: "4"
+                - name: BACKUP_RETENTION_MONTHLY
+                  value: "6"
+              volumeMounts:
+                - name: backup-script
+                  mountPath: /scripts/backup-db.sh
+                  subPath: backup-db.sh
+                  readOnly: true
+                - name: backup-storage
+                  mountPath: /backups
+              resources:
+                requests:
+                  cpu: 100m
+                  memory: 128Mi
+                limits:
+                  cpu: 500m
+                  memory: 512Mi
+          volumes:
+            - name: backup-script
+              configMap:
+                name: trivela-backup-scripts
+                defaultMode: 0755
+            - name: backup-storage
+              persistentVolumeClaim:
+                claimName: trivela-backup-pvc
+                optional: true

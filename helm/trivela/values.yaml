@@ -2,8 +2,8 @@
 # Override these values using -f my-values.yaml or --set key=value.
 
 # ─── Global ───────────────────────────────────────────────────────────────────
-nameOverride: ""
-fullnameOverride: ""
+nameOverride: ''
+fullnameOverride: ''
 
 # ─── Backend ─────────────────────────────────────────────────────────────────
 backend:
@@ -15,11 +15,11 @@ backend:
   port: 3001
   resources:
     requests:
-      cpu: "100m"
-      memory: "128Mi"
+      cpu: '100m'
+      memory: '128Mi'
     limits:
-      cpu: "500m"
-      memory: "512Mi"
+      cpu: '500m'
+      memory: '512Mi'
   livenessProbe:
     path: /health
     initialDelaySeconds: 15
@@ -39,11 +39,11 @@ frontend:
   port: 80
   resources:
     requests:
-      cpu: "50m"
-      memory: "64Mi"
+      cpu: '50m'
+      memory: '64Mi'
     limits:
-      cpu: "200m"
-      memory: "256Mi"
+      cpu: '200m'
+      memory: '256Mi'
 
 # ─── Ingress ─────────────────────────────────────────────────────────────────
 ingress:
@@ -67,10 +67,10 @@ autoscaling:
 config:
   nodeEnv: production
   logLevel: info
-  corsOrigin: "https://trivela.example.com"
+  corsOrigin: 'https://trivela.example.com'
 
 # ─── Secrets (provide real values at deploy time; never commit real data) ────
 secrets:
-  databaseUrl: "postgresql://trivela_user:CHANGE_ME@postgres:5432/trivela_db"
-  jwtSecret: "CHANGE_ME_USE_A_STRONG_RANDOM_SECRET"
-  sorobanRpcUrl: "https://soroban-testnet.stellar.org"
+  databaseUrl: 'postgresql://trivela_user:CHANGE_ME@postgres:5432/trivela_db'
+  jwtSecret: 'CHANGE_ME_USE_A_STRONG_RANDOM_SECRET'
+  sorobanRpcUrl: 'https://soroban-testnet.stellar.org'

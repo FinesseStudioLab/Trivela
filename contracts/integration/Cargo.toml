@@ -1,0 +1,17 @@
+[package]
+name = "integration"
+version = "0.1.0"
+edition = "2021"
+publish = false
+rust-version = "1.75.0"
+description = "End-to-end integration tests for Trivela Soroban contracts"
+license = "Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+doctest = false
+
+[dev-dependencies]
+soroban-sdk = { version = "25.1", features = ["testutils"] }
+trivela-rewards-contract = { path = "../rewards" }
+trivela-campaign-contract = { path = "../campaign" }

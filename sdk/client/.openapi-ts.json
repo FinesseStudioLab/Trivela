@@ -1,0 +1,5 @@
+{
+  "input": "../../backend/openapi.yaml",
+  "output": "src",
+  "plugins": ["@hey-api/typescript"]
+}

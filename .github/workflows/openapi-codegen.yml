@@ -1,0 +1,42 @@
+name: OpenAPI Codegen Drift Check
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/openapi.yaml'
+      - 'sdk/client/**'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/openapi.yaml'
+
+jobs:
+  codegen-drift:
+    name: Check generated client is up to date
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install sdk/client dependencies
+        run: npm install
+        working-directory: sdk/client
+
+      - name: Regenerate TypeScript client from openapi.yaml
+        run: npm run generate
+        working-directory: sdk/client
+
+      - name: Fail if generated output has drifted
+        run: |
+          if ! git diff --exit-code sdk/client/src/; then
+            echo ""
+            echo "ERROR: The generated TypeScript client in sdk/client/src/ is out of date."
+            echo "Run 'npm run generate' inside sdk/client/ and commit the updated files."
+            exit 1
+          fi

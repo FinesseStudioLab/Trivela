@@ -25,13 +25,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run backend lint (if available)
-        run: |
-          if npm --workspace=backend run | rg -q "  lint"; then
-            npm run lint --workspace=backend
-          else
-            echo "No backend lint script found; skipping."
-          fi
+      - name: Run backend lint
+        run: npm run lint --workspace=backend
 
       - name: Run backend typecheck (if available)
         run: |
@@ -41,5 +36,13 @@ jobs:
             echo "No backend typecheck script found; skipping."
           fi
 
-      - name: Test backend
-        run: npm run test --workspace=backend
+      - name: Test backend (unit tests via Turborepo)
+        run: npx turbo run test --filter=backend
+
+      - name: Test backend (integration tests)
+        run: npm run test:integration --workspace=backend
+        timeout-minutes: 1
+
+      - name: Test backend (OpenAPI contract tests)
+        run: npm run test:contract --workspace=backend
+        timeout-minutes: 1

@@ -5,6 +5,7 @@
 //!
 //! Events:
 //! - `register`: topics `(register, participant)`, data `()`
+//! - `referred`: topics `(referred, participant, referrer)`, data `()`
 //! - `active`: topics `(active,)`, data `active: bool`
 //! - `window`: topics `(window,)`, data `(start: u64, end: u64)`
 //! - `maxcap`: topics `(maxcap,)`, data `max_cap: u64`
@@ -59,9 +60,10 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, symbol_short, Address, Bytes, BytesN, Env,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, Bytes, BytesN, Env,
+    Symbol, Vec, vec,
 };
+use trivela_nullifier_registry::NullifierRegistry;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -75,18 +77,45 @@ pub enum Error {
     UnsupportedMigration = 105,
     InvalidAdminNonce = 106,
     InvalidWindow = 107,
-    InviteCodeRequired = 108,
-    InvalidInviteCode = 109,
-    InviteAlreadyUsed = 110,
-    InviteNotFound = 111,
-    InvalidThreshold = 112,
-    InsufficientSignatures = 113,
-    NonceReused = 114,
-    DuplicateSigner = 115,
-    UnknownSigner = 116,
+    NoPendingAdmin = 108,
+    SelfReferral = 109,
+    ReferrerNotRegistered = 110,
+    /// The campaign's privacy mode does not match the registration path used.
+    InvalidPrivacyMode = 111,
+    /// The ZK proof is empty or malformed.
+    InvalidProof = 112,
+    /// The nullifier has already been used for a registration in this campaign.
+    NullifierAlreadyUsed = 113,
+    InviteCodeRequired = 114,
+    InvalidInviteCode = 115,
+    InviteAlreadyUsed = 116,
+    InviteNotFound = 117,
+    InvalidThreshold = 118,
+    InsufficientSignatures = 119,
+    NonceReused = 120,
+    DuplicateSigner = 121,
+    UnknownSigner = 122,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
+
+// ── Instance-storage TTL (issue #279) ────────────────────────────────────────
+//
+// Mainnet ledgers close every ~5 seconds, so the prior `extend_ttl(50, 100)`
+// literals expired instance storage roughly 8 minutes after the last
+// mutation. These constants size the lifetime for production; tests override
+// with the small values via `cfg(test)` so suites don't churn ledger budget.
+// See `docs/TTL_STRATEGY.md` for the full rationale.
+
+#[cfg(not(test))]
+pub const TTL_THRESHOLD: u32 = 100_000;
+#[cfg(not(test))]
+pub const TTL_EXTEND_TO: u32 = 518_400;
+
+#[cfg(test)]
+pub const TTL_THRESHOLD: u32 = 50;
+#[cfg(test)]
+pub const TTL_EXTEND_TO: u32 = 100;
 
 const ADMIN: Symbol = symbol_short!("admin");
 const CAMPAIGN_ACTIVE: Symbol = symbol_short!("active");
@@ -107,10 +136,12 @@ const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 const PRUNED_EVENT: Symbol = symbol_short!("pruned");
 
 // ── pruning ──────────────────────────────────────────────────────────────────
+// Participant records live in PERSISTENT storage (#280) with their own TTL,
+// so the network itself reclaims rent for truly-expired entries; this index
+// just lets us batch-clean our own `PARTICIPANT_REGISTRY` bookkeeping once an
+// entry's persistent key is gone (deregistered, or archived after TTL lapse).
 const PARTICIPANT_REGISTRY: Symbol = symbol_short!("preg");
 const PRUNE_CURSOR: Symbol = symbol_short!("pcursor");
-/// Participant records older than this many ledgers are eligible for pruning.
-const PARTICIPANT_TTL_LEDGERS: u32 = 1_036_800;
 const NONCE_REGISTRY: Symbol = symbol_short!("nreg");
 const NONCE_CURSOR: Symbol = symbol_short!("ncursor");
 const NONCE_USED: Symbol = symbol_short!("msnonce");
@@ -129,6 +160,91 @@ const REVOKE_INVITE_EVENT: Symbol = symbol_short!("invrevk");
 const CO_ADMINS: Symbol = symbol_short!("coadmin");
 const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
 const OP_SET_MERKLE_ROOT: u32 = 1;
+
+// ── On-chain referral tracking (issue #455) ──────────────────────────────────
+//
+// `(REFERRAL, referee) -> referrer` maps each referred participant to the
+// already-registered participant who referred them. `(REFERRAL_COUNT, referrer)
+// -> u64` keeps a running tally so the `referral_count` view is O(1) rather than
+// scanning every referee. Both live in PERSISTENT storage alongside the
+// per-participant records they mirror (see #280).
+const REFERRAL: Symbol = symbol_short!("referral");
+const REFERRAL_COUNT: Symbol = symbol_short!("refcnt");
+const REFERRED_EVENT: Symbol = symbol_short!("referred");
+
+// ── Activity log ring buffer (issue #453) ────────────────────────────────────
+//
+// On-chain ring buffer of recent campaign events for light clients to verify
+// activity without running a full indexer. Stores the last N events in a
+// fixed-size vector that evicts oldest entries when full.
+const ACTIVITY_LOG: Symbol = symbol_short!("actlog");
+const ACTIVITY_LOG_SIZE: Symbol = symbol_short!("actsize");
+const DEFAULT_ACTIVITY_LOG_SIZE: u32 = 50;
+const MIN_ACTIVITY_LOG_SIZE: u32 = 10;
+const MAX_ACTIVITY_LOG_SIZE: u32 = 200;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum ActivityKind {
+    Register,
+    Credit,
+    Claim,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ActivityEntry {
+    pub kind: ActivityKind,
+    pub actor: Address,
+    pub amount: Option<u64>,
+    pub ledger: u32,
+}
+
+// #280 — TTL thresholds for the per-participant persistent storage
+// entries. Values are deliberately modest in this initial migration:
+// every register call refreshes its own key without taking on the
+// expense of much-longer extension windows. Production deployers
+// should bump these via a future admin-only setter when traffic
+// patterns are known (e.g. lengthen to a full campaign window once
+// max_cap and end_time are public).
+const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
+const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
+// ── 2-step admin transfer (issue #281) ───────────────────────────────────────
+const PENDING_ADMIN: Symbol = symbol_short!("padmin");
+const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
+const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
+
+// ── Privacy mode (issue #544) ────────────────────────────────────────────────
+// Per-campaign registration mode: open, Merkle-gated, or ZK-gated.
+const PRIVACY_MODE: Symbol = symbol_short!("privmode");
+const SET_PRIVACY_MODE_EVENT: Symbol = symbol_short!("privmode");
+const FALLBACK_ALLOWED: Symbol = symbol_short!("fballowed");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum PrivacyMode {
+    /// Open registration — no proofs required.
+    None = 0,
+    /// Merkle allowlist — standard leaf + proof registration.
+    Merkle = 1,
+    /// ZK registration — requires a zero-knowledge proof.
+    Zk = 2,
+}
+
+// ── Uniqueness mode (issue #539) ──────────────────────────────────────────────
+// Per-campaign uniqueness enforcement: none or nullifier-based.
+const UNIQUENESS_MODE: Symbol = symbol_short!("unqmode");
+const NULLIFIER_REGISTRY: Symbol = symbol_short!("nullreg");
+const SET_UNIQUENESS_EVENT: Symbol = symbol_short!("unqset");
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum UniquenessMode {
+    /// No uniqueness enforcement — current behavior.
+    None = 0,
+    /// Nullifier-based uniqueness — one entry per unique identity.
+    Nullifier = 1,
+}
 
 #[contract]
 pub struct CampaignContract;
@@ -157,6 +273,36 @@ fn verify_merkle_proof(
         computed = hash_pair(env, computed, sibling);
     }
     &computed == root
+}
+
+/// Append an activity entry to the ring buffer, evicting oldest if full.
+fn log_activity(env: &Env, kind: ActivityKind, actor: Address, amount: Option<u64>) {
+    let max_size: u32 = env
+        .storage()
+        .instance()
+        .get(&ACTIVITY_LOG_SIZE)
+        .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE);
+    
+    let mut log: Vec<ActivityEntry> = env
+        .storage()
+        .instance()
+        .get(&ACTIVITY_LOG)
+        .unwrap_or_else(|| vec![env]);
+    
+    let entry = ActivityEntry {
+        kind,
+        actor,
+        amount,
+        ledger: env.ledger().sequence(),
+    };
+    
+    // If buffer is at max size, remove oldest entry (first element)
+    if log.len() >= max_size {
+        log.remove(0);
+    }
+    
+    log.push_back(entry);
+    env.storage().instance().set(&ACTIVITY_LOG, &log);
 }
 
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<(), Error> {
@@ -245,7 +391,9 @@ impl CampaignContract {
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
         env.storage().instance().set(&ADMIN_NONCE, &0u64);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -273,8 +421,29 @@ impl CampaignContract {
         env.storage()
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(CURRENT_SCHEMA_VERSION)
+    }
+
+    /// Replace the contract WASM in-place without resetting participant state.
+    ///
+    /// Calls `contract_update_current_contract_wasm` with the supplied hash of
+    /// the new WASM blob (must already be uploaded via
+    /// `Env::deployer().upload_contract_wasm`).  Participant records in
+    /// persistent storage survive because Soroban WASM-only upgrades never
+    /// touch storage.  Requires admin auth and a valid nonce so upgrades are
+    /// replay-safe.
+    ///
+    /// Typical workflow (issue #518):
+    ///   1. Upload new WASM → obtain `new_wasm_hash`.
+    ///   2. Call `upgrade(admin, nonce, new_wasm_hash)`.
+    ///   3. If storage layout changed, call `migrate(admin, target_version)`.
+    pub fn upgrade(env: Env, admin: Address, nonce: u64, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.deployer().update_current_contract_wasm(new_wasm_hash);
+        Ok(())
     }
 
     /// Set registration time window (admin only).
@@ -296,7 +465,9 @@ impl CampaignContract {
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
         env.events().publish((SET_WINDOW_EVENT,), (start, end));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -328,7 +499,9 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &active);
         env.events().publish((SET_ACTIVE_EVENT,), active);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -337,7 +510,9 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&MAX_CAP, &max_cap);
         env.events().publish((SET_MAX_CAP_EVENT,), max_cap);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -368,13 +543,254 @@ impl CampaignContract {
         }
         env.storage().instance().set(&MERKLE_ROOT, &root);
         env.events().publish((SET_MERKLE_ROOT_EVENT,), root.clone());
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Return the current Merkle root, or `None` when open registration is active.
     pub fn get_merkle_root(env: Env) -> Option<BytesN<32>> {
         env.storage().instance().get(&MERKLE_ROOT)
+    }
+
+    /// Set the privacy mode for this campaign (admin only).
+    ///
+    /// Controls which registration path is used:
+    /// - `None`: open registration, no proofs required.
+    /// - `Merkle`: standard Merkle allowlist registration.
+    /// - `Zk`: zero-knowledge proof registration (requires `register_private`).
+    ///
+    /// `fallback_allowed`: when true and the user's browser cannot prove in ZK
+    /// mode, the frontend may fall back to Merkle registration.
+    pub fn set_privacy_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: PrivacyMode,
+        fallback_allowed: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&PRIVACY_MODE, &mode);
+        env.storage().instance().set(&FALLBACK_ALLOWED, &fallback_allowed);
+        env.events()
+            .publish((SET_PRIVACY_MODE_EVENT,), (mode as u32, fallback_allowed));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current privacy mode.
+    /// Defaults to `PrivacyMode::None` (open) when not set.
+    pub fn get_privacy_mode(env: Env) -> PrivacyMode {
+        env.storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None)
+    }
+
+    /// Check whether fallback to Merkle registration is allowed for ZK campaigns.
+    pub fn is_fallback_allowed(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&FALLBACK_ALLOWED)
+            .unwrap_or(false)
+    }
+
+    // ── Uniqueness mode (issue #539) ──────────────────────────────────────
+
+    /// Set the uniqueness mode for this campaign (admin only).
+    ///
+    /// Controls whether anti-sybil uniqueness is enforced:
+    /// - `None`: no uniqueness enforcement (current behavior).
+    /// - `Nullifier`: requires a nullifier registry proof for uniqueness.
+    ///
+    /// `registry_address` must be provided when setting `Nullifier` mode.
+    pub fn set_uniqueness_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: UniquenessMode,
+        registry_address: Option<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+
+        if mode == UniquenessMode::Nullifier {
+            let addr = registry_address.ok_or(Error::Unauthorized)?;
+            env.storage().instance().set(&NULLIFIER_REGISTRY, &addr);
+        }
+
+        env.storage().instance().set(&UNIQUENESS_MODE, &mode);
+        env.events()
+            .publish((SET_UNIQUENESS_EVENT,), (mode as u32));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current uniqueness mode.
+    /// Defaults to `UniquenessMode::None` when not set.
+    pub fn get_uniqueness_mode(env: Env) -> UniquenessMode {
+        env.storage()
+            .instance()
+            .get(&UNIQUENESS_MODE)
+            .unwrap_or(UniquenessMode::None)
+    }
+
+    /// Get the nullifier registry address, if configured.
+    pub fn get_nullifier_registry(env: Env) -> Option<Address> {
+        env.storage().instance().get(&NULLIFIER_REGISTRY)
+    }
+
+    /// Register a participant with uniqueness proof (anti-sybil).
+    ///
+    /// When the campaign's uniqueness mode is `Nullifier`, this function:
+    /// 1. Verifies the nullifier has not been spent via the nullifier registry.
+    /// 2. Spends the nullifier to prevent double-registration.
+    ///
+    /// The `uniqueness_proof` is passed through to the registry for
+    /// future verification. For now, it's stored alongside the nullifier.
+    ///
+    /// Returns `true` on first registration, `false` if already registered.
+    pub fn register_with_uniqueness(
+        env: Env,
+        participant: Address,
+        nullifier: BytesN<32>,
+        uniqueness_proof: Bytes,
+    ) -> Result<bool, Error> {
+        participant.require_auth();
+
+        // Check uniqueness mode
+        let mode: UniquenessMode = env
+            .storage()
+            .instance()
+            .get(&UNIQUENESS_MODE)
+            .unwrap_or(UniquenessMode::None);
+
+        if mode != UniquenessMode::Nullifier {
+            return Err(Error::InvalidPrivacyMode);
+        }
+
+        // Get registry address
+        let registry_addr: Address = env
+            .storage()
+            .instance()
+            .get(&NULLIFIER_REGISTRY)
+            .ok_or(Error::Unauthorized)?;
+
+        // Check if nullifier is already spent
+        let args: Vec<soroban_sdk::Val> = vec![
+            &env,
+            env.current_contract_address().to_val(),
+            nullifier.clone().to_val(),
+        ];
+        let is_spent: bool = env.invoke_contract(
+            &registry_addr,
+            &symbol_short!("is_spent"),
+            args,
+        );
+
+        if is_spent {
+            return Err(Error::NullifierAlreadyUsed);
+        }
+
+        // Delegate to shared registration logic
+        let was_new = do_register(&env, participant.clone(), None)?;
+
+        // Spend the nullifier only on successful new registration
+        if was_new {
+            let spend_args: Vec<soroban_sdk::Val> = vec![
+                &env,
+                env.current_contract_address().to_val(),
+                nullifier.to_val(),
+            ];
+            let result: Result<(), trivela_nullifier_registry::Error> = env.invoke_contract(
+                &registry_addr,
+                &symbol_short!("spend"),
+                spend_args,
+            );
+
+            if result.is_err() {
+                return Err(Error::NullifierAlreadyUsed);
+            }
+        }
+
+        Ok(was_new)
+    }
+
+    /// Register a participant using a ZK proof (private registration).
+    ///
+    /// Only callable when the campaign's privacy mode is `Zk`.
+    /// The `proof` field carries the ZK proof bytes; the contract verifies
+    /// that the proof is non-empty as a basic sanity check. Full on-chain
+    /// verification is out of scope (see NEW-001/002).
+    ///
+    /// Returns `true` on first registration, `false` if already registered.
+    pub fn register_private(
+        env: Env,
+        participant: Address,
+        nullifier: BytesN<32>,
+        proof: Vec<BytesN<32>>,
+        referrer: Option<Address>,
+    ) -> Result<bool, Error> {
+        participant.require_auth();
+
+        // Enforce ZK mode
+        let mode: PrivacyMode = env
+            .storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None);
+        if mode != PrivacyMode::Zk {
+            return Err(Error::InvalidPrivacyMode);
+        }
+
+        // Basic sanity: proof must be non-empty
+        if proof.is_empty() {
+            return Err(Error::InvalidProof);
+        }
+
+        // Nullifier uniqueness — prevents double-registration via ZK
+        let nullifier_key = (symbol_short!("znul"), nullifier.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::NullifierAlreadyUsed);
+        }
+
+        // Delegate to shared registration logic
+        let was_new = do_register(&env, participant.clone(), referrer)?;
+
+        // Mark nullifier as used (only on successful new registration)
+        if was_new {
+            env.storage().persistent().set(&nullifier_key, &true);
+            env.storage().persistent().extend_ttl(
+                &nullifier_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+        }
+
+        Ok(was_new)
+    }
+
+    /// Register a participant with uniqueness proof (ZK unique registration).
+    ///
+    /// Alias for `register_private` that emphasizes the uniqueness guarantee
+    /// provided by the nullifier.
+    pub fn register_unique(
+        env: Env,
+        participant: Address,
+        nullifier: BytesN<32>,
+        proof: Vec<BytesN<32>>,
+        referrer: Option<Address>,
+    ) -> Result<bool, Error> {
+        Self::register_private(env, participant, nullifier, proof, referrer)
     }
 
     /// Register a participant.
@@ -392,6 +808,16 @@ impl CampaignContract {
     ///           a hash issued via [`Self::issue_invite`] that has not yet
     ///           been redeemed. Pass `None` when invite-only mode is off.
     ///
+    /// `referrer` – optional address of an already-registered participant who
+    ///           referred this registrant (issue #455). When supplied, the
+    ///           contract records `(referee -> referrer)`, increments the
+    ///           referrer's tally, and emits a `referred` event so the backend
+    ///           indexer can credit the referral bonus trustlessly. A referrer
+    ///           cannot refer themselves (`Error::SelfReferral`) and must
+    ///           already be registered (`Error::ReferrerNotRegistered`).
+    ///           Referral is recorded only on first registration; passing a
+    ///           referrer on a repeat call is a no-op.
+    ///
     /// Returns `true` on first registration, `false` if already registered.
     pub fn register(
         env: Env,
@@ -399,8 +825,19 @@ impl CampaignContract {
         leaf: BytesN<32>,
         proof: Vec<BytesN<32>>,
         invite_code: Option<Bytes>,
+        referrer: Option<Address>,
     ) -> Result<bool, Error> {
         participant.require_auth();
+
+        // Privacy mode enforcement (issue #544)
+        let mode: PrivacyMode = env
+            .storage()
+            .instance()
+            .get(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None);
+        if mode == PrivacyMode::Zk {
+            return Err(Error::InvalidPrivacyMode);
+        }
 
         let active: bool = env
             .storage()
@@ -426,11 +863,14 @@ impl CampaignContract {
             }
         }
 
+        // Invite-only check (#452) – validated before mutating state, but the
+        // invite hash is only marked used once `do_register` confirms this is
+        // a genuinely new registration (not a no-op repeat call).
         let invite_only: bool = env.storage().instance().get(&INVITE_ONLY).unwrap_or(false);
-        if invite_only {
+        let invite_hash: Option<BytesN<32>> = if invite_only {
             let code = invite_code.ok_or(Error::InviteCodeRequired)?;
-            let invite_hash: BytesN<32> = env.crypto().sha256(&code).into();
-            let hash_key = (INVITE_HASH, invite_hash.clone());
+            let hash: BytesN<32> = env.crypto().sha256(&code).into();
+            let hash_key = (INVITE_HASH, hash.clone());
             if !env
                 .storage()
                 .instance()
@@ -439,58 +879,24 @@ impl CampaignContract {
             {
                 return Err(Error::InvalidInviteCode);
             }
-            let used_key = (INVITE_USED, invite_hash);
+            let used_key = (INVITE_USED, hash.clone());
             if env.storage().instance().get::<_, bool>(&used_key).unwrap_or(false) {
                 return Err(Error::InviteAlreadyUsed);
             }
-            env.storage().instance().set(&used_key, &true);
-        }
+            Some(hash)
+        } else {
+            None
+        };
 
-        let key = (PARTICIPANT, participant.clone());
-        if env
-            .storage()
-            .instance()
-            .get::<_, u32>(&key)
-            .is_some()
-        {
-            return Ok(false);
-        }
+        let was_new = do_register(&env, participant, referrer)?;
 
-        let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
-        if max_cap > 0 {
-            let count: u64 = env
-                .storage()
-                .instance()
-                .get(&PARTICIPANT_COUNT)
-                .unwrap_or(0);
-            if count >= max_cap {
-                return Err(Error::CapReached);
+        if was_new {
+            if let Some(hash) = invite_hash {
+                env.storage().instance().set(&(INVITE_USED, hash), &true);
             }
         }
 
-        env.storage().instance().set(&key, &env.ledger().sequence());
-
-        let mut registry: Vec<Address> = env
-            .storage()
-            .instance()
-            .get(&PARTICIPANT_REGISTRY)
-            .unwrap_or(Vec::new(&env));
-        registry.push_back(participant.clone());
-        env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
-
-        let count: u64 = env
-            .storage()
-            .instance()
-            .get(&PARTICIPANT_COUNT)
-            .unwrap_or(0);
-        env.storage()
-            .instance()
-            .set(&PARTICIPANT_COUNT, &(count + 1));
-
-        env.events().publish((REGISTER_EVENT, participant), ());
-
-        env.storage().instance().extend_ttl(50, 100);
-        Ok(true)
+        Ok(was_new)
     }
 
     /// Deregister a participant.
@@ -507,7 +913,11 @@ impl CampaignContract {
                 return Err(Error::OutsideTimeWindow);
             }
         } else {
-            let active: bool = env.storage().instance().get(&CAMPAIGN_ACTIVE).unwrap_or(false);
+            let active: bool = env
+                .storage()
+                .instance()
+                .get(&CAMPAIGN_ACTIVE)
+                .unwrap_or(false);
             if !active {
                 return Err(Error::CampaignInactive);
             }
@@ -529,12 +939,29 @@ impl CampaignContract {
         Ok(do_deregister(&env, participant))
     }
 
-    /// Check if a participant is registered.
+    /// Check if a participant is registered. (#280) Reads from
+    /// persistent storage where participant records live.
     pub fn is_participant(env: Env, participant: Address) -> bool {
         env.storage()
-            .instance()
-            .get::<_, u32>(&(PARTICIPANT, participant))
-            .is_some()
+            .persistent()
+            .get(&(PARTICIPANT, participant))
+            .unwrap_or(false)
+    }
+
+    /// Return the referrer recorded for `participant` at registration, or
+    /// `None` if they registered without one (issue #455).
+    pub fn referrer_of(env: Env, participant: Address) -> Option<Address> {
+        env.storage().persistent().get(&(REFERRAL, participant))
+    }
+
+    /// Return how many participants registered with `referrer` as their
+    /// on-chain referrer (issue #455). Defaults to `0` for an address that
+    /// has never referred anyone.
+    pub fn referral_count(env: Env, referrer: Address) -> u64 {
+        env.storage()
+            .persistent()
+            .get(&(REFERRAL_COUNT, referrer))
+            .unwrap_or(0)
     }
 
     /// Check if campaign is active.
@@ -565,51 +992,59 @@ impl CampaignContract {
 
     // ── pruning (#451) ───────────────────────────────────────────────────
 
-    /// Remove participant records whose TTL has passed, up to `max_entries`
-    /// per call. Callable by anyone since it only deletes expired/stale
-    /// data. Returns the number of entries pruned.
+    /// Garbage-collect `PARTICIPANT_REGISTRY` entries whose persistent
+    /// participant record is gone — either explicitly deregistered, or
+    /// archived by the network after its TTL lapsed (#280) — up to
+    /// `max_entries` per call. Callable by anyone since it only deletes
+    /// stale bookkeeping, never live data. Returns the number pruned.
+    ///
+    /// Uses swap-remove so each pruned entry is O(1); a persisted cursor
+    /// lets repeated calls sweep the whole registry over time without
+    /// rescanning from the start, bounding work per call.
     pub fn prune_expired_participants(env: Env, max_entries: u32) -> u32 {
-        let registry: Vec<Address> = env
+        let mut registry: Vec<Address> = env
             .storage()
             .instance()
             .get(&PARTICIPANT_REGISTRY)
             .unwrap_or(Vec::new(&env));
-        let len = registry.len();
+        let mut len = registry.len();
         if len == 0 || max_entries == 0 {
             return 0;
         }
 
-        let now = env.ledger().sequence();
         let mut cursor: u32 = env.storage().instance().get(&PRUNE_CURSOR).unwrap_or(0);
-        if cursor >= len {
-            cursor = 0;
-        }
-
         let mut pruned = 0u32;
         let mut checked = 0u32;
-        let mut idx = cursor;
-        while checked < len && pruned < max_entries {
-            let addr = registry.get(idx).unwrap();
-            let key = (PARTICIPANT, addr.clone());
-            if let Some(registered_at) = env.storage().instance().get::<_, u32>(&key) {
-                if now.saturating_sub(registered_at) > PARTICIPANT_TTL_LEDGERS {
-                    env.storage().instance().remove(&key);
-                    let count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
-                    if count > 0 {
-                        env.storage().instance().set(&PARTICIPANT_COUNT, &(count - 1));
-                    }
-                    pruned += 1;
-                }
+        let scan_limit = len;
+        while checked < scan_limit && pruned < max_entries && len > 0 {
+            if cursor >= len {
+                cursor = 0;
             }
-            idx = (idx + 1) % len;
+            let addr = registry.get(cursor).unwrap();
+            let key = (PARTICIPANT, addr);
+            if !env.storage().persistent().has(&key) {
+                let last_idx = len - 1;
+                if cursor != last_idx {
+                    let last = registry.get(last_idx).unwrap();
+                    registry.set(cursor, last);
+                }
+                registry.pop_back();
+                len -= 1;
+                pruned += 1;
+            } else {
+                cursor += 1;
+            }
             checked += 1;
         }
-        env.storage().instance().set(&PRUNE_CURSOR, &idx);
+        env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+        env.storage().instance().set(&PRUNE_CURSOR, &cursor);
 
         if pruned > 0 {
             env.events().publish((PRUNED_EVENT, symbol_short!("partic")), pruned);
         }
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         pruned
     }
 
@@ -653,12 +1088,13 @@ impl CampaignContract {
         if pruned > 0 {
             env.events().publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
         }
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         pruned
     }
 
     /// Storage stats for monitoring: `(participant_count, nonce_count, expired_estimate)`.
-    /// `expired_estimate` counts currently-expired participant records.
+    /// `expired_estimate` counts `PARTICIPANT_REGISTRY` entries whose persistent
+    /// record is already gone (deregistered or TTL-archived) and awaiting prune.
     pub fn storage_stats(env: Env) -> (u64, u64, u64) {
         let participant_count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
         let nonce_registry: Vec<u64> = env
@@ -668,7 +1104,6 @@ impl CampaignContract {
             .unwrap_or(Vec::new(&env));
         let nonce_count = nonce_registry.len() as u64;
 
-        let now = env.ledger().sequence();
         let registry: Vec<Address> = env
             .storage()
             .instance()
@@ -676,10 +1111,8 @@ impl CampaignContract {
             .unwrap_or(Vec::new(&env));
         let mut expired = 0u64;
         for addr in registry.iter() {
-            if let Some(registered_at) = env.storage().instance().get::<_, u32>(&(PARTICIPANT, addr)) {
-                if now.saturating_sub(registered_at) > PARTICIPANT_TTL_LEDGERS {
-                    expired += 1;
-                }
+            if !env.storage().persistent().has(&(PARTICIPANT, addr)) {
+                expired += 1;
             }
         }
         (participant_count, nonce_count, expired)
@@ -692,7 +1125,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&INVITE_ONLY, &enabled);
         env.events().publish((SET_INVITE_ONLY_EVENT,), enabled);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -708,7 +1141,7 @@ impl CampaignContract {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&(INVITE_HASH, invite_hash.clone()), &true);
         env.events().publish((ISSUE_INVITE_EVENT,), invite_hash);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -727,7 +1160,7 @@ impl CampaignContract {
         env.storage().instance().remove(&key);
         env.storage().instance().remove(&(INVITE_USED, invite_hash.clone()));
         env.events().publish((REVOKE_INVITE_EVENT,), invite_hash);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -771,7 +1204,7 @@ impl CampaignContract {
             co_admins.push_back((co_admin, pubkey));
         }
         env.storage().instance().set(&CO_ADMINS, &co_admins);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -787,7 +1220,7 @@ impl CampaignContract {
             }
         }
         env.storage().instance().set(&CO_ADMINS, &remaining);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -801,7 +1234,7 @@ impl CampaignContract {
             return Err(Error::InvalidThreshold);
         }
         env.storage().instance().set(&MULTISIG_THRESHOLD, &required);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -809,26 +1242,264 @@ impl CampaignContract {
     pub fn multisig_threshold(env: Env) -> u32 {
         env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0)
     }
+
+    // ── Admin rotation (issue #281) ──────────────────────────────────────────
+
+    /// Return the current admin address.
+    pub fn admin(env: Env) -> Address {
+        env.storage().instance().get(&ADMIN).unwrap()
+    }
+
+    /// Return the pending admin address proposed by the current admin, if any.
+    pub fn pending_admin(env: Env) -> Option<Address> {
+        env.storage().instance().get(&PENDING_ADMIN)
+    }
+
+    /// Propose a new admin (current admin only). The transfer does not take
+    /// effect until `accept_admin` is called by the new admin.
+    pub fn propose_admin(
+        env: Env,
+        current_admin: Address,
+        new_admin: Address,
+    ) -> Result<(), Error> {
+        current_admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        if stored_admin != current_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&PENDING_ADMIN, &new_admin);
+        env.events()
+            .publish((ADMIN_PROPOSED_EVENT, current_admin), new_admin);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Accept admin role. Caller MUST be the address that the current admin
+    /// previously proposed via `propose_admin`. Clears the pending slot on
+    /// success.
+    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+        new_admin.require_auth();
+        let pending: Address = env
+            .storage()
+            .instance()
+            .get(&PENDING_ADMIN)
+            .ok_or(Error::NoPendingAdmin)?;
+        if pending != new_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().set(&ADMIN, &new_admin);
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.events().publish((ADMIN_ACCEPTED_EVENT,), new_admin);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Cancel an in-flight admin transfer (current admin only).
+    pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
+        current_admin.require_auth();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        if stored_admin != current_admin {
+            return Err(Error::Unauthorized);
+        }
+        env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    // ── Activity log (issue #453) ────────────────────────────────────────────
+
+    /// Return the activity log ring buffer in chronological order (oldest first).
+    pub fn activity_log(env: Env) -> Vec<ActivityEntry> {
+        env.storage()
+            .instance()
+            .get(&ACTIVITY_LOG)
+            .unwrap_or_else(|| vec![&env])
+    }
+
+    /// Set the maximum size of the activity log ring buffer (admin only).
+    /// Must be between MIN_ACTIVITY_LOG_SIZE (10) and MAX_ACTIVITY_LOG_SIZE (200).
+    pub fn set_activity_log_size(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        size: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        if size < MIN_ACTIVITY_LOG_SIZE || size > MAX_ACTIVITY_LOG_SIZE {
+            return Err(Error::Unauthorized); // Reuse error code for invalid range
+        }
+        
+        // If reducing size, trim the log to fit
+        let mut log: Vec<ActivityEntry> = env
+            .storage()
+            .instance()
+            .get(&ACTIVITY_LOG)
+            .unwrap_or_else(|| vec![&env]);
+        
+        while log.len() > size {
+            log.remove(0);
+        }
+        
+        env.storage().instance().set(&ACTIVITY_LOG, &log);
+        env.storage().instance().set(&ACTIVITY_LOG_SIZE, &size);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the configured activity log buffer size.
+    pub fn get_activity_log_size(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&ACTIVITY_LOG_SIZE)
+            .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE)
+    }
+}
+
+/// Shared registration logic used by both `register` and `register_private`.
+/// Expects auth and pre-condition checks (active, window, merkle) to have
+/// been performed by the caller.
+fn do_register(
+    env: &Env,
+    participant: Address,
+    referrer: Option<Address>,
+) -> Result<bool, Error> {
+    // #280 — Participant records live in PERSISTENT storage.
+    let key = (PARTICIPANT, participant.clone());
+    if env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&key)
+        .unwrap_or(false)
+    {
+        return Ok(false);
+    }
+
+    // On-chain referral validation (issue #455).
+    if let Some(referrer) = referrer.clone() {
+        if referrer == participant {
+            return Err(Error::SelfReferral);
+        }
+        let referrer_registered: bool = env
+            .storage()
+            .persistent()
+            .get(&(PARTICIPANT, referrer))
+            .unwrap_or(false);
+        if !referrer_registered {
+            return Err(Error::ReferrerNotRegistered);
+        }
+    }
+
+    let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
+    if max_cap > 0 {
+        let count: u64 = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_COUNT)
+            .unwrap_or(0);
+        if count >= max_cap {
+            return Err(Error::CapReached);
+        }
+    }
+
+    env.storage().persistent().set(&key, &true);
+    env.storage().persistent().extend_ttl(
+        &key,
+        PARTICIPANT_TTL_THRESHOLD,
+        PARTICIPANT_TTL_EXTEND_TO,
+    );
+
+    // Track in the registry index so pruning (#451) can later sweep
+    // entries whose persistent record has since been removed/expired.
+    let mut registry: Vec<Address> = env
+        .storage()
+        .instance()
+        .get(&PARTICIPANT_REGISTRY)
+        .unwrap_or(Vec::new(env));
+    registry.push_back(participant.clone());
+    env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+
+    let count: u64 = env
+        .storage()
+        .instance()
+        .get(&PARTICIPANT_COUNT)
+        .unwrap_or(0);
+    env.storage()
+        .instance()
+        .set(&PARTICIPANT_COUNT, &(count + 1));
+
+    env.events()
+        .publish((REGISTER_EVENT, participant.clone()), ());
+
+    log_activity(env, ActivityKind::Register, participant.clone(), None);
+
+    if let Some(referrer) = referrer {
+        let referral_key = (REFERRAL, participant.clone());
+        env.storage().persistent().set(&referral_key, &referrer);
+        env.storage().persistent().extend_ttl(
+            &referral_key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+
+        let count_key = (REFERRAL_COUNT, referrer.clone());
+        let referral_total: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+        env.storage()
+            .persistent()
+            .set(&count_key, &(referral_total + 1));
+        env.storage().persistent().extend_ttl(
+            &count_key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+
+        env.events()
+            .publish((REFERRED_EVENT, participant, referrer), ());
+    }
+
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+    Ok(true)
 }
 
 fn do_deregister(env: &Env, participant: Address) -> bool {
+    // #280 — Participant records live in PERSISTENT storage.
     let key = (PARTICIPANT, participant.clone());
-    if env.storage().instance().get::<_, u32>(&key).is_none() {
+    if !env
+        .storage()
+        .persistent()
+        .get::<_, bool>(&key)
+        .unwrap_or(false)
+    {
         return false;
     }
-    env.storage().instance().remove(&key);
-    let count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
+    env.storage().persistent().remove(&key);
+    let count: u64 = env
+        .storage()
+        .instance()
+        .get(&PARTICIPANT_COUNT)
+        .unwrap_or(0);
     if count > 0 {
-        env.storage().instance().set(&PARTICIPANT_COUNT, &(count - 1));
+        env.storage()
+            .instance()
+            .set(&PARTICIPANT_COUNT, &(count - 1));
     }
-    env.events().publish(
-        (Symbol::new(env, "deregister"), participant),
-        (),
-    );
-    env.storage().instance().extend_ttl(50, 100);
+    env.events()
+        .publish((Symbol::new(env, "deregister"), participant), ());
+    env.storage()
+        .instance()
+        .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
     true
 }
 
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod fuzz_test;

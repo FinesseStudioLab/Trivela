@@ -1,0 +1,38 @@
+name: Repo Sanity
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  sanity:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Workspace install (npm ci)
+        run: npm ci
+
+      - name: Verify lockfile is up to date
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          git diff --exit-code package-lock.json || {
+            echo "package-lock.json is out of date. Run 'npm install' locally and commit the updated lockfile."
+            exit 1
+          }
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+      - name: Workspace dependency check
+        run: npm ls --workspaces --depth=0

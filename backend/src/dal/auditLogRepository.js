@@ -1,4 +1,4 @@
-const REQUIRED_METHODS = ['list', 'create'];
+const REQUIRED_METHODS = ['list', 'create', 'count', 'verify'];
 
 export function assertAuditLogRepository(repository) {
   if (!repository || typeof repository !== 'object') {
@@ -13,4 +13,3 @@ export function assertAuditLogRepository(repository) {
 
   return repository;
 }
-

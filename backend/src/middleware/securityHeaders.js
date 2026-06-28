@@ -1,25 +1,64 @@
-/**
- * Basic security headers for API responses.
- *
- * Intentionally lightweight (no extra dependencies) and safe for JSON APIs.
- * Some headers are only set when the request is served over HTTPS.
- */
+import helmet from 'helmet';
+
+const SOROBAN_RPC_URLS = process.env.SOROBAN_RPC_URLS || '';
+const HORIZON_URL = process.env.HORIZON_URL || '';
+
+const connectSrcUrls = ["'self'"]
+  .concat(SOROBAN_RPC_URLS.split(',').filter(Boolean))
+  .concat(HORIZON_URL ? [HORIZON_URL] : [])
+  .join(' ');
+
+const helmetMiddleware = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: connectSrcUrls.split(' '),
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      frameAncestors: ["'none'"],
+      baseUri: ["'self'"],
+    },
+  },
+  hsts: {
+    maxAge: 15552000,
+    includeSubDomains: true,
+    preload: false,
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: { action: 'deny' },
+  noSniff: true,
+  dnsPrefetchControl: { allow: false },
+  permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+});
+
+const embedHelmetMiddleware = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      connectSrc: connectSrcUrls.split(' '),
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", 'data:', 'https:'],
+      frameAncestors: ['*'],
+    },
+  },
+  hsts: {
+    maxAge: 15552000,
+    includeSubDomains: true,
+  },
+  referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+  frameguard: false,
+  noSniff: true,
+  dnsPrefetchControl: { allow: false },
+  permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+});
 
 export default function securityHeaders(req, res, next) {
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('Referrer-Policy', 'no-referrer');
-  res.setHeader('X-DNS-Prefetch-Control', 'off');
-  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
-  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
 
-  const forwardedProto = req.headers['x-forwarded-proto'];
-  const isHttps = req.secure || (typeof forwardedProto === 'string' && forwardedProto.includes('https'));
-  if (isHttps) {
-    res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains');
-  }
+  const isEmbedRoute = req.path.startsWith('/embed/');
+  const middleware = isEmbedRoute ? embedHelmetMiddleware : helmetMiddleware;
 
-  next();
+  middleware(req, res, next);
 }
-

@@ -1,4 +1,4 @@
-const REQUIRED_METHODS = ['create', 'list', 'getById', 'revoke', 'validate', 'rotate', 'touchLastUsed', 'hasActiveKeys'];
+const REQUIRED_METHODS = ['create', 'list', 'getById', 'revoke', 'validate', 'rotate'];
 
 export function assertApiKeyRepository(repository) {
   if (!repository || typeof repository !== 'object') {

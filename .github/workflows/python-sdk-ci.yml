@@ -1,0 +1,62 @@
+name: Python SDK CI
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sdk/python/**'
+      - 'backend/openapi.yaml'
+  push:
+    branches: [main]
+    paths:
+      - 'sdk/python/**'
+
+jobs:
+  test:
+    name: pytest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.9', '3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install SDK with dev extras
+        run: pip install -e ".[dev]"
+        working-directory: sdk/python
+
+      - name: Run pytest
+        run: pytest tests/ -v
+        working-directory: sdk/python
+
+  publish:
+    name: Publish to PyPI
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-sdk-v')
+    environment: pypi
+    permissions:
+      id-token: write  # OIDC trusted publishing
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build distribution
+        run: |
+          pip install hatch
+          hatch build
+        working-directory: sdk/python
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: sdk/python/dist/

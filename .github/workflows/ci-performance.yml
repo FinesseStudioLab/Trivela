@@ -87,6 +87,9 @@ jobs:
             echo "No lint script; skipping."
           fi
 
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+
       - name: Test frontend
         run: |
           if npm --workspace=frontend run | grep -q "  test"; then
@@ -126,4 +129,6 @@ jobs:
         run: cargo test --workspace
 
       - name: Build WASM artifacts
-        run: cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p trivela-campaign-contract
+        run:
+          cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p
+          trivela-campaign-contract

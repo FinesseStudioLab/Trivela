@@ -1,0 +1,24 @@
+title = "Trivela Gitleaks Configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "stellar-secret-key"
+description = "Stellar secret key (S... 56-char base32)"
+regex = '''\bS[A-Z2-7]{55}\b'''
+tags = ["stellar", "secret-key"]
+
+[[rules]]
+id = "trivela-api-key"
+description = "Trivela API key pattern"
+regex = '''tvl_[a-zA-Z0-9]{32,}'''
+tags = ["trivela", "api-key"]
+
+[allowlist]
+description = "Safe paths — example files, test fixtures, docs"
+paths = [
+  '''.env\.example''',
+  '''test[s]?/fixtures/''',
+  '''docs/''',
+]

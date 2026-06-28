@@ -25,7 +25,9 @@ export function resolveStellarNetworkConfig({
   horizonUrl,
   networkPassphrase,
 } = {}) {
-  const normalizedNetwork = String(network || DEFAULT_STELLAR_NETWORK).trim().toLowerCase();
+  const normalizedNetwork = String(network || DEFAULT_STELLAR_NETWORK)
+    .trim()
+    .toLowerCase();
   const preset = STELLAR_NETWORKS[normalizedNetwork];
 
   if (!preset) {

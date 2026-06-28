@@ -8,6 +8,12 @@ export function createJobRunner({
   handlers = {},
   logger = console,
   timeProvider = { now: () => Date.now() },
+  deadLetter,
+  lockProvider,
+  lockMissDelayMs = 5_000,
+  defaultMaxAttempts = 5,
+  defaultBaseDelayMs = 1_000,
+  defaultMaxDelayMs = 30_000,
 } = {}) {
   let timer = null;
   let running = false;
@@ -29,6 +35,34 @@ export function createJobRunner({
     timer = setTimeout(runNext, delay);
   }
 
+  function recordDeadLetter(job, error) {
+    if (!deadLetter || typeof deadLetter.record !== 'function') {
+      logger.error?.(
+        `job:dead_letter type=${job.type} attempts=${job.attempt} (no persistent store configured)`,
+        error,
+      );
+      return;
+    }
+
+    try {
+      deadLetter.record({
+        type: job.type,
+        payload: job.payload,
+        errorMessage:
+          error && typeof error === 'object' && 'message' in error
+            ? String(/** @type {{ message: unknown }} */ (error).message)
+            : String(error ?? 'unknown error'),
+        attempts: job.attempt,
+        enqueuedAt:
+          typeof job.enqueuedAt === 'number' ? new Date(job.enqueuedAt).toISOString() : null,
+      });
+    } catch (storeError) {
+      logger.error?.(
+        `job:dead_letter_store_failed type=${job.type} reason=${storeError?.message ?? storeError}`,
+      );
+    }
+  }
+
   async function runNext() {
     if (stopped || running) return;
     if (queue.length === 0) return;
@@ -41,6 +75,24 @@ export function createJobRunner({
       logger.warn?.(`job:drop type=${job.type} reason=no_handler`);
       scheduleNext();
       return;
+    }
+
+    // Acquire distributed lock before marking running. If the lock is held by
+    // another instance, requeue without consuming an attempt and return early
+    // so `running` is never set to true.
+    let lock = null;
+    if (lockProvider) {
+      try {
+        lock = await lockProvider.acquire(job.type);
+      } catch (lockErr) {
+        logger.warn?.(`job:lock_error type=${job.type}`, lockErr);
+      }
+      if (lock === null) {
+        queue.push({ ...job, runAt: timeProvider.now() + lockMissDelayMs });
+        logger.info?.(`job:lock_miss type=${job.type} requeue_in_ms=${lockMissDelayMs}`);
+        scheduleNext();
+        return;
+      }
     }
 
     running = true;
@@ -69,8 +121,15 @@ export function createJobRunner({
           runAt: timeProvider.now() + backoffMs,
         });
         logger.info?.(`job:retry type=${job.type} in_ms=${backoffMs}`);
+      } else {
+        recordDeadLetter(job, error);
       }
     } finally {
+      if (lockProvider && lock !== null) {
+        await lockProvider.release(job.type, lock).catch((err) =>
+          logger.warn?.(`job:lock_release_failed type=${job.type}`, err),
+        );
+      }
       running = false;
       scheduleNext();
     }
@@ -81,9 +140,9 @@ export function createJobRunner({
     payload,
     {
       runAt = timeProvider.now(),
-      maxAttempts = 5,
-      baseDelayMs = 1_000,
-      maxDelayMs = 30_000,
+      maxAttempts = defaultMaxAttempts,
+      baseDelayMs = defaultBaseDelayMs,
+      maxDelayMs = defaultMaxDelayMs,
     } = {},
   ) {
     if (stopped) return;
@@ -113,6 +172,10 @@ export function createJobRunner({
   return {
     enqueue,
     stop,
+    // Exposed so callers (e.g. an admin "retry from dead-letter" endpoint)
+    // can rebuild a job after an operator reviews it.
+    _computeBackoffMs: computeBackoffMs,
   };
 }
 
+export { computeBackoffMs };

@@ -1,0 +1,19 @@
+{
+  "name": "@trivela/client",
+  "version": "0.1.0",
+  "description": "Auto-generated TypeScript client types for the Trivela REST API",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "generate": "openapi-ts",
+    "check-drift": "openapi-ts && git diff --exit-code src/"
+  },
+  "devDependencies": {
+    "@hey-api/openapi-ts": "^0.46.0",
+    "@hey-api/typescript": "^0.46.0"
+  },
+  "license": "Apache-2.0"
+}

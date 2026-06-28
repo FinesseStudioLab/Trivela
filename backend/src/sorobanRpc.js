@@ -4,10 +4,7 @@ const HEALTHCHECK_REQUEST = {
   method: 'getNetwork',
 };
 
-export async function checkSorobanRpcHealth({
-  rpcUrl,
-  fetchImpl = globalThis.fetch,
-} = {}) {
+export async function checkSorobanRpcHealth({ rpcUrl, fetchImpl = globalThis.fetch } = {}) {
   if (typeof fetchImpl !== 'function') {
     return {
       status: 'error',

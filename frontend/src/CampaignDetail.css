@@ -18,6 +18,83 @@
 
 .detail-nav {
   margin-bottom: 2.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.detail-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.detail-live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 50%, transparent);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.detail-live-badge::before {
+  content: '';
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--success);
+  animation: live-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes live-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.detail-refresh-btn {
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+}
+
+.detail-toast {
+  position: fixed;
+  top: 5.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 900;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  background: var(--bg-card-solid);
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-lg);
+}
+
+.detail-updated {
+  margin-top: 0.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.detail-leaderboard-btn {
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+  border-radius: 10px;
+  white-space: nowrap;
 }
 
 .back-link {
@@ -271,7 +348,9 @@
   font-weight: 600;
   border: 1px solid transparent;
   cursor: pointer;
-  transition: opacity 0.15s ease, transform 0.1s ease;
+  transition:
+    opacity 0.15s ease,
+    transform 0.1s ease;
 }
 
 .referral-share-btn:hover {
@@ -392,5 +471,38 @@
     display: flex;
     align-items: center;
     justify-content: center;
+  }
+}
+
+@media print {
+  body, html {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .header, .footer, .detail-nav, .detail-cta, .embed-section, .referral-section, .detail-live-badge, .detail-print-btn, .detail-refresh-btn, .detail-toast, .back-link, .detail-footer {
+    display: none !important;
+  }
+  .campaign-detail-page {
+    background: #fff !important;
+    color: #000 !important;
+  }
+  .detail-main {
+    padding: 0 !important;
+  }
+  .detail-body {
+    background: #fff !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    color: #000 !important;
+  }
+  .detail-eyebrow, .detail-title, .detail-description, .stat-value {
+    color: #000 !important;
+  }
+  .detail-grid {
+    background: #f1f5f9 !important;
+    border: 1px solid #cbd5e1 !important;
+    color: #000 !important;
+    page-break-after: always;
   }
 }

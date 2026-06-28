@@ -2,20 +2,26 @@
 
 ## Overview
 
-This implementation adds the ability to create campaigns with optional on-chain Soroban contract deployment and initialization. Campaigns can now be anchored to blockchain contracts for trustless, decentralized operation.
+This implementation adds the ability to create campaigns with optional on-chain Soroban contract
+deployment and initialization. Campaigns can now be anchored to blockchain contracts for trustless,
+decentralized operation.
 
 ## Changes Made
 
 ### 1. Backend Changes
 
 #### Database Migration
+
 **File**: `backend/src/db/migrations/002_add_contract_id.js` (NEW)
+
 - Added `contract_id` column to `campaigns` table (nullable TEXT)
 - Added index on `contract_id` for efficient lookups
 - Migration version: 2
 
 #### Schema Updates
+
 **File**: `backend/src/schemas.js`
+
 - Added `contractId` field to `campaignCreateSchema`
   - Optional, nullable
   - Validates Stellar contract ID format: `/^C[A-Z2-7]{55}$/`
@@ -23,14 +29,18 @@ This implementation adds the ability to create campaigns with optional on-chain 
   - Allows updating contract ID after creation
 
 #### Repository Updates
+
 **File**: `backend/src/dal/sqliteCampaignRepository.js`
+
 - Updated `rowToCampaign()` to include `contractId` field
 - Updated `create()` to accept and store `contractId`
 - Updated `update()` to allow updating `contractId`
 - Added `contractId` to allowed update fields and column mapping
 
 #### API Route Updates
+
 **File**: `backend/src/index.js`
+
 - Updated `createCampaign()` to extract and store `contractId` from request
 - Updated `updateCampaign()` to handle `contractId` updates
 - Contract ID is now returned in campaign API responses
@@ -38,7 +48,9 @@ This implementation adds the ability to create campaigns with optional on-chain 
 ### 2. Frontend Changes
 
 #### Stellar Integration
+
 **File**: `frontend/src/stellar.js`
+
 - Added `Contract` import from `@stellar/stellar-sdk`
 - **NEW FUNCTION**: `initializeCampaignContract(walletAddress, contractId)`
   - Initializes a deployed campaign contract with admin address
@@ -48,7 +60,9 @@ This implementation adds the ability to create campaigns with optional on-chain 
   - Handles errors gracefully with descriptive messages
 
 #### Campaign Creation Form
+
 **File**: `frontend/src/CreateCampaign.jsx`
+
 - Added `useNavigate` hook for post-deployment redirect
 - Added new state variables:
   - `deployOnChain` - Toggle for on-chain deployment
@@ -82,7 +96,9 @@ This implementation adds the ability to create campaigns with optional on-chain 
 - **Auto-redirect**: Redirects to campaign detail page 2 seconds after successful deployment
 
 #### Styling
+
 **File**: `frontend/src/Landing.css`
+
 - Added `.create-campaign-status` - Status message styling
 - Added `.create-campaign-hint` - Helper text styling
 - Added `.create-campaign-checkbox-label` - Checkbox label styling
@@ -91,7 +107,9 @@ This implementation adds the ability to create campaigns with optional on-chain 
 ### 3. Documentation
 
 #### Campaign Creation Guide
+
 **File**: `docs/CAMPAIGN_CREATION.md` (NEW)
+
 - Comprehensive documentation of the campaign creation flow
 - Architecture overview (backend + frontend components)
 - Step-by-step flow diagrams
@@ -238,6 +256,7 @@ This will add the `contract_id` column to existing campaigns (nullable, so no da
 ### Environment Variables
 
 No new environment variables required. Uses existing:
+
 - `VITE_CAMPAIGN_CONTRACT_ID` (optional, for default contract)
 - `VITE_STELLAR_NETWORK` (testnet/mainnet)
 
@@ -273,17 +292,20 @@ Copy the returned contract ID and use it in the campaign creation form.
 ## Files Modified
 
 ### Backend
+
 - `backend/src/db/migrations/002_add_contract_id.js` (NEW)
 - `backend/src/schemas.js`
 - `backend/src/dal/sqliteCampaignRepository.js`
 - `backend/src/index.js`
 
 ### Frontend
+
 - `frontend/src/CreateCampaign.jsx`
 - `frontend/src/stellar.js`
 - `frontend/src/Landing.css`
 
 ### Documentation
+
 - `docs/CAMPAIGN_CREATION.md` (NEW)
 - `IMPLEMENTATION_SUMMARY_ISSUE_291.md` (NEW - this file)
 
@@ -296,4 +318,6 @@ Copy the returned contract ID and use it in the campaign creation form.
 
 ## Conclusion
 
-This implementation successfully adds on-chain campaign contract deployment to the Trivela platform while maintaining backward compatibility with off-chain-only campaigns. The solution is production-ready, well-documented, and follows existing code patterns and security best practices.
+This implementation successfully adds on-chain campaign contract deployment to the Trivela platform
+while maintaining backward compatibility with off-chain-only campaigns. The solution is
+production-ready, well-documented, and follows existing code patterns and security best practices.
