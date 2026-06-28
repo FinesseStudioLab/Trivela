@@ -52,6 +52,9 @@ export default function Header({
 
         <div className="nav-actions">
           <div className="nav-links">
+            {walletAddress && (
+              <a href="/profile">Profile</a>
+            )}
             {/* #295 — only show the history link when a wallet is
                 connected; the page itself is per-wallet. */}
             {walletAddress && (
