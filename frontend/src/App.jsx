@@ -6,6 +6,7 @@ import CampaignLeaderboard from './CampaignLeaderboard';
 import CampaignAnalytics from './CampaignAnalytics';
 import AdminCampaigns from './AdminCampaigns';
 import About from './About';
+import UserProfile from './pages/UserProfile';
 import PageMeta from './components/PageMeta';
 import TransactionHistory from './TransactionHistory';
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
@@ -244,6 +245,23 @@ export default function App() {
         path="/about"
         element={
           <About
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            stellarNetwork={runtimeConfig.stellar.network}
+            onChangeStellarNetwork={handleChangeStellarNetwork}
+            walletAddress={walletAddress}
+            walletBalance={walletBalance}
+            isWalletLoading={isWalletLoading}
+            isWalletBalanceLoading={isWalletBalanceLoading}
+            onConnectWallet={connectWallet}
+            onDisconnectWallet={disconnectWallet}
+          />
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <UserProfile
             theme={theme}
             onToggleTheme={toggleTheme}
             stellarNetwork={runtimeConfig.stellar.network}
