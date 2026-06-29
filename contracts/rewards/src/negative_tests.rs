@@ -55,7 +55,7 @@ fn negative_test_multiplier_overflow_detection() {
     );
 
     // With wrapping arithmetic, this would silently wrap:
-    let wrapping_result = (base_amount as u64).wrapping_mul(multiplier_bps as u64);
+    let wrapping_result = base_amount.wrapping_mul(multiplier_bps as u64);
     // We can't assert on the wrong value directly, but we confirm
     // checked_mul gives a different (correct) result
     assert_ne!(

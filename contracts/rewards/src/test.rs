@@ -1562,13 +1562,18 @@ fn test_multisig_2_of_3_two_signatures_succeed_and_nonce_replay_fails() {
 
 // ── SEP-41 allowance / approve / transfer_from / burn_from tests (#550) ──────
 
-fn setup_sep41(env: &Env) -> (Address, RewardsContractClient, Address) {
+fn setup_sep41(env: &Env) -> (Address, RewardsContractClient<'_>, Address) {
     let contract_id = env.register_contract(None, RewardsContract);
     let client = RewardsContractClient::new(env, &contract_id);
     let admin = Address::generate(env);
     client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
     env.mock_all_auths();
-    client.set_token_mode(&admin, &true);
+    client.enable_token_mode(
+        &admin,
+        &symbol_short!("Trivela"),
+        &symbol_short!("TVL"),
+        &7u32,
+    );
     (admin, client, contract_id)
 }
 
