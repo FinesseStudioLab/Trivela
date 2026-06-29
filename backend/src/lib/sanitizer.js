@@ -1,4 +1,6 @@
 // @ts-check
+/* eslint-disable no-control-regex -- this module deliberately matches control
+   characters (null bytes, ANSI escape sequences) in order to strip them out. */
 /**
  * Backend input sanitization utilities.
  * Provides functions for HTML entity escaping, log injection prevention,

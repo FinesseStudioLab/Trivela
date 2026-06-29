@@ -74,6 +74,7 @@ function makeStreamRes() {
   res.end = () => {};
   res.on = (event, cb) => {
     if (event === 'drain') {
+      /* no-op: stream never back-pressures in this test mock */
     }
   };
   res.once = () => res;

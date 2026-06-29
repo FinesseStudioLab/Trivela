@@ -2577,13 +2577,13 @@ export async function createApp(options = {}) {
   app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
 
   // #808 — In-app testnet faucet/funding helper
-  app.use(`${API_V1_PREFIX}/faucet`, createFaucetRoutes());
+  app.use(`${API_V1_PREFIX}/faucet`, createFaucetRoutes);
 
   // #811 — Partner webhook subscription management
-  app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes());
+  app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes);
 
   // #818 — Public status page + incident communication
-  app.use(`${API_V1_PREFIX}/status`, createStatusRoutes());
+  app.use(`${API_V1_PREFIX}/status`, createStatusRoutes);
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
@@ -2622,8 +2622,15 @@ export async function createApp(options = {}) {
     isShuttingDown = true;
     try {
       dal.db.close();
-    } catch (_) {}
+    } catch (_) {
+      /* ignore errors closing the database during shutdown */
+    }
   };
+
+  // Expose usage-metering lifecycle hooks so startServer's graceful shutdown
+  // (which only has the `app` handle) can flush metering before exit.
+  app._stopUsageFlush = stopUsageFlush;
+  app._usageMeteringService = usageMeteringService;
 
   // Expose wallet auth middleware for use by routes and tests
   app._requireWalletAuth = requireWalletAuth;
@@ -2675,8 +2682,10 @@ export async function startServer(options = {}) {
 
     await new Promise((resolve) => server.close(resolve));
 
-    stopUsageFlush();
-    await usageMeteringService.flushToDb().catch((err) => log.warn({ err }, 'usage flush warning'));
+    app._stopUsageFlush?.();
+    await app._usageMeteringService
+      ?.flushToDb()
+      .catch((err) => log.warn({ err }, 'usage flush warning'));
 
     await shutdownTracing().catch((err) => log.warn({ err }, 'OTel shutdown warning'));
 
