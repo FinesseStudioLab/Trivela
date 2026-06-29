@@ -91,6 +91,9 @@ import { createZkInputsRoutes } from './routes/zkInputs.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
 import { createModerationService } from './moderation/moderationService.js';
 import { createContentModerationMiddleware } from './middleware/contentModeration.js';
+import createFaucetRoutes from './routes/faucet.js';
+import createWebhookRoutes from './routes/webhooks.js';
+import createStatusRoutes from './routes/status.js';
 
 const DEFAULT_PORT = 3001;
 
@@ -2444,6 +2447,15 @@ export async function createApp(options = {}) {
   // #543 — ZK proving inputs (public, no auth — secrets never leave the device)
   const zkInputsRouter = createZkInputsRoutes({ campaignRepository });
   app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
+
+  // #808 — In-app testnet faucet/funding helper
+  app.use(`${API_V1_PREFIX}/faucet`, createFaucetRoutes());
+
+  // #811 — Partner webhook subscription management
+  app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes());
+
+  // #818 — Public status page + incident communication
+  app.use(`${API_V1_PREFIX}/status`, createStatusRoutes());
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
