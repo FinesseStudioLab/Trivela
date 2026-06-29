@@ -92,7 +92,6 @@ import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
 import { createModerationService } from './moderation/moderationService.js';
 import { createContentModerationMiddleware } from './middleware/contentModeration.js';
 import createFaucetRoutes from './routes/faucet.js';
-import createWebhookRoutes from './routes/webhooks.js';
 import createStatusRoutes from './routes/status.js';
 
 const DEFAULT_PORT = 3001;
@@ -732,6 +731,26 @@ export async function createApp(options = {}) {
   });
   if (!options.disableJobs) {
     durableJobQueue.start();
+  }
+
+  // Event indexer: use Horizon SSE for near-instant indexing; fall back to 30s polling
+  if (!options.disableJobs && (rewardsContractId || campaignContractId)) {
+    const contractIds = [rewardsContractId, campaignContractId].filter(Boolean);
+    if (stellarConfig.horizonUrl) {
+      eventIndexer.startSse({
+        contractIds,
+        horizonUrl: stellarConfig.horizonUrl,
+        allowHttp: !stellarConfig.horizonUrl.startsWith('https'),
+      });
+    } else {
+      const indexerPollMs = 30_000;
+      for (const contractId of contractIds) {
+        setInterval(async () => {
+          const cursor = eventIndexer.getCursor(contractId);
+          await eventIndexer.poll(contractId, cursor);
+        }, indexerPollMs).unref?.();
+      }
+    }
   }
 
   // #552 — Operator balance monitoring job
@@ -2187,6 +2206,85 @@ export async function createApp(options = {}) {
         limit: parseInt(req.query.limit) || 100,
       });
       return res.json(paginateItems(deliveries, req.query));
+    });
+
+    app.get(`${prefix}/webhooks/:id/deliveries/:deliveryId`, rateLimiter, ...guard, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+      if (!delivery || delivery.webhookId !== req.params.id) {
+        return res.status(404).json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+      }
+      return res.json(delivery);
+    });
+
+    app.post(
+      `${prefix}/webhooks/:id/deliveries/:deliveryId/replay`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      async (req, res) => {
+        const webhook = webhookRepository.getById(req.params.id);
+        if (!webhook) {
+          return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+        }
+        const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+        if (!delivery || delivery.webhookId !== req.params.id) {
+          return res
+            .status(404)
+            .json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+        }
+        try {
+          await webhookService.deliverWebhook(webhook, {
+            type: delivery.event,
+            data: delivery.payload,
+            timestamp: new Date().toISOString(),
+          });
+          return res.json({ replayed: true, webhookId: req.params.id, event: delivery.event });
+        } catch (err) {
+          log.warn({ err, webhookId: req.params.id }, 'Webhook replay error');
+          return res.status(502).json({ error: 'Replay delivery failed', code: 'REPLAY_FAILED' });
+        }
+      },
+    );
+
+    app.post(`${prefix}/webhooks/:id/test`, rateLimiter, ...guard, async (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const eventType = req.body?.eventType || 'campaign.created';
+      try {
+        await webhookService.deliverWebhook(webhook, {
+          type: eventType,
+          data: { test: true, timestamp: new Date().toISOString() },
+          timestamp: new Date().toISOString(),
+        });
+        return res.json({ sent: true, webhookId: req.params.id, eventType });
+      } catch (err) {
+        log.warn({ err, webhookId: req.params.id }, 'Webhook test error');
+        return res.status(502).json({ error: 'Test delivery failed', code: 'TEST_FAILED' });
+      }
+    });
+
+    // POST /webhooks/verify — signature verification helper for consumers (no auth required)
+    app.post(`${prefix}/webhooks/verify`, rateLimiter, (req, res) => {
+      const { signature, secret, payload } = req.body ?? {};
+      if (!signature || !secret || payload === undefined) {
+        return res.status(400).json({
+          error: 'signature, secret, and payload are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      try {
+        const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        const valid = webhookService.verifySignature(signature, secret, payloadStr);
+        return res.json({ valid });
+      } catch {
+        return res.json({ valid: false });
+      }
     });
 
     // Referral routes (Issue #350)

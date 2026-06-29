@@ -24,6 +24,7 @@ const TransactionHistory = lazy(() => import('./TransactionHistory'));
 const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
+const WebhookManagement = lazy(() => import('./pages/WebhookManagement'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -312,6 +313,18 @@ export default function App() {
                   campaigns={[]}
                   onCampaignCreated={(c) => navigate(`/campaign/${c.id}`)}
                 />
+              </RequireAdmin>
+            }
+          />
+          <Route
+            path="/admin/webhooks"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <WebhookManagement />
               </RequireAdmin>
             }
           />

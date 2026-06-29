@@ -7,7 +7,7 @@ import {
 } from './sqliteCampaignRepository.js';
 import { assertAuditLogRepository } from './auditLogRepository.js';
 import { createSqliteAuditLogRepository } from './sqliteAuditLogRepository.js';
-import { WebhookRepository } from './webhookRepository.js';
+import { createSqliteWebhookRepository } from './sqliteWebhookRepository.js';
 import { createSqliteReferralRepository } from './sqliteReferralRepository.js';
 import { assertApiKeyRepository } from './apiKeyRepository.js';
 import { createSqliteApiKeyRepository } from './sqliteApiKeyRepository.js';
@@ -83,7 +83,7 @@ export async function createDal({
     auditLogs: assertAuditLogRepository(
       auditLogRepository ?? pgAuditLogs ?? createSqliteAuditLogRepository({ db }),
     ),
-    webhooks: webhookRepository ?? new WebhookRepository(db),
+    webhooks: webhookRepository ?? createSqliteWebhookRepository({ db }),
     referrals: createSqliteReferralRepository({ db }),
     variants: createSqliteVariantRepository({ db }),
     cohorts: createSqliteCohortRepository({ db }),

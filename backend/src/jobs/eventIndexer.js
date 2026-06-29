@@ -7,7 +7,10 @@
  * - Prometheus metrics for monitoring
  * - Health status endpoint
  * - Projection handlers per event type
+ * - Horizon SSE streaming for near-instant indexing (falls back to polling)
  */
+
+import { Horizon } from '@stellar/stellar-sdk';
 
 export function createEventIndexer({
   db,
@@ -135,7 +138,55 @@ export function createEventIndexer({
     };
   }
 
-  return { processEvent, poll, getCursor, getHealth, getMetrics };
+  function startSse({ contractIds, horizonUrl, allowHttp = false }) {
+    let stopped = false;
+    let closeStream = null;
+    let reconnectTimer = null;
+
+    function connect() {
+      if (stopped) return;
+
+      let server;
+      try {
+        server = new Horizon.Server(horizonUrl, { allowHttp });
+      } catch (err) {
+        logger.error?.('eventIndexer:sse:init', err);
+        if (!stopped) reconnectTimer = setTimeout(connect, 10_000);
+        return;
+      }
+
+      closeStream = server
+        .ledgers()
+        .cursor('now')
+        .stream({
+          onmessage: async () => {
+            metrics.lagLedgers = 0;
+            for (const contractId of contractIds) {
+              const cursor = getCursor(contractId);
+              await poll(contractId, cursor);
+            }
+          },
+          onerror: (err) => {
+            metrics.errorsTotal++;
+            logger.error?.('eventIndexer:sse:error', err);
+            if (!stopped) reconnectTimer = setTimeout(connect, 5_000);
+          },
+        });
+
+      logger.info?.(`eventIndexer:sse started horizonUrl=${horizonUrl}`);
+    }
+
+    function stop() {
+      stopped = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (typeof closeStream === 'function') closeStream();
+    }
+
+    connect();
+    return { stop };
+  }
+
+  return { processEvent, poll, getCursor, getHealth, getMetrics, startSse };
 }
 
 async function handleCreditEvent(event, db) {

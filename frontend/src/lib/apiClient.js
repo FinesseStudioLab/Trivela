@@ -257,6 +257,64 @@ async function getNewCampaigns(params = {}) {
   });
 }
 
+// ── Webhook endpoints ─────────────────────────────────────────────────────────
+
+function makeAuthHeaders(apiKey) {
+  return apiKey ? { 'X-Api-Key': apiKey } : {};
+}
+
+async function listWebhooks(apiKey) {
+  return request(apiUrl('/api/v1/webhooks'), { headers: makeAuthHeaders(apiKey) });
+}
+
+async function createWebhook(data, apiKey) {
+  return request(apiUrl('/api/v1/webhooks'), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify(data),
+  });
+}
+
+async function updateWebhook(id, data, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${id}`), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify(data),
+  });
+}
+
+async function deleteWebhook(id, apiKey) {
+  const response = await fetch(apiUrl(`/api/v1/webhooks/${id}`), {
+    method: 'DELETE',
+    headers: makeAuthHeaders(apiKey),
+  });
+  if (!response.ok && response.status !== 204) {
+    throw new ApiError(`HTTP ${response.status}`, response.status);
+  }
+}
+
+async function listWebhookDeliveries(id, apiKey, params = {}) {
+  const qs = new URLSearchParams();
+  if (params.limit) qs.set('limit', String(params.limit));
+  const url = apiUrl(`/api/v1/webhooks/${id}/deliveries`) + (qs.toString() ? `?${qs}` : '');
+  return request(url, { headers: makeAuthHeaders(apiKey) });
+}
+
+async function replayDelivery(webhookId, deliveryId, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${webhookId}/deliveries/${deliveryId}/replay`), {
+    method: 'POST',
+    headers: makeAuthHeaders(apiKey),
+  });
+}
+
+async function testWebhook(id, eventType, apiKey) {
+  return request(apiUrl(`/api/v1/webhooks/${id}/test`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...makeAuthHeaders(apiKey) },
+    body: JSON.stringify({ eventType }),
+  });
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 export const apiClient = {
@@ -280,6 +338,13 @@ export const apiClient = {
   getAnalyticsDashboard,
   getTrendingCampaigns,
   getNewCampaigns,
+  listWebhooks,
+  createWebhook,
+  updateWebhook,
+  deleteWebhook,
+  listWebhookDeliveries,
+  replayDelivery,
+  testWebhook,
 };
 
 export { ApiError };
