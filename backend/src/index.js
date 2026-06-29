@@ -52,6 +52,7 @@ import { DEPRECATION_REGISTRY } from './deprecations.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
+import { createSseRoutes } from './routes/sse.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
 import { createCohortRoutes } from './routes/cohorts.js';
@@ -814,6 +815,9 @@ export async function createApp(options = {}) {
       embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
     }),
   );
+
+  // SSE live streams for campaigns (#815)
+  app.use(API_V1_PREFIX, createSseRoutes({ campaignRepository }));
 
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
