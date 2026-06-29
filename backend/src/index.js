@@ -52,6 +52,7 @@ import { DEPRECATION_REGISTRY } from './deprecations.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
+import { createSseRoutes } from './routes/sse.js';
 import { createEmbedWidgetRoute } from './routes/embedWidget.js';
 import { createDevPortalRoutes } from './routes/devPortal.js';
 import { createVariantRoutes } from './routes/variants.js';
@@ -817,6 +818,8 @@ export async function createApp(options = {}) {
     }),
   );
 
+  // SSE live streams for campaigns (#815)
+  app.use(API_V1_PREFIX, createSseRoutes({ campaignRepository }));
   // Versioned embed widgets (#809)
   app.get(
     '/embed/v1/:widgetType/:campaignId',
