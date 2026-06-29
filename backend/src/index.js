@@ -85,6 +85,8 @@ import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createModerationService } from './moderation/moderationService.js';
+import { createContentModerationMiddleware } from './middleware/contentModeration.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -490,6 +492,20 @@ export async function createApp(options = {}) {
   const stopUsageFlush = usageMeteringService.startFlushInterval();
 
   const usageMeteringMiddleware = createUsageMeteringMiddleware({ usageMeteringService });
+
+  const moderationService =
+    /** @type {any} */ (options.moderationService) ??
+    createModerationService({
+      provider:
+        /** @type {string} */ (options.moderationProvider) ?? process.env.MODERATION_PROVIDER,
+      openaiApiKey:
+        /** @type {string} */ (options.moderationApiKey) ?? process.env.OPENAI_API_KEY,
+      fetchImpl,
+    });
+  const contentModerationMiddleware = createContentModerationMiddleware({
+    moderationService,
+    log,
+  });
 
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
@@ -929,7 +945,7 @@ export async function createApp(options = {}) {
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
-  function listCampaigns(req, res) {
+  async function listCampaigns(req, res) {
     const cacheKey = `campaigns:${req.originalUrl}`;
     const cached = shortCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -1785,7 +1801,7 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/admin/audit/verify`, rateLimiter, requireMasterKey, verifyAuditChain);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
     app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
-    app.post(`${prefix}/campaigns`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), createCampaign);
+    app.post(`${prefix}/campaigns`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), contentModerationMiddleware, createCampaign);
     app.post(`${prefix}/campaigns/:id/clone`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), cloneCampaign);
     app.post(`${prefix}/campaigns/:id/image`, rateLimiter, ...guard, requireScope('campaigns:write'), (req, res, next) => {
       imageUpload.single('image')(req, res, (err) => {
@@ -1799,7 +1815,7 @@ export async function createApp(options = {}) {
         return uploadCampaignImageHandler(req, res);
       });
     });
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), updateCampaign);
+    app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), contentModerationMiddleware, updateCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, requireScope('campaigns:write'), deleteCampaign);
     app.put(`${prefix}/campaigns/:id`, rateLimiter, idempotencyMiddleware, requireApiKey, updateCampaign);
     app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, idempotencyMiddleware, requireApiKey, publishCampaign);
@@ -1824,6 +1840,29 @@ export async function createApp(options = {}) {
     // Admin dashboard and campaign management (Issue #467)
     app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
     app.get(`${prefix}/admin/campaigns`, rateLimiter, requireMasterKey, listAdminCampaigns);
+
+    // Content moderation blocklist management
+    app.get(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (_req, res) => {
+      return res.json({ terms: moderationService.getTerms() });
+    });
+    app.post(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (req, res) => {
+      const { action, term } = req.body ?? {};
+      if (!term || typeof term !== 'string' || !term.trim()) {
+        return res.status(400).json({ error: 'term is required', code: 'VALIDATION_ERROR' });
+      }
+      if (action !== 'add' && action !== 'remove') {
+        return res.status(400).json({
+          error: 'action must be "add" or "remove"',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      if (action === 'add') {
+        moderationService.addTerm(term);
+      } else {
+        moderationService.removeTerm(term);
+      }
+      return res.json({ ok: true, terms: moderationService.getTerms() });
+    });
 
     // Tenant usage metering (Issue #574)
     app.get(`${prefix}/usage`, rateLimiter, ...guard, (req, res) => {
