@@ -102,10 +102,14 @@ export function createSep10Routes({
 
   if (!serverSecret) {
     router.get('/auth/sep10/challenge', (_req, res) =>
-      res.status(503).json({ error: 'SEP-10 not configured: no server key', code: 'NOT_CONFIGURED' }),
+      res
+        .status(503)
+        .json({ error: 'SEP-10 not configured: no server key', code: 'NOT_CONFIGURED' }),
     );
     router.post('/auth/sep10/token', (_req, res) =>
-      res.status(503).json({ error: 'SEP-10 not configured: no server key', code: 'NOT_CONFIGURED' }),
+      res
+        .status(503)
+        .json({ error: 'SEP-10 not configured: no server key', code: 'NOT_CONFIGURED' }),
     );
     return router;
   }
@@ -138,13 +142,10 @@ export function createSep10Routes({
     const nonce = crypto.randomBytes(48).toString('base64url');
     const validUntil = now + Math.floor(CHALLENGE_EXPIRY_MS / 1000);
 
-    const transaction = new TransactionBuilder(
-      new Address(account),
-      {
-        fee: '0',
-        networkPassphrase,
-      },
-    )
+    const transaction = new TransactionBuilder(new Address(account), {
+      fee: '0',
+      networkPassphrase,
+    })
       .addOperation(
         // manageData operation — SEP-10 requires at least one
         {
@@ -195,8 +196,8 @@ export function createSep10Routes({
     }
 
     // 1. Verify the server signed the transaction
-    const serverSigned = clientTx.signatures.some(
-      (s) => s.hint().equals(serverKeypair.publicKey()),
+    const serverSigned = clientTx.signatures.some((s) =>
+      s.hint().equals(serverKeypair.publicKey()),
     );
     if (!serverSigned) {
       return res.status(401).json({
@@ -206,8 +207,8 @@ export function createSep10Routes({
     }
 
     // 2. Verify the client signed the transaction
-    const clientSigned = clientTx.signatures.some(
-      (s) => s.hint().equals(StrKey.decodeEd25519PublicKey(account)),
+    const clientSigned = clientTx.signatures.some((s) =>
+      s.hint().equals(StrKey.decodeEd25519PublicKey(account)),
     );
     if (!clientSigned) {
       return res.status(401).json({
@@ -235,9 +236,7 @@ export function createSep10Routes({
       });
     }
 
-    const nonce = manageDataOp.value
-      ? Buffer.from(manageDataOp.value).toString('utf-8')
-      : null;
+    const nonce = manageDataOp.value ? Buffer.from(manageDataOp.value).toString('utf-8') : null;
 
     if (!nonce) {
       return res.status(400).json({

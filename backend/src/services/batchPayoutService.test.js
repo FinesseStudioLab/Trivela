@@ -56,7 +56,10 @@ test('createInMemoryBatchStore returns undefined for unknown batchId', () => {
 
 test('updateBatch throws for unknown batchId', () => {
   const store = createInMemoryBatchStore();
-  assert.throws(() => store.updateBatch('ghost', { status: BATCH_STATUS.RUNNING }), BatchPayoutError);
+  assert.throws(
+    () => store.updateBatch('ghost', { status: BATCH_STATUS.RUNNING }),
+    BatchPayoutError,
+  );
 });
 
 // ── registerBatch ─────────────────────────────────────────────────────────────
@@ -176,7 +179,9 @@ test('executeBatch rejects if batch does not exist', async () => {
 
 test('executeBatch rejects concurrent execution of the same batch', async () => {
   let resolveSubmit;
-  const submitDone = new Promise((r) => { resolveSubmit = r; });
+  const submitDone = new Promise((r) => {
+    resolveSubmit = r;
+  });
 
   const svc = makeService({
     submitChunk: async () => {
@@ -227,10 +232,17 @@ test('executeBatch halves k on resourceLimitExceeded and retries', async () => {
 
 test('executeBatch fails ops when resource limit hits k=1 (cannot halve further)', async () => {
   const svc = makeService({
-    simulateChunk: async () => ({ success: false, resourceLimitExceeded: true, errorMessage: 'too big' }),
+    simulateChunk: async () => ({
+      success: false,
+      resourceLimitExceeded: true,
+      errorMessage: 'too big',
+    }),
     maxOpsPerChunk: 1,
   });
-  const recipients = [{ address: 'GA', amount: '1' }, { address: 'GB', amount: '2' }];
+  const recipients = [
+    { address: 'GA', amount: '1' },
+    { address: 'GB', amount: '2' },
+  ];
   svc.registerBatch({ batchId: 'b1', recipients, campaignId: 'c1' });
   const result = await svc.executeBatch('b1');
 
@@ -255,7 +267,10 @@ test('continue mode: marks failed chunk and processes the rest', async () => {
     maxOpsPerChunk: 1,
     failMode: 'continue',
   });
-  const recipients = [{ address: 'GA', amount: '1' }, { address: 'GB', amount: '2' }];
+  const recipients = [
+    { address: 'GA', amount: '1' },
+    { address: 'GB', amount: '2' },
+  ];
   svc.registerBatch({ batchId: 'b1', recipients, campaignId: 'c1' });
   const result = await svc.executeBatch('b1');
 
@@ -297,7 +312,10 @@ test('abort mode: stops after first simulation failure', async () => {
     maxOpsPerChunk: 1,
     failMode: 'abort',
   });
-  const recipients = [{ address: 'GA', amount: '1' }, { address: 'GB', amount: '2' }];
+  const recipients = [
+    { address: 'GA', amount: '1' },
+    { address: 'GB', amount: '2' },
+  ];
   svc.registerBatch({ batchId: 'b1', recipients, campaignId: 'c1' });
   const result = await svc.executeBatch('b1');
 
@@ -381,10 +399,18 @@ test('getBatch returns undefined for unknown batchId', () => {
 
 test('listBatches returns all registered batches in reverse-creation order', async () => {
   const svc = makeService();
-  svc.registerBatch({ batchId: 'b1', recipients: [{ address: 'GA', amount: '1' }], campaignId: 'c1' });
+  svc.registerBatch({
+    batchId: 'b1',
+    recipients: [{ address: 'GA', amount: '1' }],
+    campaignId: 'c1',
+  });
   // Small delay so createdAt strings differ
   await new Promise((r) => setTimeout(r, 2));
-  svc.registerBatch({ batchId: 'b2', recipients: [{ address: 'GB', amount: '2' }], campaignId: 'c1' });
+  svc.registerBatch({
+    batchId: 'b2',
+    recipients: [{ address: 'GB', amount: '2' }],
+    campaignId: 'c1',
+  });
 
   const list = svc.listBatches();
   assert.equal(list.length, 2);

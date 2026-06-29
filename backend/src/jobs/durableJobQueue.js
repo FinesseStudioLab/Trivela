@@ -100,7 +100,9 @@ export function createDurableJobQueue({
       if (!job) return;
       const nextAttempts = job.attempts + 1;
       const errorMessage =
-        err && typeof err === 'object' && 'message' in err ? String(err.message) : String(err ?? 'unknown');
+        err && typeof err === 'object' && 'message' in err
+          ? String(err.message)
+          : String(err ?? 'unknown');
 
       if (nextAttempts < job.maxAttempts) {
         const backoffMs = computeBackoffMs({

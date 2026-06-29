@@ -683,7 +683,8 @@ docker inspect --format '{{json .State.Health}}' <container-id>
 
 ## API Versioning & Deprecation Policy
 
-All stable endpoints are served under `/api/v1/`. The legacy `/api/` prefix is an alias kept for backwards-compatibility; it will be removed after a 90-day deprecation window.
+All stable endpoints are served under `/api/v1/`. The legacy `/api/` prefix is an alias kept for
+backwards-compatibility; it will be removed after a 90-day deprecation window.
 
 ### Deprecation notices
 
@@ -699,7 +700,9 @@ When an endpoint is deprecated:
 
 ### 90-day notice minimum
 
-No endpoint may be removed until at least 90 days have passed since its `deprecatedAt` date. Operators watching the deprecation headers and the `/deprecations` endpoint will have ample time to migrate.
+No endpoint may be removed until at least 90 days have passed since its `deprecatedAt` date.
+Operators watching the deprecation headers and the `/deprecations` endpoint will have ample time to
+migrate.
 
 ### Content negotiation (v2 responses)
 

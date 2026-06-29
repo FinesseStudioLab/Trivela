@@ -11,7 +11,12 @@ function silentLogger() {
 
 function inMemoryDeadLetter() {
   const entries = [];
-  return { entries, record(e) { entries.push(e); } };
+  return {
+    entries,
+    record(e) {
+      entries.push(e);
+    },
+  };
 }
 
 function tick(ms = 0) {
@@ -36,7 +41,14 @@ async function setup(handlerOverrides = {}, deadLetter = null) {
 test('durableJobQueue: successful job is acked and not dead-lettered', async () => {
   const dl = inMemoryDeadLetter();
   let ran = 0;
-  const { queue, store } = await setup({ task: async () => { ran += 1; } }, dl);
+  const { queue, store } = await setup(
+    {
+      task: async () => {
+        ran += 1;
+      },
+    },
+    dl,
+  );
   queue.start();
   queue.enqueue('task', { x: 1 }, { maxAttempts: 3 });
 
@@ -53,7 +65,12 @@ test('durableJobQueue: retry exhaustion lands job in DLQ', async () => {
   const dl = inMemoryDeadLetter();
   let attempts = 0;
   const { queue, store } = await setup(
-    { boom: async () => { attempts += 1; throw new Error('fail'); } },
+    {
+      boom: async () => {
+        attempts += 1;
+        throw new Error('fail');
+      },
+    },
     dl,
   );
   queue.start();
@@ -97,14 +114,16 @@ test('durableJobQueue: handler succeeds on 2nd attempt — no dead-letter', asyn
 test('durableJobQueue: stale recovery resets running jobs', async () => {
   const { db, store, queue } = await setup({});
   // Manually insert a job that appears to be stuck running with an expired visible_at
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO job_queue (id, type, payload, status, attempts, max_attempts,
       base_delay_ms, max_delay_ms, run_at, visible_at, enqueued_at)
     VALUES ('stuck-1', 'noop', NULL, 'running', 1, 5, 1000, 30000,
       datetime('now', '-10 seconds'),
       datetime('now', '-5 seconds'),
       datetime('now', '-10 seconds'))
-  `).run();
+  `,
+  ).run();
 
   // recoverStale with 0ms timeout should recover all running jobs immediately
   const recovered = store.recoverStale(0);
@@ -121,7 +140,12 @@ test('durableJobQueue: unknown handler type drops the job cleanly', async () => 
   const { queue, store } = await setup({}, dl);
   // Override logger to detect the drop
   queue.start();
-  store.enqueue({ type: 'unknown_type', payload: null, runAt: new Date().toISOString(), enqueuedAt: new Date().toISOString() });
+  store.enqueue({
+    type: 'unknown_type',
+    payload: null,
+    runAt: new Date().toISOString(),
+    enqueuedAt: new Date().toISOString(),
+  });
 
   await tick(100);
   queue.stop();

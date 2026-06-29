@@ -25,7 +25,13 @@ fn gen_keypair(seed: u8) -> SigningKey {
     SigningKey::from_bytes(&bytes)
 }
 
-fn sign_op(env: &Env, signing_key: &SigningKey, op: u32, nonce: u64, args_hash: &BytesN<32>) -> BytesN<64> {
+fn sign_op(
+    env: &Env,
+    signing_key: &SigningKey,
+    op: u32,
+    nonce: u64,
+    args_hash: &BytesN<32>,
+) -> BytesN<64> {
     let mut buf = [0u8; 44];
     buf[0..4].copy_from_slice(&op.to_be_bytes());
     buf[4..12].copy_from_slice(&nonce.to_be_bytes());
@@ -1417,7 +1423,8 @@ fn test_prune_used_nonces_removes_stale_entries() {
     // Not yet expired.
     assert_eq!(client.prune_used_nonces(&10), 0);
 
-    env.ledger().with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
+    env.ledger()
+        .with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
     let pruned = client.prune_used_nonces(&10);
     assert_eq!(pruned, 1);
 
@@ -1451,7 +1458,8 @@ fn test_prune_used_nonces_respects_max_entries_cap() {
     let (_, nonce_count, _) = client.storage_stats();
     assert_eq!(nonce_count, 5);
 
-    env.ledger().with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
+    env.ledger()
+        .with_mut(|li| li.sequence_number += NONCE_TTL_LEDGERS + 1);
 
     assert_eq!(client.prune_used_nonces(&2), 2);
     assert_eq!(client.prune_used_nonces(&2), 2);
@@ -1528,7 +1536,12 @@ fn test_multisig_2_of_3_two_signatures_succeed_and_nonce_replay_fails() {
     let sig1 = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash);
     let sig2 = sign_op(&env, &key2, OP_SET_PAUSED, nonce, &args_hash);
 
-    client.set_paused(&admin, &nonce, &true, &vec![&env, (co1.clone(), sig1), (co2.clone(), sig2)]);
+    client.set_paused(
+        &admin,
+        &nonce,
+        &true,
+        &vec![&env, (co1.clone(), sig1), (co2.clone(), sig2)],
+    );
     assert!(client.is_paused());
 
     // Replaying the same nonce fails even with valid signatures over different args.
@@ -1537,7 +1550,12 @@ fn test_multisig_2_of_3_two_signatures_succeed_and_nonce_replay_fails() {
     let args_hash2: BytesN<32> = env.crypto().sha256(&Bytes::from_slice(&env, &buf2)).into();
     let sig1b = sign_op(&env, &key1, OP_SET_PAUSED, nonce, &args_hash2);
     let sig2b = sign_op(&env, &key2, OP_SET_PAUSED, nonce, &args_hash2);
-    let result = client.try_set_paused(&admin, &nonce, &false, &vec![&env, (co1, sig1b), (co2, sig2b)]);
+    let result = client.try_set_paused(
+        &admin,
+        &nonce,
+        &false,
+        &vec![&env, (co1, sig1b), (co2, sig2b)],
+    );
     assert_eq!(result, Err(Ok(Error::NonceReused)));
     assert!(client.is_paused());
 }
@@ -1699,4 +1717,3 @@ fn test_sep41_token_mode_disabled_rejects_approve() {
     let result = client.try_sep41_approve(&admin, &spender, &100, &0);
     assert_eq!(result, Err(Ok(Error::TokenModeNotEnabled)));
 }
-

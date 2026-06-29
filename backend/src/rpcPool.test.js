@@ -100,10 +100,7 @@ test('circuit: open endpoint is skipped in round-robin', () => {
   });
   pool.reportOutcome('https://a.com', { success: false });
   pool.reportOutcome('https://a.com', { success: false });
-  assert.equal(
-    pool.getStatus().urls.find((u) => u.url === 'https://a.com').breakerState,
-    'open',
-  );
+  assert.equal(pool.getStatus().urls.find((u) => u.url === 'https://a.com').breakerState, 'open');
   // All requests should be routed to b.com while a.com's breaker is open.
   for (let i = 0; i < 5; i++) {
     assert.equal(pool.getHealthyRpcUrl(), 'https://b.com');
@@ -137,10 +134,7 @@ test('circuit: successful probe closes the breaker', async () => {
   assert.equal(probeUrl, 'https://a.com', 'half-open endpoint should be selected for probe');
 
   pool.reportOutcome('https://a.com', { success: true, latencyMs: 100 });
-  assert.equal(
-    pool.getStatus().urls.find((u) => u.url === 'https://a.com').breakerState,
-    'closed',
-  );
+  assert.equal(pool.getStatus().urls.find((u) => u.url === 'https://a.com').breakerState, 'closed');
 });
 
 test('circuit: failed probe in half_open re-opens the breaker', async () => {

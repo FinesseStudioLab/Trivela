@@ -31,17 +31,25 @@ export function createBatchPayoutRouter({ batchPayoutService, requireApiKey, log
     const { campaignId, recipients, batchId, failMode } = req.body ?? {};
 
     if (!Array.isArray(recipients) || recipients.length === 0) {
-      return res.status(400).json({ error: 'recipients must be a non-empty array', code: 'VALIDATION_ERROR' });
+      return res
+        .status(400)
+        .json({ error: 'recipients must be a non-empty array', code: 'VALIDATION_ERROR' });
     }
     if (recipients.length > 10_000) {
-      return res.status(400).json({ error: 'Maximum 10 000 recipients per batch', code: 'BATCH_TOO_LARGE' });
+      return res
+        .status(400)
+        .json({ error: 'Maximum 10 000 recipients per batch', code: 'BATCH_TOO_LARGE' });
     }
 
     const id = typeof batchId === 'string' && batchId ? batchId : randomUUID();
 
     let batch;
     try {
-      batch = batchPayoutService.registerBatch({ batchId: id, recipients, campaignId: campaignId ?? '' });
+      batch = batchPayoutService.registerBatch({
+        batchId: id,
+        recipients,
+        campaignId: campaignId ?? '',
+      });
     } catch (err) {
       if (err instanceof BatchPayoutError) {
         return res.status(400).json({ error: err.message, code: err.code });

@@ -9,12 +9,7 @@
  * - Projection handlers per event type
  */
 
-export function createEventIndexer({
-  db,
-  rpcPool,
-  logger = console,
-  referralBonus = 0,
-} = {}) {
+export function createEventIndexer({ db, rpcPool, logger = console, referralBonus = 0 } = {}) {
   const metrics = {
     lastLedger: 0,
     lagLedgers: 0,
@@ -45,18 +40,20 @@ export function createEventIndexer({
       const eventIndex = event.eventIndex || 0;
       const ledger = event.ledger || 0;
 
-      const existing = db.prepare(
-        'SELECT id FROM indexed_events WHERE tx_hash = ? AND event_index = ?'
-      ).get(txHash, eventIndex);
+      const existing = db
+        .prepare('SELECT id FROM indexed_events WHERE tx_hash = ? AND event_index = ?')
+        .get(txHash, eventIndex);
 
       if (existing) {
         return;
       }
 
-      db.prepare(`
+      db.prepare(
+        `
         INSERT OR IGNORE INTO indexed_events (ledger, tx_hash, contract_id, event_type, topic, data_json, event_index)
         VALUES (?, ?, ?, ?, ?, ?, ?)
-      `).run(
+      `,
+      ).run(
         ledger,
         txHash,
         contractId,
@@ -88,7 +85,11 @@ export function createEventIndexer({
       }
 
       if (nextCursor) {
-        updateCursor(contractId, nextCursor, events.length > 0 ? events[events.length - 1].ledger : 0);
+        updateCursor(
+          contractId,
+          nextCursor,
+          events.length > 0 ? events[events.length - 1].ledger : 0,
+        );
       }
 
       metrics.lastPollAt = new Date().toISOString();
@@ -99,19 +100,23 @@ export function createEventIndexer({
   }
 
   function getCursor(contractId) {
-    const state = db.prepare('SELECT cursor FROM indexer_state WHERE contract_id = ?').get(contractId);
+    const state = db
+      .prepare('SELECT cursor FROM indexer_state WHERE contract_id = ?')
+      .get(contractId);
     return state?.cursor || null;
   }
 
   function updateCursor(contractId, cursor, lastLedger) {
-    db.prepare(`
+    db.prepare(
+      `
       INSERT INTO indexer_state (contract_id, cursor, last_ledger, updated_at)
       VALUES (?, ?, ?, datetime('now'))
       ON CONFLICT(contract_id) DO UPDATE SET
         cursor = excluded.cursor,
         last_ledger = excluded.last_ledger,
         updated_at = datetime('now')
-    `).run(contractId, cursor, lastLedger);
+    `,
+    ).run(contractId, cursor, lastLedger);
     metrics.lastLedger = lastLedger;
   }
 
@@ -262,8 +267,5 @@ async function handleRegisterEvent(event, db) {
 async function handleDeregisterEvent(event, db) {
   const user = event.topic?.[1];
   const campaignId = event.topic?.[2];
-  await db.run(
-    `DELETE FROM participants WHERE user = ? AND campaign_id = ?`,
-    [user, campaignId],
-  );
+  await db.run(`DELETE FROM participants WHERE user = ? AND campaign_id = ?`, [user, campaignId]);
 }

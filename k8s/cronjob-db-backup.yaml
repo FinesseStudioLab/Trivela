@@ -6,7 +6,7 @@ metadata:
     app: trivela
     component: backup
 spec:
-  schedule: "0 2 * * *"  # Daily at 02:00 UTC
+  schedule: '0 2 * * *' # Daily at 02:00 UTC
   concurrencyPolicy: Forbid
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
@@ -24,7 +24,7 @@ spec:
           containers:
             - name: backup
               image: postgres:16-alpine
-              command: ["/bin/bash", "/scripts/backup-db.sh"]
+              command: ['/bin/bash', '/scripts/backup-db.sh']
               env:
                 - name: DATABASE_URL
                   valueFrom:
@@ -56,11 +56,11 @@ spec:
                       key: BACKUP_ENCRYPTION_PUBKEY
                       optional: true
                 - name: BACKUP_RETENTION_DAILY
-                  value: "7"
+                  value: '7'
                 - name: BACKUP_RETENTION_WEEKLY
-                  value: "4"
+                  value: '4'
                 - name: BACKUP_RETENTION_MONTHLY
-                  value: "6"
+                  value: '6'
               volumeMounts:
                 - name: backup-script
                   mountPath: /scripts/backup-db.sh

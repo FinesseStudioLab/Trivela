@@ -2,10 +2,6 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import Landing from './Landing';
-import CampaignDetail from './CampaignDetail';
-import AdminCampaigns from './AdminCampaigns';
-import About from './About';
-import CampaignAnalytics from './CampaignAnalytics';
 import NotificationSettings from './NotificationSettings';
 import CreateCampaign from './CreateCampaign';
 import PageMeta from './components/PageMeta';
@@ -368,6 +364,40 @@ export default function App() {
               />
             }
           />
+          <Route
+            path="/analytics"
+            element={
+              <CampaignAnalytics
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={connectWallet}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
+          <Route
+            path="/notification-settings"
+            element={
+              <NotificationSettings
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={connectWallet}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
         </Routes>
       </Suspense>
       <WalletModal
@@ -377,41 +407,6 @@ export default function App() {
         isLoading={isWalletLoading}
         error={walletError}
       />
-      <Route
-        path="/analytics"
-        element={
-          <CampaignAnalytics
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            stellarNetwork={runtimeConfig.stellar.network}
-            onChangeStellarNetwork={handleChangeStellarNetwork}
-            walletAddress={walletAddress}
-            walletBalance={walletBalance}
-            isWalletLoading={isWalletLoading}
-            isWalletBalanceLoading={isWalletBalanceLoading}
-            onConnectWallet={connectWallet}
-            onDisconnectWallet={disconnectWallet}
-          />
-        }
-      />
-      <Route
-        path="/notification-settings"
-        element={
-          <NotificationSettings
-            theme={theme}
-            onToggleTheme={toggleTheme}
-            stellarNetwork={runtimeConfig.stellar.network}
-            onChangeStellarNetwork={handleChangeStellarNetwork}
-            walletAddress={walletAddress}
-            walletBalance={walletBalance}
-            isWalletLoading={isWalletLoading}
-            isWalletBalanceLoading={isWalletBalanceLoading}
-            onConnectWallet={connectWallet}
-            onDisconnectWallet={disconnectWallet}
-          />
-        }
-      />
-    </Routes>
       <div className="sr-only" aria-live="assertive" style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', border: 0 }}>
         {announcement}
       </div>

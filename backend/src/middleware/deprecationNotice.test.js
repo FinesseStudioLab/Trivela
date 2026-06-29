@@ -14,7 +14,9 @@ function makeReqRes({ method = 'GET', path = '/api/v1/campaigns' } = {}) {
   const req = { method, path };
   const headers = {};
   const res = {
-    setHeader(k, v) { headers[k] = v; },
+    setHeader(k, v) {
+      headers[k] = v;
+    },
     getHeaders: () => headers,
     _headers: headers,
   };
@@ -105,7 +107,10 @@ describe('createDeprecationMiddleware', () => {
       },
     };
     const mw = createDeprecationMiddleware({ registry });
-    const { req, res, headers } = makeReqRes({ method: 'GET', path: '/api/campaigns/extra/segment' });
+    const { req, res, headers } = makeReqRes({
+      method: 'GET',
+      path: '/api/campaigns/extra/segment',
+    });
     mw(req, res, () => {});
     assert.ok(!headers['Deprecation'], 'should not match paths with extra segments');
   });
@@ -148,7 +153,10 @@ describe('createDeprecationMiddleware', () => {
     const mw = createDeprecationMiddleware({ registry });
     const { req, res, headers } = makeReqRes({ method: 'GET', path: '/api/campaigns' });
     mw(req, res, () => {});
-    assert.ok(!isNaN(Date.parse(headers['Deprecation'])), 'Deprecation header should be a parseable date');
+    assert.ok(
+      !isNaN(Date.parse(headers['Deprecation'])),
+      'Deprecation header should be a parseable date',
+    );
   });
 
   test('handles an empty registry without errors', () => {

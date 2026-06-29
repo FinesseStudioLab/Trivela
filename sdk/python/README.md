@@ -38,7 +38,8 @@ print(h.status)
 
 Set `TRIVELA_API_KEY` in your environment or pass `api_key=` to `TrivelaClient`.
 
-For SEP-10 bearer token auth, pass `bearer_token=` or call `client.set_bearer_token(token)` after authentication.
+For SEP-10 bearer token auth, pass `bearer_token=` or call `client.set_bearer_token(token)` after
+authentication.
 
 ## Development
 

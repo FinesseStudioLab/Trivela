@@ -136,13 +136,9 @@ wsClient.subscribe('rewards', { campaignId: 'campaign-123' });
   "type": "campaign_update",
   "campaignId": "campaign-123",
   "update": {
-    "campaign": {
-      /* full campaign object */
-    },
+    "campaign": {/* full campaign object */},
     "changes": ["active", "rewardPerAction"],
-    "before": {
-      /* previous values */
-    }
+    "before": {/* previous values */}
   },
   "timestamp": "2026-06-04T10:30:00.000Z"
 }

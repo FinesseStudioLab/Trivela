@@ -48,9 +48,10 @@ async function hasTrustline(horizonUrl, account, asset, fetchImpl) {
     const resp = await fetchImpl(`${horizonUrl}/accounts/${encodeURIComponent(account)}`);
     if (!resp.ok) return false;
     const data = await resp.json();
-    return data.balances?.some(
-      (b) => b.asset_code === asset.code && b.asset_issuer === asset.issuer,
-    ) ?? false;
+    return (
+      data.balances?.some((b) => b.asset_code === asset.code && b.asset_issuer === asset.issuer) ??
+      false
+    );
   } catch {
     return false;
   }
@@ -87,7 +88,12 @@ export function createPathPaymentRoutes({ stellarConfig, fetchImpl = globalThis.
     }
 
     // Check destination trustline upfront
-    const trustlineOk = await hasTrustline(horizonUrl, String(source_account), destAsset, fetchImpl);
+    const trustlineOk = await hasTrustline(
+      horizonUrl,
+      String(source_account),
+      destAsset,
+      fetchImpl,
+    );
     if (!trustlineOk) {
       return res.status(422).json({
         error: 'Account missing trustline for destination asset',
@@ -100,10 +106,16 @@ export function createPathPaymentRoutes({ stellarConfig, fetchImpl = globalThis.
     const params = new URLSearchParams({
       source_account: String(source_account),
       destination_amount: String(destination_amount),
-      destination_asset_type: destAsset.code === 'XLM' && !destAsset.issuer ? 'native' : 'credit_alphanum4',
-      ...(destAsset.issuer ? { destination_asset_code: destAsset.code, destination_asset_issuer: destAsset.issuer } : {}),
-      source_asset_type: srcAsset.code === 'XLM' && !srcAsset.issuer ? 'native' : 'credit_alphanum4',
-      ...(srcAsset.issuer ? { source_asset_code: srcAsset.code, source_asset_issuer: srcAsset.issuer } : {}),
+      destination_asset_type:
+        destAsset.code === 'XLM' && !destAsset.issuer ? 'native' : 'credit_alphanum4',
+      ...(destAsset.issuer
+        ? { destination_asset_code: destAsset.code, destination_asset_issuer: destAsset.issuer }
+        : {}),
+      source_asset_type:
+        srcAsset.code === 'XLM' && !srcAsset.issuer ? 'native' : 'credit_alphanum4',
+      ...(srcAsset.issuer
+        ? { source_asset_code: srcAsset.code, source_asset_issuer: srcAsset.issuer }
+        : {}),
     });
 
     try {
@@ -114,15 +126,23 @@ export function createPathPaymentRoutes({ stellarConfig, fetchImpl = globalThis.
         if (horizonResp.status === 404) {
           return res.status(404).json({ error: 'No payment path found', code: 'NO_PATH' });
         }
-        return res.status(502).json({ error: 'Horizon path-finding failed', status: horizonResp.status });
+        return res
+          .status(502)
+          .json({ error: 'Horizon path-finding failed', status: horizonResp.status });
       }
       const data = await horizonResp.json();
       return res.json({
         paths: (data._embedded?.records ?? []).map((record) => ({
           sourceAmount: record.source_amount,
-          sourceAsset: record.source_asset_type === 'native' ? 'XLM' : `${record.source_asset_code}:${record.source_asset_issuer}`,
+          sourceAsset:
+            record.source_asset_type === 'native'
+              ? 'XLM'
+              : `${record.source_asset_code}:${record.source_asset_issuer}`,
           destinationAmount: record.destination_amount,
-          destinationAsset: record.destination_asset_type === 'native' ? 'XLM' : `${record.destination_asset_code}:${record.destination_asset_issuer}`,
+          destinationAsset:
+            record.destination_asset_type === 'native'
+              ? 'XLM'
+              : `${record.destination_asset_code}:${record.destination_asset_issuer}`,
           path: record.path ?? [],
         })),
       });

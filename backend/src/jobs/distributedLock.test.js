@@ -144,10 +144,19 @@ test('createDistributedLock: release clears heartbeat', async () => {
 
 test('createJobRunner without lockProvider: existing tests still pass', async () => {
   const { createJobRunner } = await import('./jobRunner.js');
-  const dl = { entries: [], record(e) { this.entries.push(e); } };
+  const dl = {
+    entries: [],
+    record(e) {
+      this.entries.push(e);
+    },
+  };
   let ran = 0;
   const runner = createJobRunner({
-    handlers: { x: async () => { ran += 1; } },
+    handlers: {
+      x: async () => {
+        ran += 1;
+      },
+    },
     logger: { info: () => {}, warn: () => {}, error: () => {} },
     deadLetter: dl,
   });

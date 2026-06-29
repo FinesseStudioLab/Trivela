@@ -320,7 +320,11 @@ fn verify_multisig(
     nonce: u64,
     signatures: &Vec<(Address, BytesN<64>)>,
 ) -> Result<(), Error> {
-    let required: u32 = env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0);
+    let required: u32 = env
+        .storage()
+        .instance()
+        .get(&MULTISIG_THRESHOLD)
+        .unwrap_or(0);
     if required == 0 {
         return Ok(());
     }
@@ -330,8 +334,11 @@ fn verify_multisig(
         return Err(Error::NonceReused);
     }
 
-    let co_admins: Vec<(Address, BytesN<32>)> =
-        env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(env));
+    let co_admins: Vec<(Address, BytesN<32>)> = env
+        .storage()
+        .instance()
+        .get(&CO_ADMINS)
+        .unwrap_or(Vec::new(env));
     let message = multisig_message(env, op, nonce, &args_hash);
 
     let mut seen: Vec<Address> = Vec::new(env);
@@ -351,8 +358,14 @@ fn verify_multisig(
         return Err(Error::InsufficientSignatures);
     }
 
-    env.storage().instance().set(&nonce_key, &env.ledger().sequence());
-    let mut registry: Vec<u64> = env.storage().instance().get(&NONCE_REGISTRY).unwrap_or(Vec::new(env));
+    env.storage()
+        .instance()
+        .set(&nonce_key, &env.ledger().sequence());
+    let mut registry: Vec<u64> = env
+        .storage()
+        .instance()
+        .get(&NONCE_REGISTRY)
+        .unwrap_or(Vec::new(env));
     registry.push_back(nonce);
     env.storage().instance().set(&NONCE_REGISTRY, &registry);
     Ok(())
@@ -410,7 +423,12 @@ impl RewardsContract {
     ///   1. Upload new WASM → obtain `new_wasm_hash`.
     ///   2. Call `upgrade(admin, nonce, new_wasm_hash)`.
     ///   3. If storage layout changed, call `migrate(admin, target_version)`.
-    pub fn upgrade(env: Env, admin: Address, nonce: i128, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        nonce: i128,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
@@ -710,7 +728,11 @@ impl RewardsContract {
         paused: bool,
         signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        let threshold: u32 = env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0);
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0);
         if threshold > 0 {
             let mut buf = [0u8; 1];
             buf[0] = paused as u8;
@@ -1399,12 +1421,7 @@ impl RewardsContract {
 
     /// SEP-41: Transfer `amount` from `from` to `to`.
     /// Requires authorization from `from`.
-    pub fn sep41_transfer(
-        env: Env,
-        from: Address,
-        to: Address,
-        amount: i128,
-    ) -> Result<(), Error> {
+    pub fn sep41_transfer(env: Env, from: Address, to: Address, amount: i128) -> Result<(), Error> {
         if !Self::is_token_mode(env.clone()) {
             return Err(Error::TokenModeNotEnabled);
         }
@@ -1476,7 +1493,9 @@ impl RewardsContract {
         if new_allowed == 0 {
             env.storage().instance().remove(&allowance_key);
         } else {
-            env.storage().instance().set(&allowance_key, &(new_allowed, expiration));
+            env.storage()
+                .instance()
+                .set(&allowance_key, &(new_allowed, expiration));
         }
 
         let from_key = (BALANCE, from.clone());
@@ -1548,10 +1567,7 @@ impl RewardsContract {
 
     /// SEP-41: Returns the number of decimals used for display.
     pub fn sep41_decimals(env: Env) -> u32 {
-        env.storage()
-            .instance()
-            .get(&TOKEN_DECIMALS)
-            .unwrap_or(0)
+        env.storage().instance().get(&TOKEN_DECIMALS).unwrap_or(0)
     }
 
     /// SEP-41: Returns the name of the token.
@@ -1596,8 +1612,7 @@ impl RewardsContract {
             .instance()
             .set(&CLAIMED, &total.saturating_add(amount_u64));
 
-        env.events()
-            .publish((SEP41_BURN_EVENT, from), amount);
+        env.events().publish((SEP41_BURN_EVENT, from), amount);
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
@@ -1643,7 +1658,9 @@ impl RewardsContract {
         if new_allowed == 0 {
             env.storage().instance().remove(&allowance_key);
         } else {
-            env.storage().instance().set(&allowance_key, &(new_allowed, expiration));
+            env.storage()
+                .instance()
+                .set(&allowance_key, &(new_allowed, expiration));
         }
 
         let from_key = (BALANCE, from.clone());
@@ -1658,8 +1675,7 @@ impl RewardsContract {
             .instance()
             .set(&CLAIMED, &total.saturating_add(amount_u64));
 
-        env.events()
-            .publish((SEP41_BURN_EVENT, from), amount);
+        env.events().publish((SEP41_BURN_EVENT, from), amount);
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
@@ -1706,7 +1722,8 @@ impl RewardsContract {
         env.storage().instance().set(&NONCE_CURSOR, &idx);
 
         if pruned > 0 {
-            env.events().publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
+            env.events()
+                .publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
         }
         env.storage()
             .instance()
@@ -1742,10 +1759,18 @@ impl RewardsContract {
 
     /// Register a co-admin's ed25519 public key for multisig verification
     /// (admin only). Overwrites the key if `co_admin` is already registered.
-    pub fn add_co_admin(env: Env, admin: Address, co_admin: Address, pubkey: BytesN<32>) -> Result<(), Error> {
+    pub fn add_co_admin(
+        env: Env,
+        admin: Address,
+        co_admin: Address,
+        pubkey: BytesN<32>,
+    ) -> Result<(), Error> {
         require_admin(&env, &admin)?;
-        let mut co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let mut co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
             let (addr, _) = co_admins.get(i).unwrap();
@@ -1768,8 +1793,11 @@ impl RewardsContract {
     /// Remove a co-admin from the multisig signer set (admin only).
     pub fn remove_co_admin(env: Env, admin: Address, co_admin: Address) -> Result<(), Error> {
         require_admin(&env, &admin)?;
-        let co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         let mut remaining = Vec::new(&env);
         for (addr, pubkey) in co_admins.iter() {
             if addr != co_admin {
@@ -1787,8 +1815,11 @@ impl RewardsContract {
     /// `required = 0` disables multisig (legacy single-admin auth applies).
     pub fn set_multisig_threshold(env: Env, admin: Address, required: u32) -> Result<(), Error> {
         require_admin(&env, &admin)?;
-        let co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         if required > co_admins.len() {
             return Err(Error::InvalidThreshold);
         }
@@ -1801,7 +1832,10 @@ impl RewardsContract {
 
     /// Returns the configured M-of-N multisig threshold (0 = disabled).
     pub fn multisig_threshold(env: Env) -> u32 {
-        env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0)
     }
 }
 

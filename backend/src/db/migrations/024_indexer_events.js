@@ -1,5 +1,6 @@
 export const version = 24;
-export const description = 'Indexed events table and indexer state for production-grade event indexing (#532)';
+export const description =
+  'Indexed events table and indexer state for production-grade event indexing (#532)';
 
 export function up(db) {
   db.exec(`

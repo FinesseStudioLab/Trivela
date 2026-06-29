@@ -60,10 +60,9 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, Bytes, BytesN, Env,
-    Symbol, Vec, vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, vec, Address,
+    Bytes, BytesN, Env, Symbol, Vec,
 };
-use trivela_nullifier_registry::NullifierRegistry;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -282,25 +281,25 @@ fn log_activity(env: &Env, kind: ActivityKind, actor: Address, amount: Option<u6
         .instance()
         .get(&ACTIVITY_LOG_SIZE)
         .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE);
-    
+
     let mut log: Vec<ActivityEntry> = env
         .storage()
         .instance()
         .get(&ACTIVITY_LOG)
         .unwrap_or_else(|| vec![env]);
-    
+
     let entry = ActivityEntry {
         kind,
         actor,
         amount,
         ledger: env.ledger().sequence(),
     };
-    
+
     // If buffer is at max size, remove oldest entry (first element)
     if log.len() >= max_size {
         log.remove(0);
     }
-    
+
     log.push_back(entry);
     env.storage().instance().set(&ACTIVITY_LOG, &log);
 }
@@ -340,7 +339,11 @@ fn verify_multisig(
     nonce: u64,
     signatures: &Vec<(Address, BytesN<64>)>,
 ) -> Result<(), Error> {
-    let required: u32 = env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0);
+    let required: u32 = env
+        .storage()
+        .instance()
+        .get(&MULTISIG_THRESHOLD)
+        .unwrap_or(0);
     if required == 0 {
         return Ok(());
     }
@@ -350,8 +353,11 @@ fn verify_multisig(
         return Err(Error::NonceReused);
     }
 
-    let co_admins: Vec<(Address, BytesN<32>)> =
-        env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(env));
+    let co_admins: Vec<(Address, BytesN<32>)> = env
+        .storage()
+        .instance()
+        .get(&CO_ADMINS)
+        .unwrap_or(Vec::new(env));
     let message = multisig_message(env, op, nonce, &args_hash);
 
     let mut seen: Vec<Address> = Vec::new(env);
@@ -371,8 +377,14 @@ fn verify_multisig(
         return Err(Error::InsufficientSignatures);
     }
 
-    env.storage().instance().set(&nonce_key, &env.ledger().sequence());
-    let mut registry: Vec<u64> = env.storage().instance().get(&NONCE_REGISTRY).unwrap_or(Vec::new(env));
+    env.storage()
+        .instance()
+        .set(&nonce_key, &env.ledger().sequence());
+    let mut registry: Vec<u64> = env
+        .storage()
+        .instance()
+        .get(&NONCE_REGISTRY)
+        .unwrap_or(Vec::new(env));
     registry.push_back(nonce);
     env.storage().instance().set(&NONCE_REGISTRY, &registry);
     Ok(())
@@ -440,7 +452,12 @@ impl CampaignContract {
     ///   1. Upload new WASM → obtain `new_wasm_hash`.
     ///   2. Call `upgrade(admin, nonce, new_wasm_hash)`.
     ///   3. If storage layout changed, call `migrate(admin, target_version)`.
-    pub fn upgrade(env: Env, admin: Address, nonce: u64, new_wasm_hash: BytesN<32>) -> Result<(), Error> {
+    pub fn upgrade(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        new_wasm_hash: BytesN<32>,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
@@ -534,9 +551,16 @@ impl CampaignContract {
         root: BytesN<32>,
         signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        let threshold: u32 = env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0);
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0);
         if threshold > 0 {
-            let args_hash = env.crypto().sha256(&Bytes::from_slice(&env, &root.to_array())).into();
+            let args_hash = env
+                .crypto()
+                .sha256(&Bytes::from_slice(&env, &root.to_array()))
+                .into();
             verify_multisig(&env, OP_SET_MERKLE_ROOT, args_hash, nonce, &signatures)?;
         } else {
             require_admin_with_nonce(&env, &admin, nonce)?;
@@ -572,7 +596,9 @@ impl CampaignContract {
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&PRIVACY_MODE, &mode);
-        env.storage().instance().set(&FALLBACK_ALLOWED, &fallback_allowed);
+        env.storage()
+            .instance()
+            .set(&FALLBACK_ALLOWED, &fallback_allowed);
         env.events()
             .publish((SET_PRIVACY_MODE_EVENT,), (mode as u32, fallback_allowed));
         env.storage()
@@ -622,8 +648,7 @@ impl CampaignContract {
         }
 
         env.storage().instance().set(&UNIQUENESS_MODE, &mode);
-        env.events()
-            .publish((SET_UNIQUENESS_EVENT,), (mode as u32));
+        env.events().publish((SET_UNIQUENESS_EVENT,), mode as u32);
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
@@ -661,6 +686,8 @@ impl CampaignContract {
         uniqueness_proof: Bytes,
     ) -> Result<bool, Error> {
         participant.require_auth();
+        // `uniqueness_proof` is reserved for a future ZK uniqueness check.
+        let _ = &uniqueness_proof;
 
         // Check uniqueness mode
         let mode: UniquenessMode = env
@@ -686,11 +713,7 @@ impl CampaignContract {
             env.current_contract_address().to_val(),
             nullifier.clone().to_val(),
         ];
-        let is_spent: bool = env.invoke_contract(
-            &registry_addr,
-            &symbol_short!("is_spent"),
-            args,
-        );
+        let is_spent: bool = env.invoke_contract(&registry_addr, &symbol_short!("is_spent"), args);
 
         if is_spent {
             return Err(Error::NullifierAlreadyUsed);
@@ -706,11 +729,8 @@ impl CampaignContract {
                 env.current_contract_address().to_val(),
                 nullifier.to_val(),
             ];
-            let result: Result<(), trivela_nullifier_registry::Error> = env.invoke_contract(
-                &registry_addr,
-                &symbol_short!("spend"),
-                spend_args,
-            );
+            let result: Result<(), trivela_nullifier_registry::Error> =
+                env.invoke_contract(&registry_addr, &symbol_short!("spend"), spend_args);
 
             if result.is_err() {
                 return Err(Error::NullifierAlreadyUsed);
@@ -880,7 +900,12 @@ impl CampaignContract {
                 return Err(Error::InvalidInviteCode);
             }
             let used_key = (INVITE_USED, hash.clone());
-            if env.storage().instance().get::<_, bool>(&used_key).unwrap_or(false) {
+            if env
+                .storage()
+                .instance()
+                .get::<_, bool>(&used_key)
+                .unwrap_or(false)
+            {
                 return Err(Error::InviteAlreadyUsed);
             }
             Some(hash)
@@ -1036,11 +1061,14 @@ impl CampaignContract {
             }
             checked += 1;
         }
-        env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+        env.storage()
+            .instance()
+            .set(&PARTICIPANT_REGISTRY, &registry);
         env.storage().instance().set(&PRUNE_CURSOR, &cursor);
 
         if pruned > 0 {
-            env.events().publish((PRUNED_EVENT, symbol_short!("partic")), pruned);
+            env.events()
+                .publish((PRUNED_EVENT, symbol_short!("partic")), pruned);
         }
         env.storage()
             .instance()
@@ -1086,9 +1114,12 @@ impl CampaignContract {
         env.storage().instance().set(&NONCE_CURSOR, &idx);
 
         if pruned > 0 {
-            env.events().publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
+            env.events()
+                .publish((PRUNED_EVENT, symbol_short!("nonce")), pruned);
         }
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         pruned
     }
 
@@ -1096,7 +1127,11 @@ impl CampaignContract {
     /// `expired_estimate` counts `PARTICIPANT_REGISTRY` entries whose persistent
     /// record is already gone (deregistered or TTL-archived) and awaiting prune.
     pub fn storage_stats(env: Env) -> (u64, u64, u64) {
-        let participant_count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
+        let participant_count: u64 = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_COUNT)
+            .unwrap_or(0);
         let nonce_registry: Vec<u64> = env
             .storage()
             .instance()
@@ -1121,11 +1156,18 @@ impl CampaignContract {
     // ── invite-only registration (#452) ─────────────────────────────────
 
     /// Toggle invite-only registration mode (admin only).
-    pub fn set_invite_only(env: Env, admin: Address, nonce: u64, enabled: bool) -> Result<(), Error> {
+    pub fn set_invite_only(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        enabled: bool,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         env.storage().instance().set(&INVITE_ONLY, &enabled);
         env.events().publish((SET_INVITE_ONLY_EVENT,), enabled);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1139,9 +1181,13 @@ impl CampaignContract {
         invite_hash: BytesN<32>,
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
-        env.storage().instance().set(&(INVITE_HASH, invite_hash.clone()), &true);
+        env.storage()
+            .instance()
+            .set(&(INVITE_HASH, invite_hash.clone()), &true);
         env.events().publish((ISSUE_INVITE_EVENT,), invite_hash);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1154,13 +1200,22 @@ impl CampaignContract {
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         let key = (INVITE_HASH, invite_hash.clone());
-        if !env.storage().instance().get::<_, bool>(&key).unwrap_or(false) {
+        if !env
+            .storage()
+            .instance()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+        {
             return Err(Error::InviteNotFound);
         }
         env.storage().instance().remove(&key);
-        env.storage().instance().remove(&(INVITE_USED, invite_hash.clone()));
+        env.storage()
+            .instance()
+            .remove(&(INVITE_USED, invite_hash.clone()));
         env.events().publish((REVOKE_INVITE_EVENT,), invite_hash);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1189,8 +1244,11 @@ impl CampaignContract {
         pubkey: BytesN<32>,
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
-        let mut co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let mut co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
             let (addr, _) = co_admins.get(i).unwrap();
@@ -1204,15 +1262,25 @@ impl CampaignContract {
             co_admins.push_back((co_admin, pubkey));
         }
         env.storage().instance().set(&CO_ADMINS, &co_admins);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Remove a co-admin from the multisig signer set (admin only).
-    pub fn remove_co_admin(env: Env, admin: Address, nonce: u64, co_admin: Address) -> Result<(), Error> {
+    pub fn remove_co_admin(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        co_admin: Address,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
-        let co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         let mut remaining = Vec::new(&env);
         for (addr, pubkey) in co_admins.iter() {
             if addr != co_admin {
@@ -1220,27 +1288,42 @@ impl CampaignContract {
             }
         }
         env.storage().instance().set(&CO_ADMINS, &remaining);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Set the M-of-N multisig threshold for critical operations (admin only).
     /// `required = 0` disables multisig (legacy single-admin auth applies).
-    pub fn set_multisig_threshold(env: Env, admin: Address, nonce: u64, required: u32) -> Result<(), Error> {
+    pub fn set_multisig_threshold(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        required: u32,
+    ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
-        let co_admins: Vec<(Address, BytesN<32>)> =
-            env.storage().instance().get(&CO_ADMINS).unwrap_or(Vec::new(&env));
+        let co_admins: Vec<(Address, BytesN<32>)> = env
+            .storage()
+            .instance()
+            .get(&CO_ADMINS)
+            .unwrap_or(Vec::new(&env));
         if required > co_admins.len() {
             return Err(Error::InvalidThreshold);
         }
         env.storage().instance().set(&MULTISIG_THRESHOLD, &required);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Returns the configured M-of-N multisig threshold (0 = disabled).
     pub fn multisig_threshold(env: Env) -> u32 {
-        env.storage().instance().get(&MULTISIG_THRESHOLD).unwrap_or(0)
+        env.storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0)
     }
 
     // ── Admin rotation (issue #281) ──────────────────────────────────────────
@@ -1331,24 +1414,26 @@ impl CampaignContract {
         size: u32,
     ) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
-        if size < MIN_ACTIVITY_LOG_SIZE || size > MAX_ACTIVITY_LOG_SIZE {
+        if !(MIN_ACTIVITY_LOG_SIZE..=MAX_ACTIVITY_LOG_SIZE).contains(&size) {
             return Err(Error::Unauthorized); // Reuse error code for invalid range
         }
-        
+
         // If reducing size, trim the log to fit
         let mut log: Vec<ActivityEntry> = env
             .storage()
             .instance()
             .get(&ACTIVITY_LOG)
             .unwrap_or_else(|| vec![&env]);
-        
+
         while log.len() > size {
             log.remove(0);
         }
-        
+
         env.storage().instance().set(&ACTIVITY_LOG, &log);
         env.storage().instance().set(&ACTIVITY_LOG_SIZE, &size);
-        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1364,11 +1449,7 @@ impl CampaignContract {
 /// Shared registration logic used by both `register` and `register_private`.
 /// Expects auth and pre-condition checks (active, window, merkle) to have
 /// been performed by the caller.
-fn do_register(
-    env: &Env,
-    participant: Address,
-    referrer: Option<Address>,
-) -> Result<bool, Error> {
+fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Result<bool, Error> {
     // #280 — Participant records live in PERSISTENT storage.
     let key = (PARTICIPANT, participant.clone());
     if env
@@ -1422,7 +1503,9 @@ fn do_register(
         .get(&PARTICIPANT_REGISTRY)
         .unwrap_or(Vec::new(env));
     registry.push_back(participant.clone());
-    env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+    env.storage()
+        .instance()
+        .set(&PARTICIPANT_REGISTRY, &registry);
 
     let count: u64 = env
         .storage()

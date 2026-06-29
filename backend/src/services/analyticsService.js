@@ -1,6 +1,6 @@
 /**
  * Analytics Service
- * 
+ *
  * Privacy-respecting analytics for tracking user funnel progression.
  * - No PII collection
  * - Consent-aware
@@ -24,36 +24,36 @@ const VALID_EVENTS = new Set([
   'wallet_connect_initiated',
   'wallet_connect_success',
   'wallet_connect_failed',
-  
+
   // Registration
   'registration_viewed',
   'registration_initiated',
   'registration_tx_signed',
   'registration_success',
   'registration_failed',
-  
+
   // Claim/Redeem
   'rewards_viewed',
   'claim_initiated',
   'claim_tx_signed',
   'claim_success',
   'claim_failed',
-  
+
   // Campaign discovery
   'campaign_list_viewed',
   'campaign_card_clicked',
   'campaign_detail_viewed',
-  
+
   // Campaign creation
   'campaign_create_started',
   'campaign_create_step_completed',
   'campaign_create_success',
   'campaign_create_abandoned',
-  
+
   // Session
   'session_started',
   'page_viewed',
-  
+
   // Technical (optional)
   'transaction_simulation_failed',
   'rpc_request_timeout',
@@ -66,7 +66,8 @@ const VALID_EVENTS = new Set([
 export function generateSessionId() {
   const random = crypto.randomUUID();
   const timestamp = Date.now();
-  const hash = crypto.createHash('sha256')
+  const hash = crypto
+    .createHash('sha256')
     .update(`${random}:${timestamp}`)
     .digest('hex')
     .substring(0, 16);
@@ -80,23 +81,23 @@ function validateEvent(event) {
   if (!event.event_name || typeof event.event_name !== 'string') {
     return { valid: false, error: 'Missing or invalid event_name' };
   }
-  
+
   if (!VALID_EVENTS.has(event.event_name)) {
     return { valid: false, error: `Unknown event: ${event.event_name}` };
   }
-  
+
   if (!event.session_id || typeof event.session_id !== 'string') {
     return { valid: false, error: 'Missing or invalid session_id' };
   }
-  
+
   if (!event.timestamp || !Date.parse(event.timestamp)) {
     return { valid: false, error: 'Missing or invalid timestamp' };
   }
-  
+
   if (event.properties && typeof event.properties !== 'object') {
     return { valid: false, error: 'properties must be an object' };
   }
-  
+
   // Ensure no PII in properties
   if (event.properties) {
     const piiFields = ['wallet_address', 'ip', 'email', 'name', 'address'];
@@ -106,7 +107,7 @@ function validateEvent(event) {
       }
     }
   }
-  
+
   return { valid: true };
 }
 
@@ -119,9 +120,9 @@ export async function trackEvent(event) {
     logger.warn('Invalid analytics event:', validation.error);
     return { success: false, error: validation.error };
   }
-  
+
   const db = getDb();
-  
+
   try {
     const stmt = db.prepare(`
       INSERT INTO analytics_events (
@@ -136,7 +137,7 @@ export async function trackEvent(event) {
         created_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     stmt.run(
       event.event_name,
       event.session_id,
@@ -146,9 +147,9 @@ export async function trackEvent(event) {
       event.campaign || null,
       JSON.stringify(event.properties || {}),
       event.timestamp,
-      new Date().toISOString()
+      new Date().toISOString(),
     );
-    
+
     return { success: true };
   } catch (error) {
     logger.error('Failed to track event:', error);
@@ -163,24 +164,24 @@ export async function trackEventBatch(events) {
   if (!Array.isArray(events)) {
     return { success: false, error: 'events must be an array' };
   }
-  
+
   if (events.length === 0) {
     return { success: true, tracked: 0 };
   }
-  
+
   if (events.length > MAX_BATCH_SIZE) {
     return { success: false, error: `Batch size exceeds maximum of ${MAX_BATCH_SIZE}` };
   }
-  
+
   const results = [];
   for (const event of events) {
     const result = await trackEvent(event);
     results.push(result);
   }
-  
-  const successCount = results.filter(r => r.success).length;
+
+  const successCount = results.filter((r) => r.success).length;
   const failureCount = results.length - successCount;
-  
+
   return {
     success: failureCount === 0,
     tracked: successCount,
@@ -192,53 +193,46 @@ export async function trackEventBatch(events) {
  * Get funnel conversion metrics
  */
 export async function getFunnelMetrics(options = {}) {
-  const {
-    startDate,
-    endDate,
-    source,
-    medium,
-    campaign,
-    campaignId,
-  } = options;
-  
+  const { startDate, endDate, source, medium, campaign, campaignId } = options;
+
   const db = getDb();
-  
+
   // Build WHERE clause
   const conditions = [];
   const params = [];
-  
+
   if (startDate) {
     conditions.push('timestamp >= ?');
     params.push(startDate);
   }
-  
+
   if (endDate) {
     conditions.push('timestamp <= ?');
     params.push(endDate);
   }
-  
+
   if (source) {
     conditions.push('source = ?');
     params.push(source);
   }
-  
+
   if (medium) {
     conditions.push('medium = ?');
     params.push(medium);
   }
-  
+
   if (campaign) {
     conditions.push('campaign = ?');
     params.push(campaign);
   }
-  
+
   if (campaignId) {
     conditions.push('campaign_id = ?');
     params.push(campaignId);
   }
-  
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
+
   // Count events per stage
   const funnelQuery = `
     SELECT
@@ -254,9 +248,9 @@ export async function getFunnelMetrics(options = {}) {
     FROM analytics_events
     ${whereClause}
   `;
-  
+
   const counts = db.prepare(funnelQuery).get(...params);
-  
+
   // Calculate conversion rates
   const funnel = {
     sessions: counts.sessions || 0,
@@ -269,19 +263,22 @@ export async function getFunnelMetrics(options = {}) {
     claim_success: counts.claim_success || 0,
     redeem_success: counts.redeem_success || 0,
   };
-  
+
   // Calculate conversion rates (percentages)
   const conversions = {
     campaign_view_to_connect: calculateRate(funnel.connect_attempts, funnel.campaign_views),
     connect_attempt_to_success: calculateRate(funnel.connect_success, funnel.connect_attempts),
     connect_to_registration: calculateRate(funnel.registration_attempts, funnel.connect_success),
-    registration_attempt_to_success: calculateRate(funnel.registration_success, funnel.registration_attempts),
+    registration_attempt_to_success: calculateRate(
+      funnel.registration_success,
+      funnel.registration_attempts,
+    ),
     registration_to_claim: calculateRate(funnel.claim_attempts, funnel.registration_success),
     claim_attempt_to_success: calculateRate(funnel.claim_success, funnel.claim_attempts),
     claim_to_redeem: calculateRate(funnel.redeem_success, funnel.claim_success),
     overall_completion: calculateRate(funnel.redeem_success, funnel.campaign_views),
   };
-  
+
   return {
     funnel,
     conversions,
@@ -303,7 +300,7 @@ function calculateRate(numerator, denominator) {
 export async function getDropOffAnalysis(options = {}) {
   const metrics = await getFunnelMetrics(options);
   const { funnel } = metrics;
-  
+
   const stages = [
     { name: 'Campaign View', count: funnel.campaign_views },
     { name: 'Connect Attempt', count: funnel.connect_attempts },
@@ -314,14 +311,14 @@ export async function getDropOffAnalysis(options = {}) {
     { name: 'Claim Success', count: funnel.claim_success },
     { name: 'Redeem Success', count: funnel.redeem_success },
   ];
-  
+
   const dropoffs = [];
   for (let i = 0; i < stages.length - 1; i++) {
     const current = stages[i];
     const next = stages[i + 1];
     const dropped = current.count - next.count;
     const dropoffRate = current.count > 0 ? (dropped / current.count) * 100 : 0;
-    
+
     dropoffs.push({
       from_stage: current.name,
       to_stage: next.name,
@@ -329,13 +326,13 @@ export async function getDropOffAnalysis(options = {}) {
       dropoff_rate: Math.round(dropoffRate * 100) / 100,
     });
   }
-  
+
   // Find highest drop-off
-  const highestDropoff = dropoffs.reduce((max, curr) => 
-    curr.dropoff_rate > max.dropoff_rate ? curr : max, 
-    dropoffs[0] || { dropoff_rate: 0 }
+  const highestDropoff = dropoffs.reduce(
+    (max, curr) => (curr.dropoff_rate > max.dropoff_rate ? curr : max),
+    dropoffs[0] || { dropoff_rate: 0 },
   );
-  
+
   return {
     stages,
     dropoffs,
@@ -349,27 +346,27 @@ export async function getDropOffAnalysis(options = {}) {
 export async function getSourceAttribution(options = {}) {
   const { startDate, endDate, campaignId } = options;
   const db = getDb();
-  
+
   const conditions = [];
   const params = [];
-  
+
   if (startDate) {
     conditions.push('timestamp >= ?');
     params.push(startDate);
   }
-  
+
   if (endDate) {
     conditions.push('timestamp <= ?');
     params.push(endDate);
   }
-  
+
   if (campaignId) {
     conditions.push('campaign_id = ?');
     params.push(campaignId);
   }
-  
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
+
   const query = `
     SELECT
       COALESCE(source, 'direct') as source,
@@ -381,11 +378,11 @@ export async function getSourceAttribution(options = {}) {
     GROUP BY source
     ORDER BY sessions DESC
   `;
-  
+
   const sources = db.prepare(query).all(...params);
-  
+
   // Calculate conversion rates per source
-  const attribution = sources.map(row => ({
+  const attribution = sources.map((row) => ({
     source: row.source,
     sessions: row.sessions,
     registrations: row.registrations,
@@ -393,7 +390,7 @@ export async function getSourceAttribution(options = {}) {
     registration_rate: calculateRate(row.registrations, row.sessions),
     claim_rate: calculateRate(row.claims, row.registrations),
   }));
-  
+
   return attribution;
 }
 
@@ -403,7 +400,7 @@ export async function getSourceAttribution(options = {}) {
 export async function getRetentionMetrics(options = {}) {
   const { cohortDate, campaignId } = options;
   const db = getDb();
-  
+
   // This is a simplified version - production would track cohorts over time
   const query = `
     WITH user_first_activity AS (
@@ -434,16 +431,19 @@ export async function getRetentionMetrics(options = {}) {
       SUM(CASE WHEN active_days >= 30 THEN 1 ELSE 0 END) as day30_retained
     FROM user_return_activity
   `;
-  
+
   const params = campaignId ? [campaignId, campaignId] : [];
   const retention = db.prepare(query).get(...params);
-  
+
   return {
     total_users: retention?.total_users || 0,
     avg_active_days: Math.round((retention?.avg_active_days || 0) * 100) / 100,
     day1_retention_rate: calculateRate(retention?.day1_retained || 0, retention?.total_users || 0),
     day7_retention_rate: calculateRate(retention?.day7_retained || 0, retention?.total_users || 0),
-    day30_retention_rate: calculateRate(retention?.day30_retained || 0, retention?.total_users || 0),
+    day30_retention_rate: calculateRate(
+      retention?.day30_retained || 0,
+      retention?.total_users || 0,
+    ),
   };
 }
 
@@ -454,16 +454,16 @@ export async function cleanupOldEvents() {
   const db = getDb();
   const cutoffDate = new Date();
   cutoffDate.setDate(cutoffDate.getDate() - RETENTION_DAYS);
-  
+
   try {
     const stmt = db.prepare(`
       DELETE FROM analytics_events
       WHERE timestamp < ?
     `);
-    
+
     const result = stmt.run(cutoffDate.toISOString());
     logger.info(`Cleaned up ${result.changes} old analytics events`);
-    
+
     return { success: true, deleted: result.changes };
   } catch (error) {
     logger.error('Failed to cleanup old events:', error);
@@ -477,49 +477,53 @@ export async function cleanupOldEvents() {
 export async function exportEvents(options = {}) {
   const { startDate, endDate, eventNames, format = 'ndjson' } = options;
   const db = getDb();
-  
+
   const conditions = [];
   const params = [];
-  
+
   if (startDate) {
     conditions.push('timestamp >= ?');
     params.push(startDate);
   }
-  
+
   if (endDate) {
     conditions.push('timestamp <= ?');
     params.push(endDate);
   }
-  
+
   if (eventNames && eventNames.length > 0) {
     conditions.push(`event_name IN (${eventNames.map(() => '?').join(',')})`);
     params.push(...eventNames);
   }
-  
+
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
-  
+
   const query = `
     SELECT *
     FROM analytics_events
     ${whereClause}
     ORDER BY timestamp ASC
   `;
-  
+
   const events = db.prepare(query).all(...params);
-  
+
   if (format === 'ndjson') {
-    return events.map(event => JSON.stringify({
-      event_name: event.event_name,
-      timestamp: event.timestamp,
-      session_id: event.session_id,
-      campaign_id: event.campaign_id,
-      source: event.source,
-      medium: event.medium,
-      campaign: event.campaign,
-      properties: JSON.parse(event.properties || '{}'),
-    })).join('\n');
+    return events
+      .map((event) =>
+        JSON.stringify({
+          event_name: event.event_name,
+          timestamp: event.timestamp,
+          session_id: event.session_id,
+          campaign_id: event.campaign_id,
+          source: event.source,
+          medium: event.medium,
+          campaign: event.campaign,
+          properties: JSON.parse(event.properties || '{}'),
+        }),
+      )
+      .join('\n');
   }
-  
+
   return events;
 }
 

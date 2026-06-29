@@ -13,7 +13,12 @@ async function setup() {
 
 test('audit log create returns entry with seq and hashes', async () => {
   const { repo } = await setup();
-  const entry = repo.create({ actor: 'alice', action: 'create', entity: 'campaign', entityId: '1' });
+  const entry = repo.create({
+    actor: 'alice',
+    action: 'create',
+    entity: 'campaign',
+    entityId: '1',
+  });
   assert.equal(entry.seq, 1);
   assert.equal(entry.prevHash, GENESIS_HASH);
   assert.ok(typeof entry.entryHash === 'string' && entry.entryHash.length === 64);
@@ -21,7 +26,12 @@ test('audit log create returns entry with seq and hashes', async () => {
 
 test('audit log second entry chains off first', async () => {
   const { repo } = await setup();
-  const first = repo.create({ actor: 'alice', action: 'create', entity: 'campaign', entityId: '1' });
+  const first = repo.create({
+    actor: 'alice',
+    action: 'create',
+    entity: 'campaign',
+    entityId: '1',
+  });
   const second = repo.create({ actor: 'bob', action: 'update', entity: 'campaign', entityId: '1' });
   assert.equal(second.seq, 2);
   assert.equal(second.prevHash, first.entryHash);
@@ -31,7 +41,7 @@ test('verify returns valid on an intact chain', async () => {
   const { repo } = await setup();
   repo.create({ actor: 'alice', action: 'create', entity: 'campaign', entityId: '1' });
   repo.create({ actor: 'alice', action: 'update', entity: 'campaign', entityId: '1' });
-  repo.create({ actor: 'bob',   action: 'delete', entity: 'campaign', entityId: '1' });
+  repo.create({ actor: 'bob', action: 'delete', entity: 'campaign', entityId: '1' });
   const result = repo.verify();
   assert.equal(result.valid, true);
   assert.equal(result.checkedCount, 3);
@@ -100,7 +110,15 @@ test('audit log count returns correct total', async () => {
 
 test('entry_hash is deterministic for same input', () => {
   const ts = '2024-01-01T00:00:00.000Z';
-  const entry = { actor: 'alice', action: 'create', entity: 'campaign', entityId: '1', diff: null, orgId: null, createdAt: ts };
+  const entry = {
+    actor: 'alice',
+    action: 'create',
+    entity: 'campaign',
+    entityId: '1',
+    diff: null,
+    orgId: null,
+    createdAt: ts,
+  };
   const h1 = computeEntryHash(GENESIS_HASH, entry);
   const h2 = computeEntryHash(GENESIS_HASH, entry);
   assert.equal(h1, h2);

@@ -43,8 +43,16 @@ export function createSqliteAuditLogRepository({ db }) {
         createdAt,
       });
       const info = insertStmt.run(
-        actor, action, entity, entityId, diffJson, orgId, createdAt,
-        seq, prevHash, entryHash,
+        actor,
+        action,
+        entity,
+        entityId,
+        diffJson,
+        orgId,
+        createdAt,
+        seq,
+        prevHash,
+        entryHash,
       );
       return db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(info.lastInsertRowid);
     },

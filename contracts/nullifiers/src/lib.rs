@@ -24,8 +24,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address,
+    BytesN, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -120,9 +120,7 @@ impl NullifierRegistry {
         admin.require_auth();
         env.storage().instance().set(&ADMIN, &admin);
         let empty_consumers: Vec<Address> = soroban_sdk::vec![&env];
-        env.storage()
-            .instance()
-            .set(&CONSUMERS, &empty_consumers);
+        env.storage().instance().set(&CONSUMERS, &empty_consumers);
         extend_ttl(&env);
         Ok(())
     }
@@ -172,19 +170,14 @@ impl NullifierRegistry {
 
         env.storage().persistent().set(&key, &true);
 
-        env.events()
-            .publish((SPENT_EVENT, consumer), nullifier);
+        env.events().publish((SPENT_EVENT, consumer), nullifier);
 
         extend_ttl(&env);
         Ok(())
     }
 
     /// Admin: bump TTL for a specific spent nullifier entry.
-    pub fn bump_ttl(
-        env: Env,
-        consumer: Address,
-        nullifier: BytesN<32>,
-    ) -> Result<(), Error> {
+    pub fn bump_ttl(env: Env, consumer: Address, nullifier: BytesN<32>) -> Result<(), Error> {
         require_admin(&env)?;
 
         let key = NullifierKey {
@@ -226,7 +219,7 @@ mod tests {
 
         let consumer = Address::generate(&env);
         let nullifier = BytesN::from_array(&env, &[1u8; 32]);
-        assert_eq!(client.is_spent(&consumer, &nullifier), false);
+        assert!(!client.is_spent(&consumer, &nullifier));
     }
 
     #[test]
@@ -237,11 +230,11 @@ mod tests {
         client.register_consumer(&consumer);
 
         let nullifier = BytesN::from_array(&env, &[1u8; 32]);
-        assert_eq!(client.is_spent(&consumer, &nullifier), false);
+        assert!(!client.is_spent(&consumer, &nullifier));
 
         client.spend(&consumer, &nullifier);
 
-        assert_eq!(client.is_spent(&consumer, &nullifier), true);
+        assert!(client.is_spent(&consumer, &nullifier));
     }
 
     #[test]

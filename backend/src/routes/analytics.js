@@ -1,6 +1,6 @@
 /**
  * Analytics API Routes
- * 
+ *
  * Privacy-respecting analytics endpoints for funnel tracking
  */
 
@@ -23,7 +23,7 @@ const router = express.Router();
 /**
  * POST /api/v1/analytics/events
  * Track a single analytics event
- * 
+ *
  * Body:
  * {
  *   event_name: string,
@@ -42,7 +42,7 @@ router.post('/events', async (req, res) => {
     if (req.headers['dnt'] === '1') {
       return res.status(204).send();
     }
-    
+
     const event = {
       event_name: req.body.event_name,
       session_id: req.body.session_id,
@@ -53,13 +53,13 @@ router.post('/events', async (req, res) => {
       properties: req.body.properties || {},
       timestamp: req.body.timestamp || new Date().toISOString(),
     };
-    
+
     const result = await trackEvent(event);
-    
+
     if (!result.success) {
       return res.status(400).json({ error: result.error });
     }
-    
+
     res.status(201).json({ success: true });
   } catch (error) {
     logger.error('Failed to track event:', error);
@@ -70,7 +70,7 @@ router.post('/events', async (req, res) => {
 /**
  * POST /api/v1/analytics/events/batch
  * Track multiple analytics events in one request
- * 
+ *
  * Body:
  * {
  *   events: Array<Event>
@@ -82,25 +82,25 @@ router.post('/events/batch', async (req, res) => {
     if (req.headers['dnt'] === '1') {
       return res.status(204).send();
     }
-    
+
     const { events } = req.body;
-    
+
     if (!Array.isArray(events)) {
       return res.status(400).json({ error: 'events must be an array' });
     }
-    
+
     const result = await trackEventBatch(events);
-    
+
     if (!result.success) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: result.error,
         tracked: result.tracked,
         failed: result.failed,
       });
     }
-    
-    res.status(201).json({ 
-      success: true, 
+
+    res.status(201).json({
+      success: true,
       tracked: result.tracked,
     });
   } catch (error) {
@@ -121,7 +121,7 @@ router.get('/session', (req, res) => {
 /**
  * GET /api/v1/analytics/funnel
  * Get funnel conversion metrics
- * 
+ *
  * Query params:
  * - start_date: ISO 8601 date
  * - end_date: ISO 8601 date
@@ -140,7 +140,7 @@ router.get('/funnel', requireAdmin, async (req, res) => {
       campaign: req.query.campaign,
       campaignId: req.query.campaign_id,
     };
-    
+
     const metrics = await getFunnelMetrics(options);
     res.json(metrics);
   } catch (error) {
@@ -152,7 +152,7 @@ router.get('/funnel', requireAdmin, async (req, res) => {
 /**
  * GET /api/v1/analytics/dropoff
  * Get drop-off analysis for each funnel stage
- * 
+ *
  * Query params: same as /funnel
  */
 router.get('/dropoff', requireAdmin, async (req, res) => {
@@ -165,7 +165,7 @@ router.get('/dropoff', requireAdmin, async (req, res) => {
       campaign: req.query.campaign,
       campaignId: req.query.campaign_id,
     };
-    
+
     const analysis = await getDropOffAnalysis(options);
     res.json(analysis);
   } catch (error) {
@@ -177,7 +177,7 @@ router.get('/dropoff', requireAdmin, async (req, res) => {
 /**
  * GET /api/v1/analytics/attribution
  * Get source attribution metrics
- * 
+ *
  * Query params:
  * - start_date: ISO 8601 date
  * - end_date: ISO 8601 date
@@ -190,7 +190,7 @@ router.get('/attribution', requireAdmin, async (req, res) => {
       endDate: req.query.end_date,
       campaignId: req.query.campaign_id,
     };
-    
+
     const attribution = await getSourceAttribution(options);
     res.json(attribution);
   } catch (error) {
@@ -202,7 +202,7 @@ router.get('/attribution', requireAdmin, async (req, res) => {
 /**
  * GET /api/v1/analytics/retention
  * Get retention metrics
- * 
+ *
  * Query params:
  * - cohort_date: Date for cohort analysis
  * - campaign_id: Campaign ID filter
@@ -213,7 +213,7 @@ router.get('/retention', requireAdmin, async (req, res) => {
       cohortDate: req.query.cohort_date,
       campaignId: req.query.campaign_id,
     };
-    
+
     const retention = await getRetentionMetrics(options);
     res.json(retention);
   } catch (error) {
@@ -225,7 +225,7 @@ router.get('/retention', requireAdmin, async (req, res) => {
 /**
  * GET /api/v1/analytics/export
  * Export events for analysis
- * 
+ *
  * Query params:
  * - start_date: ISO 8601 date
  * - end_date: ISO 8601 date
@@ -240,9 +240,9 @@ router.get('/export', requireAdmin, async (req, res) => {
       eventNames: req.query.event_names ? req.query.event_names.split(',') : undefined,
       format: req.query.format || 'ndjson',
     };
-    
+
     const data = await exportEvents(options);
-    
+
     if (options.format === 'ndjson') {
       res.setHeader('Content-Type', 'application/x-ndjson');
       res.setHeader('Content-Disposition', 'attachment; filename="analytics-export.ndjson"');
@@ -264,13 +264,13 @@ router.get('/health', async (req, res) => {
   try {
     // Simple health check - verify we can query the database
     const metrics = await getFunnelMetrics({ startDate: new Date().toISOString() });
-    res.json({ 
+    res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     logger.error('Analytics health check failed:', error);
-    res.status(503).json({ 
+    res.status(503).json({
       status: 'unhealthy',
       error: error.message,
     });

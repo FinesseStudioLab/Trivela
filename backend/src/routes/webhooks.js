@@ -18,7 +18,9 @@ let deliveryIdCounter = 1;
 
 const webhookSchema = z.object({
   url: z.string().url(),
-  events: z.array(z.enum(['campaign.created', 'campaign.updated', 'participant.registered', 'reward.claimed'])),
+  events: z.array(
+    z.enum(['campaign.created', 'campaign.updated', 'participant.registered', 'reward.claimed']),
+  ),
   secret: z.string().min(16).optional(),
   description: z.string().optional(),
 });
@@ -168,7 +170,7 @@ router.get('/:id/deliveries', (req, res) => {
   }
 
   const logs = Array.from(deliveryLogs.values())
-    .filter(log => log.webhookId === req.params.id)
+    .filter((log) => log.webhookId === req.params.id)
     .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
   res.json(logs);

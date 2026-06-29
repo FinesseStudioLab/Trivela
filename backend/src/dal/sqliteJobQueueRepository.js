@@ -163,7 +163,12 @@ export function createSqliteJobQueueRepository({ db }) {
     if (isDead) {
       nackDeadStmt.run(errorMessage ?? null, id);
     } else {
-      nackPendingStmt.run(nextRunAt ?? new Date().toISOString(), attempts ?? 1, errorMessage ?? null, id);
+      nackPendingStmt.run(
+        nextRunAt ?? new Date().toISOString(),
+        attempts ?? 1,
+        errorMessage ?? null,
+        id,
+      );
     }
   }
 

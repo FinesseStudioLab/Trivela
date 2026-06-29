@@ -40,7 +40,9 @@ function graceEndDate(campaignEnd, graceDays) {
  */
 export function getUnclaimedUsers(db, campaignId) {
   const hasTables =
-    db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_events'").get() &&
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='credit_events'")
+      .get() &&
     db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='claim_events'").get();
 
   if (!hasTables) return [];
@@ -111,7 +113,10 @@ export async function createClaimableBalancesForCampaign({
         "SELECT id FROM claimable_balances WHERE campaign_id = ? AND user_address = ? AND status != 'failed'",
       )
       .get(campaignId, user);
-    if (existing) { skipped++; continue; }
+    if (existing) {
+      skipped++;
+      continue;
+    }
 
     const now = new Date().toISOString();
     const id = randomUUID();
@@ -135,9 +140,7 @@ export async function createClaimableBalancesForCampaign({
       const server = new Horizon.Server(stellarConfig.horizonUrl);
       const account = await server.loadAccount(operatorKeypair.publicKey());
 
-      const asset = assetIssuer
-        ? new Asset(assetCode, assetIssuer)
-        : Asset.native();
+      const asset = assetIssuer ? new Asset(assetCode, assetIssuer) : Asset.native();
 
       const graceEndUnix = Math.floor(graceEnd.getTime() / 1000);
 

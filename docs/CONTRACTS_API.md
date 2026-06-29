@@ -249,33 +249,35 @@ Spender → sep41_transfer_from(owner, recipient, amount)
 
 ### Functions
 
-| Function | Auth required | Description |
-|---|---|---|
-| `sep41_balance(id)` | none | Returns token balance (as `i128`) |
-| `sep41_transfer(from, to, amount)` | `from` | Direct transfer |
-| `sep41_transfer_from(spender, from, to, amount)` | `spender` | Delegated transfer using allowance |
-| `sep41_approve(from, spender, amount, expiration_ledger)` | `from` | Grant allowance; `expiration_ledger = 0` means non-expiring |
-| `sep41_allowance(owner, spender)` | none | Read current allowance |
-| `sep41_burn(from, amount)` | `from` | Burn tokens from own balance |
-| `sep41_burn_from(spender, from, amount)` | `spender` | Burn from another's balance using allowance |
-| `sep41_decimals()` | none | Token decimal places |
-| `sep41_name()` | none | Token name |
-| `sep41_symbol()` | none | Token ticker symbol |
+| Function                                                  | Auth required | Description                                                 |
+| --------------------------------------------------------- | ------------- | ----------------------------------------------------------- |
+| `sep41_balance(id)`                                       | none          | Returns token balance (as `i128`)                           |
+| `sep41_transfer(from, to, amount)`                        | `from`        | Direct transfer                                             |
+| `sep41_transfer_from(spender, from, to, amount)`          | `spender`     | Delegated transfer using allowance                          |
+| `sep41_approve(from, spender, amount, expiration_ledger)` | `from`        | Grant allowance; `expiration_ledger = 0` means non-expiring |
+| `sep41_allowance(owner, spender)`                         | none          | Read current allowance                                      |
+| `sep41_burn(from, amount)`                                | `from`        | Burn tokens from own balance                                |
+| `sep41_burn_from(spender, from, amount)`                  | `spender`     | Burn from another's balance using allowance                 |
+| `sep41_decimals()`                                        | none          | Token decimal places                                        |
+| `sep41_name()`                                            | none          | Token name                                                  |
+| `sep41_symbol()`                                          | none          | Token ticker symbol                                         |
 
 ### Error Codes (SEP-41 specific)
 
-| Code | Name | Cause |
-|---|---|---|
-| 21 | `TokenModeNotEnabled` | Called a SEP-41 function without enabling token mode |
-| 22 | `AllowanceExceeded` | `transfer_from`/`burn_from` amount > current allowance |
-| 23 | `ApprovalExpired` | `expiration_ledger` has passed |
-| 24 | `InvalidExpiration` | `expiration_ledger` is in the past (must be > current ledger) |
+| Code | Name                  | Cause                                                         |
+| ---- | --------------------- | ------------------------------------------------------------- |
+| 21   | `TokenModeNotEnabled` | Called a SEP-41 function without enabling token mode          |
+| 22   | `AllowanceExceeded`   | `transfer_from`/`burn_from` amount > current allowance        |
+| 23   | `ApprovalExpired`     | `expiration_ledger` has passed                                |
+| 24   | `InvalidExpiration`   | `expiration_ledger` is in the past (must be > current ledger) |
 
 ### Edge Cases
 
-- **Spend after `expiration_ledger`** — The allowance entry is deleted and `ApprovalExpired` (#23) is returned.
+- **Spend after `expiration_ledger`** — The allowance entry is deleted and `ApprovalExpired` (#23)
+  is returned.
 - **Over-spend** — `AllowanceExceeded` (#22). The allowance is not modified.
-- **Re-approve** — Calling `sep41_approve` again **replaces** the previous amount and expiry (not additive). This is per-spec.
+- **Re-approve** — Calling `sep41_approve` again **replaces** the previous amount and expiry (not
+  additive). This is per-spec.
 - **Allowance to self** — Permitted by the contract; no special restriction.
 - **Zero amount approve** — Permitted; effectively revokes the allowance (amount stored as 0).
 
@@ -284,10 +286,18 @@ Spender → sep41_transfer_from(owner, recipient, amount)
 ```typescript
 import { Client as RewardsClient } from './contracts/rewards';
 
-const client = new RewardsClient({ rpcUrl, networkPassphrase, contractId, publicKey, signTransaction });
+const client = new RewardsClient({
+  rpcUrl,
+  networkPassphrase,
+  contractId,
+  publicKey,
+  signTransaction,
+});
 
 // Grant allowance
-await (await client.sep41_approve({ from, spender, amount: 1000n, expiration_ledger: 0 })).signAndSend();
+await (
+  await client.sep41_approve({ from, spender, amount: 1000n, expiration_ledger: 0 })
+).signAndSend();
 
 // Check allowance
 const allowance = await (await client.sep41_allowance({ owner: from, spender })).simulate();
@@ -297,6 +307,7 @@ await (await client.sep41_transfer_from({ spender, from, to, amount: 500n })).si
 ```
 
 Frontend helpers are also available in `frontend/src/stellar.js`:
+
 - `submitApproveTransaction(walletAddress, spender, amount, expirationLedger)`
 - `fetchAllowance(owner, spender)`
 - `submitTransferFromTransaction(spenderAddress, from, to, amount)`
