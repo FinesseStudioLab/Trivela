@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
 import DevNetworkSwitcher from './DevNetworkSwitcher';
 import NotificationCenter from './NotificationCenter';
+import FaucetModal from './FaucetModal';
 import { apiUrl } from '../config';
 
 function truncateWalletAddress(walletAddress) {
@@ -37,6 +38,7 @@ export default function Header({
   const balanceLabel = `${stellarNetwork === 'mainnet' ? 'Mainnet' : 'Testnet'} balance`;
   const { pathname } = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showFaucet, setShowFaucet] = useState(false);
 
   const [latency, setLatency] = useState(null);
   const [statusColor, setStatusColor] = useState('red');
@@ -105,26 +107,27 @@ export default function Header({
   const closeMenu = () => setMenuOpen(false);
 
   return (
-    <header className="site-header">
-      <nav className="nav" aria-label="Primary">
-        <div className="nav-top-row">
-          <a href="/" className="nav-logo" aria-label="Trivela home" onClick={closeMenu}>
-            <span className="nav-logo-icon" aria-hidden="true">
-              ◇
-            </span>
-            Trivela
-          </a>
+    <>
+      <header className="site-header">
+        <nav className="nav" aria-label="Primary">
+          <div className="nav-top-row">
+            <a href="/" className="nav-logo" aria-label="Trivela home" onClick={closeMenu}>
+              <span className="nav-logo-icon" aria-hidden="true">
+                ◇
+              </span>
+              Trivela
+            </a>
 
-          <button
-            type="button"
-            className="nav-hamburger"
-            onClick={toggleMenu}
-            aria-expanded={menuOpen}
-            aria-controls="nav-mobile-menu"
-            aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
-          >
-            <span className="nav-hamburger-bar" aria-hidden="true" />
-            <span className="nav-hamburger-bar" aria-hidden="true" />
+            <button
+              type="button"
+              className="nav-hamburger"
+              onClick={toggleMenu}
+              aria-expanded={menuOpen}
+              aria-controls="nav-mobile-menu"
+              aria-label={menuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            >
+              <span className="nav-hamburger-bar" aria-hidden="true" />
+              <span className="nav-hamburger-bar" aria-hidden="true" />
             <span className="nav-hamburger-bar" aria-hidden="true" />
           </button>
         </div>
@@ -286,6 +289,17 @@ export default function Header({
               </p>
             )}
 
+            {walletAddress && stellarNetwork === 'testnet' && (
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowFaucet(true)}
+                style={{ fontSize: '0.85rem', padding: '6px 12px' }}
+              >
+                💧 Fund
+              </button>
+            )}
+
             {onConnectWallet && (
               <button
                 type="button"
@@ -321,5 +335,19 @@ export default function Header({
         </div>
       </nav>
     </header>
+
+    <FaucetModal
+      isOpen={showFaucet}
+      onClose={() => setShowFaucet(false)}
+      publicKey={walletAddress}
+      onSuccess={() => {
+        setShowFaucet(false);
+        // Trigger balance refresh if callback available
+        if (onConnectWallet && typeof onConnectWallet === 'function') {
+          window.location.reload();
+        }
+      }}
+    />
+    </>
   );
 }
