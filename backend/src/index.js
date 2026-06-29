@@ -53,6 +53,7 @@ import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
 import { createEmbedWidgetRoute } from './routes/embedWidget.js';
+import { createDevPortalRoutes } from './routes/devPortal.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
 import { createCohortRoutes } from './routes/cohorts.js';
@@ -824,6 +825,10 @@ export async function createApp(options = {}) {
       embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
     }),
   );
+  // Developer portal (#807)
+  app.use('/dev-portal', createDevPortalRoutes({
+    openApiPath: join(process.cwd(), 'backend', 'openapi.yaml'),
+  }));
 
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
