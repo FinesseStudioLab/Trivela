@@ -89,6 +89,61 @@ import { createModerationService } from './moderation/moderationService.js';
 import { createContentModerationMiddleware } from './middleware/contentModeration.js';
 
 const DEFAULT_PORT = 3001;
+
+// BCP-47: language (2-3 chars) + optional script (4 chars) + optional region (2 chars)
+const BCP47_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4}(-[A-Z]{2})?)?$/;
+
+/** @param {string} locale */
+export function isValidLocale(locale) {
+  return BCP47_RE.test(locale);
+}
+
+/** @param {string | undefined} header */
+function parseAcceptLanguage(header) {
+  if (!header) return [];
+  return header
+    .split(',')
+    .map((part) => {
+      const [tag, qPart] = part.trim().split(';');
+      const q = qPart ? parseFloat(qPart.replace(/.*=/, '')) : 1.0;
+      return { locale: tag.trim(), q: Number.isFinite(q) ? q : 1.0 };
+    })
+    .sort((a, b) => b.q - a.q)
+    .map(({ locale }) => locale)
+    .filter(Boolean);
+}
+
+/** @param {import('express').Request} req @returns {string[]} */
+function getRequestLocales(req) {
+  const queryLocale = req.query?.locale;
+  if (typeof queryLocale === 'string' && queryLocale.trim()) {
+    return [queryLocale.trim()];
+  }
+  return parseAcceptLanguage(req.headers['accept-language']);
+}
+
+/**
+ * Strips `_rawTranslations` and applies locale negotiation to name/description.
+ * @param {Record<string, any>} campaign
+ * @param {string[]} [locales]
+ * @returns {Record<string, any>}
+ */
+function serializeCampaign(campaign, locales = []) {
+  const { _rawTranslations, ...pub } = campaign;
+  if (!_rawTranslations || !locales.length) return pub;
+  for (const locale of locales) {
+    if (locale === 'en' || locale.startsWith('en-')) break;
+    const trans =
+      _rawTranslations[locale] ?? _rawTranslations[locale.split('-')[0]] ?? null;
+    if (trans) {
+      if (trans.name) pub.name = trans.name;
+      if (trans.description) pub.description = trans.description;
+      break;
+    }
+  }
+  return pub;
+}
+
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 60;
 const DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD = 5;
@@ -946,10 +1001,16 @@ export async function createApp(options = {}) {
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
   async function listCampaigns(req, res) {
-    const cacheKey = `campaigns:${req.originalUrl}`;
-    const cached = shortCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return res.set('x-cache', 'HIT').json(cached.payload);
+    // Exclude ?locale from cache key so locale variants share the same raw-data cache entry.
+    const cacheKey = `campaigns:${req.originalUrl.replace(/([?&])locale=[^&]*/g, '$1').replace(/[?&]$/, '')}`;
+    const locales = getRequestLocales(req);
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
+      const payload = {
+        ...rawCached.payload,
+        data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)),
+      };
+      return res.set('x-cache', 'HIT').json(payload);
     }
 
     const activeRaw =
@@ -1010,12 +1071,16 @@ export async function createApp(options = {}) {
       sortedItems = sortByUrgency(items);
     }
 
-    const payload = paginateItems(sortedItems, req.query);
+    const rawPayload = paginateItems(sortedItems, req.query);
     shortCache.set(cacheKey, {
       expiresAt: Date.now() + shortCacheTtlMs,
-      payload,
+      payload: rawPayload,
     });
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = {
+      ...rawPayload,
+      data: rawPayload.data.map((c) => serializeCampaign(c, locales)),
+    };
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -1023,12 +1088,14 @@ export async function createApp(options = {}) {
   function getTrendingCampaigns(req, res) {
     const limitRaw = Number.parseInt(String(req.query.limit ?? '6'), 10);
     const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 50 ? limitRaw : 6;
+    const locales = getRequestLocales(req);
 
     const cacheKey = `trending:${limit}`;
-    const cached = shortCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
       res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
-      return res.set('x-cache', 'HIT').json(cached.payload);
+      const payload = { ...rawCached.payload, data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)) };
+      return res.set('x-cache', 'HIT').json(payload);
     }
 
     const all = campaignRepository.list({
@@ -1036,11 +1103,12 @@ export async function createApp(options = {}) {
       sort: 'reward_per_action',
       order: 'desc',
     });
-    const data = all.slice(0, limit);
-    const payload = { data, total: data.length };
+    const rawData = all.slice(0, limit);
+    const rawPayload = { data: rawData, total: rawData.length };
 
-    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload });
+    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload: rawPayload });
     res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = { ...rawPayload, data: rawPayload.data.map((c) => serializeCampaign(c, locales)) };
     return res.set('x-cache', 'MISS').json(payload);
   }
 
@@ -1050,7 +1118,7 @@ export async function createApp(options = {}) {
     if (!campaign) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -1077,7 +1145,7 @@ export async function createApp(options = {}) {
     if (!campaign) {
       return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -1158,7 +1226,7 @@ export async function createApp(options = {}) {
       }
 
       shortCache.clear();
-      return res.status(201).json(campaign);
+      return res.status(201).json(serializeCampaign(campaign));
     } catch (error) {
       if (
         /** @type {any} */ (error).message?.includes('Tag') ||
@@ -1305,7 +1373,7 @@ export async function createApp(options = {}) {
     }
 
     shortCache.clear();
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign));
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -1369,7 +1437,7 @@ export async function createApp(options = {}) {
       });
 
       shortCache.clear();
-      return res.status(201).json(clonedCampaign);
+      return res.status(201).json(serializeCampaign(clonedCampaign));
     } catch (error) {
       if (/** @type {any} */ (error).message?.includes('UNIQUE constraint failed')) {
         return res.status(409).json({
@@ -1414,7 +1482,7 @@ export async function createApp(options = {}) {
         });
 
       shortCache.clear();
-      return res.json(campaign);
+      return res.json(serializeCampaign(campaign));
     } catch (error) {
       return res.status(400).json({
         error: /** @type {Error} */ (error).message,
@@ -1455,7 +1523,7 @@ export async function createApp(options = {}) {
         });
 
       shortCache.clear();
-      return res.json(campaign);
+      return res.json(serializeCampaign(campaign));
     } catch (error) {
       return res.status(400).json({
         error: /** @type {Error} */ (error).message,
@@ -1825,6 +1893,93 @@ export async function createApp(options = {}) {
     app.put(`${prefix}/campaigns/:id/publish`, rateLimiter, idempotencyMiddleware, ...guard, publishCampaign);
     app.put(`${prefix}/campaigns/:id/archive`, rateLimiter, idempotencyMiddleware, ...guard, archiveCampaign);
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
+
+    // Campaign translations (i18n)
+    app.get(`${prefix}/campaigns/:id/translations`, rateLimiter, ...guard, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const translations = campaignRepository.getTranslations(req.params.id);
+      return res.json({ campaignId: campaign.id, translations });
+    });
+
+    app.put(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+
+        if (!isValidLocale(locale)) {
+          return res.status(400).json({
+            error: 'Invalid locale — must be a valid BCP-47 tag (e.g. es, fr, zh-CN)',
+            code: 'INVALID_LOCALE',
+          });
+        }
+
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+
+        const { name, description } = req.body ?? {};
+        if (!name && !description) {
+          return res.status(400).json({
+            error: 'At least one of name or description is required',
+            code: 'VALIDATION_ERROR',
+          });
+        }
+
+        const translationPayload = {};
+        if (name !== undefined) translationPayload.name = String(name);
+        if (description !== undefined) translationPayload.description = String(description);
+
+        if (Buffer.byteLength(JSON.stringify(translationPayload), 'utf8') > 2048) {
+          return res.status(413).json({
+            error: 'Translation exceeds the 2KB limit',
+            code: 'TRANSLATION_TOO_LARGE',
+          });
+        }
+
+        const current = campaignRepository.getTranslations(req.params.id);
+        const currentLocales = Object.keys(current);
+        if (!currentLocales.includes(locale) && currentLocales.length >= 10) {
+          return res.status(422).json({
+            error: 'Maximum 10 locales per campaign',
+            code: 'LOCALE_LIMIT_EXCEEDED',
+          });
+        }
+
+        campaignRepository.upsertTranslation(req.params.id, locale, translationPayload);
+        shortCache.clear();
+
+        const updated = campaignRepository.getTranslations(req.params.id);
+        return res.json({ campaignId: campaign.id, locale, translation: updated[locale] });
+      },
+    );
+
+    app.delete(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+        const removed = campaignRepository.deleteTranslation(req.params.id, locale);
+        if (!removed) {
+          return res.status(404).json({ error: 'Locale not found', code: 'LOCALE_NOT_FOUND' });
+        }
+        shortCache.clear();
+        return res.status(204).end();
+      },
+    );
 
     app.post(`${prefix}/admin/api-keys`, rateLimiter, idempotencyMiddleware, requireMasterKey, createApiKeyHandler);
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
