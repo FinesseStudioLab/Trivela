@@ -52,6 +52,7 @@ import { DEPRECATION_REGISTRY } from './deprecations.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
+import { createEmbedWidgetRoute } from './routes/embedWidget.js';
 import { createVariantRoutes } from './routes/variants.js';
 import { createVariantService } from './services/variantService.js';
 import { createCohortRoutes } from './routes/cohorts.js';
@@ -811,6 +812,15 @@ export async function createApp(options = {}) {
     '/embed/campaign/:id',
     embedRateLimiter,
     createEmbedRoute(campaignRepository, siteOrigin, {
+      embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+    }),
+  );
+
+  // Versioned embed widgets (#809)
+  app.get(
+    '/embed/v1/:widgetType/:campaignId',
+    embedRateLimiter,
+    createEmbedWidgetRoute(campaignRepository, siteOrigin, {
       embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
     }),
   );
