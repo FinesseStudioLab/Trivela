@@ -52,6 +52,7 @@ import { DEPRECATION_REGISTRY } from './deprecations.js';
 import { generateAllowlist } from './lib/allowlist/merkle.js';
 import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
 import { createEmbedRoute } from './routes/embed.js';
+import { createTemplateRoutes } from './routes/templates.js';
 import { createSseRoutes } from './routes/sse.js';
 import { createEmbedWidgetRoute } from './routes/embedWidget.js';
 import { createDevPortalRoutes } from './routes/devPortal.js';
@@ -1998,6 +1999,9 @@ export async function createApp(options = {}) {
         return res.status(204).end();
       },
     );
+
+    // Campaign templates (#810)
+    app.use(`${prefix}/templates`, rateLimiter, createTemplateRoutes());
 
     app.post(`${prefix}/admin/api-keys`, rateLimiter, idempotencyMiddleware, requireMasterKey, createApiKeyHandler);
     app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
