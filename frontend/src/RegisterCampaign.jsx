@@ -10,6 +10,7 @@ import TransactionStatus from './components/TransactionStatus';
 import { useOptimisticAction } from './hooks/useOptimisticAction';
 import { CampaignClient } from './contracts/campaign';
 import { createSorobanServer, getNetworkPassphrase, getSorobanRpcUrl } from './config';
+import { analytics } from './lib/analytics';
 
 /**
  * Privacy mode constants matching the contract enum.
@@ -68,6 +69,7 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
   const [privacyMode, setPrivacyMode] = useState(null);
   const [fallbackAllowed, setFallbackAllowed] = useState(false);
   const [zkSupported, setZkSupported] = useState(null);
+  const [registrationStartTime, setRegistrationStartTime] = useState(null);
   const headingId = useId();
   const statusId = useId();
   const campaignContractId = getCampaignContractId();
@@ -141,6 +143,14 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
     setCheckError('');
     setNotice('');
 
+    // Track registration view
+    analytics.trackRegistrationViewed(
+      campaignContractId,
+      privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+      isRegistered,
+      null // time_remaining_hours - would need campaign data
+    );
+
     checkParticipantStatus(walletAddress)
       .then((registered) => {
         if (!cancelled) setIsRegistered(registered);
@@ -155,7 +165,7 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
     return () => {
       cancelled = true;
     };
-  }, [walletAddress, campaignContractId]);
+  }, [walletAddress, campaignContractId, privacyMode]);
 
   const handleRegister = async () => {
     if (!walletAddress) return;
@@ -164,17 +174,46 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
     setTxHash('');
     setCheckError('');
     const previousStatus = isRegistered;
+    const startTime = Date.now();
+    setRegistrationStartTime(startTime);
+
+    // Track registration initiated
+    analytics.trackRegistrationInitiated(
+      campaignContractId,
+      privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+      false // has_allowlist_proof - would need to check
+    );
 
     await run(() => submitRegisterTransaction(walletAddress), {
       optimistic: () => setIsRegistered(true),
-      rollback: () => setIsRegistered(previousStatus),
+      rollback: () => {
+        setIsRegistered(previousStatus);
+        // Track registration failed
+        analytics.trackRegistrationFailed(
+          campaignContractId,
+          privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+          'unknown',
+          'rollback'
+        );
+      },
       reconcile: ({ hash, alreadyRegistered }) => {
         setTxHash(hash);
+        const timeToConfirm = Date.now() - startTime;
+        
         if (alreadyRegistered) {
           setNotice('You were already registered in this campaign.');
         } else {
           onRegistered?.();
         }
+
+        // Track registration success
+        analytics.trackRegistrationSuccess(
+          campaignContractId,
+          privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+          '0.0001', // tx_fee_xlm - would need actual fee
+          timeToConfirm,
+          alreadyRegistered || false
+        );
       },
     });
   };
