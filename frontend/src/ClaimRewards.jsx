@@ -7,6 +7,7 @@ import {
 } from './stellar';
 import TransactionStatus from './components/TransactionStatus';
 import { useOptimisticAction } from './hooks/useOptimisticAction';
+import { analytics } from './lib/analytics';
 
 /**
  * ClaimRewards — lets the user enter a points amount and either claim
