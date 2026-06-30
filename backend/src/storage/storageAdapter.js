@@ -7,7 +7,7 @@
 /**
  * @typedef {Object} StorageAdapter
  * @property {(params: { buffer: Buffer, filename: string, mimeType: string }) => Promise<StorageUploadResult>} upload
- * @property {() => string} backendName
+ * @property {string} backendName
  */
 
 export {};

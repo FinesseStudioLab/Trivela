@@ -56,7 +56,7 @@ function buildCspHeader(siteOrigin) {
   return [
     "default-src 'none'",
     "style-src 'unsafe-inline'",
-    "img-src https: data:",
+    'img-src https: data:',
     `frame-ancestors ${siteOrigin} *`,
   ].join('; ');
 }
@@ -125,13 +125,16 @@ function renderLeaderboardWidget(campaign, entries, params) {
   const borderColor = isDark ? '#334155' : '#e2e8f0';
   const accent = color || '#3b82f6';
 
-  const rows = (entries ?? []).slice(0, limit).map((entry, i) => {
-    const rank = i + 1;
-    const displayName = sanitiseText(entry.displayName ?? entry.address ?? 'Anonymous', 32);
-    const points = entry.points ?? entry.score ?? 0;
-    const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
-    return `<tr><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};font-weight:${rank <= 3 ? 700 : 400}">${medal}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};color:${textPrimary}">${displayName}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};text-align:right;color:${accent};font-weight:600">${points}</td></tr>`;
-  }).join('');
+  const rows = (entries ?? [])
+    .slice(0, limit)
+    .map((entry, i) => {
+      const rank = i + 1;
+      const displayName = sanitiseText(entry.displayName ?? entry.address ?? 'Anonymous', 32);
+      const points = entry.points ?? entry.score ?? 0;
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
+      return `<tr><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};font-weight:${rank <= 3 ? 700 : 400}">${medal}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};color:${textPrimary}">${displayName}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};text-align:right;color:${accent};font-weight:600">${points}</td></tr>`;
+    })
+    .join('');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -160,7 +163,9 @@ function renderProgressWidget(campaign, params) {
   const name = sanitiseText(campaign.name, 80);
   const participantCount = campaign.participantCount ?? campaign.registrations ?? 0;
   const maxParticipants = campaign.maxParticipants ?? null;
-  const progress = maxParticipants ? Math.min(100, Math.round((participantCount / maxParticipants) * 100)) : null;
+  const progress = maxParticipants
+    ? Math.min(100, Math.round((participantCount / maxParticipants) * 100))
+    : null;
   const status = statusLabel(campaign);
 
   const bg = isDark ? '#0f172a' : '#f8fafc';
@@ -220,9 +225,11 @@ export function createEmbedWidgetRoute(campaignRepository, siteOrigin, { embedSe
 
     const campaign = campaignRepository.getById(campaignId);
     if (!campaign) {
-      return res.status(404).send(
-        '<html><body style="font-family:sans-serif;padding:16px;color:#ef4444">Campaign not found.</body></html>'
-      );
+      return res
+        .status(404)
+        .send(
+          '<html><body style="font-family:sans-serif;padding:16px;color:#ef4444">Campaign not found.</body></html>',
+        );
     }
 
     // Parse params
@@ -235,7 +242,7 @@ export function createEmbedWidgetRoute(campaignRepository, siteOrigin, { embedSe
     const rawLimit = parseInt(req.query.limit, 10);
     const limit = Math.min(
       MAX_LEADERBOARD_ROWS,
-      Math.max(1, isNaN(rawLimit) ? DEFAULT_LEADERBOARD_ROWS : rawLimit)
+      Math.max(1, isNaN(rawLimit) ? DEFAULT_LEADERBOARD_ROWS : rawLimit),
     );
 
     // Set CSP headers

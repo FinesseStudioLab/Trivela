@@ -145,39 +145,39 @@ values to git.
 
 ### Required
 
-| Variable                | Description                                        | Mainnet value                                    |
-| ----------------------- | -------------------------------------------------- | ------------------------------------------------ |
-| `NODE_ENV`              | Runtime environment                                | `production`                                     |
-| `STELLAR_NETWORK`       | Network identifier                                 | `mainnet` (or `public` for some Stellar SDKs)   |
-| `SOROBAN_RPC_URL`       | Primary Soroban RPC endpoint                       | `https://soroban.stellar.org` or a private node  |
-| `HORIZON_URL`           | Horizon REST endpoint                              | `https://horizon.stellar.org`                    |
-| `DATABASE_URL`          | PostgreSQL connection string                       | `postgresql://user:pass@host:5432/trivela`        |
-| `TRIVELA_API_KEYS`      | Comma-separated admin API keys (min 32 chars each) | generated via `openssl rand -hex 32`              |
-| `TRIVELA_MASTER_KEY`    | Master API key for privileged operations           | generated via `openssl rand -hex 32`              |
-| `TRIVELA_JWT_SECRET`    | JWT signing secret (min 32 chars)                  | generated via `openssl rand -hex 32`              |
-| `STELLAR_SECRET_KEY`    | Secret key for SEP-10 / sponsored accounts         | hardware wallet export or secrets manager ref     |
-| `CORS_ALLOWED_ORIGINS`  | Comma-separated allowed origins                    | `https://trivela.com` (no trailing slash)         |
-| `REWARDS_CONTRACT_ID`   | Deployed rewards contract address                  | from step 3.3                                    |
-| `CAMPAIGN_CONTRACT_ID`  | Deployed campaign contract address                 | from step 3.3                                    |
+| Variable               | Description                                        | Mainnet value                                   |
+| ---------------------- | -------------------------------------------------- | ----------------------------------------------- |
+| `NODE_ENV`             | Runtime environment                                | `production`                                    |
+| `STELLAR_NETWORK`      | Network identifier                                 | `mainnet` (or `public` for some Stellar SDKs)   |
+| `SOROBAN_RPC_URL`      | Primary Soroban RPC endpoint                       | `https://soroban.stellar.org` or a private node |
+| `HORIZON_URL`          | Horizon REST endpoint                              | `https://horizon.stellar.org`                   |
+| `DATABASE_URL`         | PostgreSQL connection string                       | `postgresql://user:pass@host:5432/trivela`      |
+| `TRIVELA_API_KEYS`     | Comma-separated admin API keys (min 32 chars each) | generated via `openssl rand -hex 32`            |
+| `TRIVELA_MASTER_KEY`   | Master API key for privileged operations           | generated via `openssl rand -hex 32`            |
+| `TRIVELA_JWT_SECRET`   | JWT signing secret (min 32 chars)                  | generated via `openssl rand -hex 32`            |
+| `STELLAR_SECRET_KEY`   | Secret key for SEP-10 / sponsored accounts         | hardware wallet export or secrets manager ref   |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated allowed origins                    | `https://trivela.com` (no trailing slash)       |
+| `REWARDS_CONTRACT_ID`  | Deployed rewards contract address                  | from step 3.3                                   |
+| `CAMPAIGN_CONTRACT_ID` | Deployed campaign contract address                 | from step 3.3                                   |
 
 ### Optional but recommended for production
 
-| Variable                        | Description                                  | Default      |
-| ------------------------------- | -------------------------------------------- | ------------ |
-| `SOROBAN_RPC_URLS`              | Additional RPC endpoints (comma-separated)   | —            |
-| `REDIS_URL`                     | Redis connection string for rate-limit store | in-memory    |
-| `PORT`                          | Listening port                               | `3001`       |
-| `RATE_LIMIT_WINDOW_MS`          | Rate-limit window in ms                      | `60000`      |
-| `RATE_LIMIT_MAX_REQUESTS`       | Max requests per window                      | `100`        |
-| `STORAGE_BACKEND`               | `local`, `s3`, or `gcs`                      | `local`      |
-| `AWS_REGION`                    | AWS region (when `STORAGE_BACKEND=s3`)       | —            |
-| `VAPID_PUBLIC_KEY`              | Web Push VAPID public key                    | —            |
-| `VAPID_PRIVATE_KEY`             | Web Push VAPID private key                   | —            |
-| `VAPID_SUBJECT`                 | Web Push subject (`mailto:` or URL)          | —            |
-| `OTEL_EXPORTER_OTLP_ENDPOINT`  | OpenTelemetry collector endpoint             | —            |
-| `OTEL_SERVICE_NAME`             | Service name for traces                      | `trivela`    |
-| `SITE_URL`                      | Public site URL (used in emails/webhooks)    | —            |
-| `ENABLE_WEBSOCKET`              | Enable WebSocket server                      | `true`       |
+| Variable                      | Description                                  | Default   |
+| ----------------------------- | -------------------------------------------- | --------- |
+| `SOROBAN_RPC_URLS`            | Additional RPC endpoints (comma-separated)   | —         |
+| `REDIS_URL`                   | Redis connection string for rate-limit store | in-memory |
+| `PORT`                        | Listening port                               | `3001`    |
+| `RATE_LIMIT_WINDOW_MS`        | Rate-limit window in ms                      | `60000`   |
+| `RATE_LIMIT_MAX_REQUESTS`     | Max requests per window                      | `100`     |
+| `STORAGE_BACKEND`             | `local`, `s3`, or `gcs`                      | `local`   |
+| `AWS_REGION`                  | AWS region (when `STORAGE_BACKEND=s3`)       | —         |
+| `VAPID_PUBLIC_KEY`            | Web Push VAPID public key                    | —         |
+| `VAPID_PRIVATE_KEY`           | Web Push VAPID private key                   | —         |
+| `VAPID_SUBJECT`               | Web Push subject (`mailto:` or URL)          | —         |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | OpenTelemetry collector endpoint             | —         |
+| `OTEL_SERVICE_NAME`           | Service name for traces                      | `trivela` |
+| `SITE_URL`                    | Public site URL (used in emails/webhooks)    | —         |
+| `ENABLE_WEBSOCKET`            | Enable WebSocket server                      | `true`    |
 
 Validate the configuration before starting:
 
@@ -195,27 +195,27 @@ values **must** change from their defaults for mainnet:
 ```yaml
 backend:
   image:
-    repository: ghcr.io/your-org/trivela-backend   # use your registry
-    tag: "v1.2.3"                                   # pin to a specific release tag — never "latest"
+    repository: ghcr.io/your-org/trivela-backend # use your registry
+    tag: 'v1.2.3' # pin to a specific release tag — never "latest"
     pullPolicy: IfNotPresent
-  replicaCount: 3                                   # minimum 3 for HA
+  replicaCount: 3 # minimum 3 for HA
   resources:
     requests:
-      cpu: "250m"
-      memory: "256Mi"
+      cpu: '250m'
+      memory: '256Mi'
     limits:
-      cpu: "1000m"
-      memory: "1Gi"
+      cpu: '1000m'
+      memory: '1Gi'
 
 frontend:
   image:
     repository: ghcr.io/your-org/trivela-frontend
-    tag: "v1.2.3"
+    tag: 'v1.2.3'
     pullPolicy: IfNotPresent
   replicaCount: 2
 
 ingress:
-  host: trivela.com                                 # production domain
+  host: trivela.com # production domain
   tls:
     enabled: true
     secretName: trivela-tls
@@ -227,13 +227,13 @@ autoscaling:
 
 config:
   nodeEnv: production
-  corsOrigin: "https://trivela.com"
+  corsOrigin: 'https://trivela.com'
 
 secrets:
   # Inject real values from your secrets manager — never commit here
-  databaseUrl: "postgresql://trivela_user:REAL_PASS@db.internal:5432/trivela_prod"
-  jwtSecret: "REAL_SECRET_AT_LEAST_32_CHARS"
-  sorobanRpcUrl: "https://soroban.stellar.org"
+  databaseUrl: 'postgresql://trivela_user:REAL_PASS@db.internal:5432/trivela_prod'
+  jwtSecret: 'REAL_SECRET_AT_LEAST_32_CHARS'
+  sorobanRpcUrl: 'https://soroban.stellar.org'
 ```
 
 Deploy with:
@@ -257,17 +257,17 @@ using `envsubst`.
 
 **Required variables before running the nginx deployment:**
 
-| Variable                 | Mainnet value                       |
-| ------------------------ | ----------------------------------- |
-| `TRIVELA_BACKEND_HOST`   | Internal hostname of the backend    |
-| `TRIVELA_BACKEND_PORT`   | `3001` (blue) or `3002` (green)     |
+| Variable               | Mainnet value                    |
+| ---------------------- | -------------------------------- |
+| `TRIVELA_BACKEND_HOST` | Internal hostname of the backend |
+| `TRIVELA_BACKEND_PORT` | `3001` (blue) or `3002` (green)  |
 
 **CORS**: `CORS_ALLOWED_ORIGINS` in the backend env must be set to the exact production frontend
 origin (e.g., `https://trivela.com`). The wildcard `*` must **never** be used in production.
 
 **TLS**: Terminate TLS at the ingress controller or load balancer. The nginx template currently
-listens on port 80 — the ingress must redirect HTTP → HTTPS and attach the TLS certificate.
-The `Strict-Transport-Security` header is already included in the template.
+listens on port 80 — the ingress must redirect HTTP → HTTPS and attach the TLS certificate. The
+`Strict-Transport-Security` header is already included in the template.
 
 **CSP**: Review the `Content-Security-Policy` header if you add third-party scripts or CDN assets.
 The embed route allows `frame-ancestors *` — confirm this is intentional for your embed use case.
@@ -291,7 +291,8 @@ Run this checklist after deployment and before announcing mainnet availability.
 
 - [ ] Soroban RPC health endpoint responds: `GET <SOROBAN_RPC_URL>/health`
 - [ ] `stellar contract invoke -- admin` returns the expected admin public key for each contract
-- [ ] Horizon account lookup confirms admin account is funded: `GET <HORIZON_URL>/accounts/<ADMIN_KEY>`
+- [ ] Horizon account lookup confirms admin account is funded:
+      `GET <HORIZON_URL>/accounts/<ADMIN_KEY>`
 
 ### Backend API
 

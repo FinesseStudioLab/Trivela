@@ -58,12 +58,20 @@ describe('featureFlagService', () => {
   });
 
   it('user targeting: allows matching user', () => {
-    service.setFlag({ flagKey: 'user-flag', enabled: true, targeting: { allowedUsers: ['user-42'] } });
+    service.setFlag({
+      flagKey: 'user-flag',
+      enabled: true,
+      targeting: { allowedUsers: ['user-42'] },
+    });
     expect(service.isEnabled('user-flag', { userId: 'user-42' })).toBe(true);
   });
 
   it('user targeting: blocks non-matching user', () => {
-    service.setFlag({ flagKey: 'user-flag', enabled: true, targeting: { allowedUsers: ['user-42'] } });
+    service.setFlag({
+      flagKey: 'user-flag',
+      enabled: true,
+      targeting: { allowedUsers: ['user-42'] },
+    });
     expect(service.isEnabled('user-flag', { userId: 'user-99' })).toBe(false);
   });
 
@@ -112,10 +120,18 @@ describe('featureFlagService', () => {
 
   it('safe default: returns false when store throws', () => {
     const brokenRepo = {
-      getByKey: () => { throw new Error('db down'); },
-      list: () => { throw new Error('db down'); },
-      upsert: () => { throw new Error('db down'); },
-      remove: () => { throw new Error('db down'); },
+      getByKey: () => {
+        throw new Error('db down');
+      },
+      list: () => {
+        throw new Error('db down');
+      },
+      upsert: () => {
+        throw new Error('db down');
+      },
+      remove: () => {
+        throw new Error('db down');
+      },
     };
     const brokenService = createFeatureFlagService({ featureFlagRepository: brokenRepo });
     expect(brokenService.isEnabled('any-flag')).toBe(false);

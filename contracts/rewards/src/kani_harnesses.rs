@@ -51,7 +51,12 @@ mod kani_harnesses {
         let result = compute_unlocked(now, &record);
 
         // Invariant 1: Result never exceeds total
-        assert!(result <= total, "Vesting result {} exceeds total {}", result, total);
+        assert!(
+            result <= total,
+            "Vesting result {} exceeds total {}",
+            result,
+            total
+        );
 
         // Invariant 2: Before start, nothing is unlocked
         if now <= start_ledger {
@@ -83,13 +88,15 @@ mod kani_harnesses {
         kani::assume(multiplier_bps > 0);
         kani::assume(multiplier_bps <= 100_000);
 
-        let adjusted_u128 = (base_amount as u128)
-            .checked_mul(multiplier_bps as u128);
+        let adjusted_u128 = (base_amount as u128).checked_mul(multiplier_bps as u128);
 
         // If multiplication doesn't overflow u128, result must fit in u64
         if let Some(product) = adjusted_u128 {
             let result = product / 10_000u128;
-            assert!(result <= u64::MAX as u128, "Multiplier result overflows u64");
+            assert!(
+                result <= u64::MAX as u128,
+                "Multiplier result overflows u64"
+            );
         }
     }
 
@@ -107,8 +114,7 @@ mod kani_harnesses {
         kani::assume(rate_bps > 0);
         kani::assume(rate_bps <= 100_000); // MAX_REFERRAL_RATE_BPS
 
-        let bonus_u128 = (qualifying_amount as u128)
-            .checked_mul(rate_bps as u128);
+        let bonus_u128 = (qualifying_amount as u128).checked_mul(rate_bps as u128);
 
         if let Some(product) = bonus_u128 {
             let bonus = product / 10_000u128;
@@ -132,11 +138,20 @@ mod kani_harnesses {
 
         if let Some(new_balance) = result {
             // If checked_add succeeded, no overflow occurred
-            assert!(new_balance >= current, "Balance should not decrease on addition");
-            assert!(new_balance >= amount, "Balance should be at least the added amount");
+            assert!(
+                new_balance >= current,
+                "Balance should not decrease on addition"
+            );
+            assert!(
+                new_balance >= amount,
+                "Balance should be at least the added amount"
+            );
         } else {
             // If checked_add returned None, overflow was correctly detected
-            assert!(current > u64::MAX - amount, "Overflow should only be detected when it would occur");
+            assert!(
+                current > u64::MAX - amount,
+                "Overflow should only be detected when it would occur"
+            );
         }
     }
 }

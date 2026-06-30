@@ -116,8 +116,8 @@ services:
     profiles: ['devnet']
     command: --local --enable-soroban-rpc
     ports:
-      - '8000:8000'   # Horizon + friendbot
-      - '8001:8001'   # Soroban RPC
+      - '8000:8000' # Horizon + friendbot
+      - '8001:8001' # Soroban RPC
     healthcheck:
       test: ['CMD-SHELL', 'curl -sf http://localhost:8000/health || exit 1']
       interval: 5s

@@ -11,13 +11,21 @@ import { createDeprecationMiddleware } from './deprecationNotice.js';
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function makeReqRes({ method = 'GET', path = '/api/v1/campaigns' } = {}) {
-  const req = { method, path };
+  // Minimal mock — the middleware only reads `method` and `path`. Cast to the
+  // full Request type so call sites type-check without constructing a real one.
+  const req = /** @type {import('express').Request} */ (/** @type {unknown} */ ({ method, path }));
+  /** @type {Record<string, any>} */
   const headers = {};
-  const res = {
-    setHeader(k, v) { headers[k] = v; },
-    getHeaders: () => headers,
-    _headers: headers,
-  };
+  // Minimal mock — middleware only calls setHeader(). Cast to Response.
+  const res = /** @type {import('express').Response} */ (
+    /** @type {unknown} */ ({
+      setHeader(k, v) {
+        headers[k] = v;
+      },
+      getHeaders: () => headers,
+      _headers: headers,
+    })
+  );
   return { req, res, headers };
 }
 
@@ -105,7 +113,10 @@ describe('createDeprecationMiddleware', () => {
       },
     };
     const mw = createDeprecationMiddleware({ registry });
-    const { req, res, headers } = makeReqRes({ method: 'GET', path: '/api/campaigns/extra/segment' });
+    const { req, res, headers } = makeReqRes({
+      method: 'GET',
+      path: '/api/campaigns/extra/segment',
+    });
     mw(req, res, () => {});
     assert.ok(!headers['Deprecation'], 'should not match paths with extra segments');
   });
@@ -148,7 +159,10 @@ describe('createDeprecationMiddleware', () => {
     const mw = createDeprecationMiddleware({ registry });
     const { req, res, headers } = makeReqRes({ method: 'GET', path: '/api/campaigns' });
     mw(req, res, () => {});
-    assert.ok(!isNaN(Date.parse(headers['Deprecation'])), 'Deprecation header should be a parseable date');
+    assert.ok(
+      !isNaN(Date.parse(headers['Deprecation'])),
+      'Deprecation header should be a parseable date',
+    );
   });
 
   test('handles an empty registry without errors', () => {

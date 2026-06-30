@@ -44,7 +44,9 @@ export function useCampaignSubscription({ campaignId, contractId, enabled = true
     if (!payload) return;
     if (payload.campaign) setCampaign((prev) => ({ ...prev, ...payload.campaign }));
     if (payload.participantCount !== undefined) {
-      setCampaign((prev) => prev ? { ...prev, participantCount: payload.participantCount } : prev);
+      setCampaign((prev) =>
+        prev ? { ...prev, participantCount: payload.participantCount } : prev,
+      );
     }
     setLastUpdated(new Date());
     setStateToast('Live update received');

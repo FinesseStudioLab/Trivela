@@ -15,17 +15,17 @@ function rowToJob(row) {
     }
   }
   return {
-    id: row.id,
-    type: row.type,
+    id: /** @type {string} */ (row.id),
+    type: /** @type {string} */ (row.type),
     payload,
-    status: row.status,
-    attempts: row.attempts,
-    maxAttempts: row.max_attempts,
-    baseDelayMs: row.base_delay_ms,
-    maxDelayMs: row.max_delay_ms,
-    runAt: row.run_at,
-    visibleAt: row.visible_at,
-    enqueuedAt: row.enqueued_at,
+    status: /** @type {string} */ (row.status),
+    attempts: /** @type {number} */ (row.attempts),
+    maxAttempts: /** @type {number} */ (row.max_attempts),
+    baseDelayMs: /** @type {number} */ (row.base_delay_ms),
+    maxDelayMs: /** @type {number} */ (row.max_delay_ms),
+    runAt: /** @type {string} */ (row.run_at),
+    visibleAt: /** @type {string} */ (row.visible_at),
+    enqueuedAt: /** @type {string} */ (row.enqueued_at),
     errorMessage: row.error_message ?? null,
   };
 }
@@ -163,7 +163,12 @@ export function createSqliteJobQueueRepository({ db }) {
     if (isDead) {
       nackDeadStmt.run(errorMessage ?? null, id);
     } else {
-      nackPendingStmt.run(nextRunAt ?? new Date().toISOString(), attempts ?? 1, errorMessage ?? null, id);
+      nackPendingStmt.run(
+        nextRunAt ?? new Date().toISOString(),
+        attempts ?? 1,
+        errorMessage ?? null,
+        id,
+      );
     }
   }
 

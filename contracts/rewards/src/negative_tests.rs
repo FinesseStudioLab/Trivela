@@ -55,7 +55,7 @@ fn negative_test_multiplier_overflow_detection() {
     );
 
     // With wrapping arithmetic, this would silently wrap:
-    let wrapping_result = (base_amount as u64).wrapping_mul(multiplier_bps as u64);
+    let wrapping_result = base_amount.wrapping_mul(multiplier_bps as u64);
     // We can't assert on the wrong value directly, but we confirm
     // checked_mul gives a different (correct) result
     assert_ne!(
@@ -79,7 +79,10 @@ fn negative_test_referral_bonus_denominator() {
 
     // Wrong denominator (1000 instead of 10000) would give 5000
     let wrong_bonus = (qualifying_amount as u128) * (rate_bps as u128) / 1_000u128;
-    assert_ne!(wrong_bonus, correct_bonus, "Wrong denominator gives different result");
+    assert_ne!(
+        wrong_bonus, correct_bonus,
+        "Wrong denominator gives different result"
+    );
     assert_eq!(wrong_bonus, 5_000, "Wrong bonus would be 5000");
 }
 
@@ -97,7 +100,10 @@ fn negative_test_balance_overflow_wrapping() {
 
     // Incorrect: wrapping_add silently wraps
     let wrapping_result = current_balance.wrapping_add(amount);
-    assert_eq!(wrapping_result, 9, "Wrapping result is incorrect (9, not overflow)");
+    assert_eq!(
+        wrapping_result, 9,
+        "Wrapping result is incorrect (9, not overflow)"
+    );
     assert_ne!(
         wrapping_result,
         checked_result.unwrap_or(0),

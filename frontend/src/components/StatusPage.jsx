@@ -57,19 +57,27 @@ export default function StatusPage() {
 
   const getStatusColor = (status) => {
     switch (status) {
-      case 'operational': return '#10b981';
-      case 'degraded': return '#f59e0b';
-      case 'outage': return '#ef4444';
-      default: return '#64748b';
+      case 'operational':
+        return '#10b981';
+      case 'degraded':
+        return '#f59e0b';
+      case 'outage':
+        return '#ef4444';
+      default:
+        return '#64748b';
     }
   };
 
   const getStatusIcon = (status) => {
     switch (status) {
-      case 'operational': return '✓';
-      case 'degraded': return '⚠';
-      case 'outage': return '✗';
-      default: return '○';
+      case 'operational':
+        return '✓';
+      case 'degraded':
+        return '⚠';
+      case 'outage':
+        return '✗';
+      default:
+        return '○';
     }
   };
 
@@ -89,7 +97,15 @@ export default function StatusPage() {
         <p style={{ color: '#ef4444' }}>{error}</p>
         <button
           onClick={fetchStatus}
-          style={{ marginTop: '16px', padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+          style={{
+            marginTop: '16px',
+            padding: '8px 16px',
+            background: '#6366f1',
+            color: 'white',
+            border: 'none',
+            borderRadius: '6px',
+            cursor: 'pointer',
+          }}
         >
           Retry
         </button>
@@ -104,7 +120,14 @@ export default function StatusPage() {
       {/* Header */}
       <div style={{ background: 'white', padding: '32px', borderBottom: '1px solid #e2e8f0' }}>
         <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              marginBottom: '16px',
+            }}
+          >
             <h1 style={{ margin: 0, fontSize: '2rem' }}>Trivela Status</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span
@@ -130,13 +153,21 @@ export default function StatusPage() {
         {/* Components */}
         <section style={{ marginBottom: '32px' }}>
           <h2 style={{ fontSize: '1.25rem', marginBottom: '16px' }}>Components</h2>
-          <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              overflow: 'hidden',
+            }}
+          >
             {statusData.components.map((component, index) => (
               <div
                 key={component.id}
                 style={{
                   padding: '16px 24px',
-                  borderBottom: index < statusData.components.length - 1 ? '1px solid #e2e8f0' : 'none',
+                  borderBottom:
+                    index < statusData.components.length - 1 ? '1px solid #e2e8f0' : 'none',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
@@ -144,11 +175,15 @@ export default function StatusPage() {
               >
                 <div>
                   <div style={{ fontWeight: 600, marginBottom: '4px' }}>{component.name}</div>
-                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>{component.description}</div>
+                  <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                    {component.description}
+                  </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   {component.latency && (
-                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>{component.latency}ms</span>
+                    <span style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                      {component.latency}ms
+                    </span>
                   )}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '1.2rem' }}>{getStatusIcon(component.status)}</span>
@@ -166,7 +201,7 @@ export default function StatusPage() {
         {statusData.incidents && statusData.incidents.length > 0 && (
           <section style={{ marginBottom: '32px' }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '16px' }}>Active Incidents</h2>
-            {statusData.incidents.map(incident => (
+            {statusData.incidents.map((incident) => (
               <div
                 key={incident.id}
                 style={{
@@ -177,7 +212,14 @@ export default function StatusPage() {
                   marginBottom: '12px',
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '8px' }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'flex-start',
+                    marginBottom: '8px',
+                  }}
+                >
                   <h3 style={{ margin: 0, fontSize: '1.1rem' }}>{incident.title}</h3>
                   <span
                     style={{
@@ -185,8 +227,18 @@ export default function StatusPage() {
                       borderRadius: '4px',
                       fontSize: '0.75rem',
                       fontWeight: 600,
-                      background: incident.impact === 'critical' ? '#fee2e2' : incident.impact === 'major' ? '#fef3c7' : '#f1f5f9',
-                      color: incident.impact === 'critical' ? '#991b1b' : incident.impact === 'major' ? '#92400e' : '#64748b',
+                      background:
+                        incident.impact === 'critical'
+                          ? '#fee2e2'
+                          : incident.impact === 'major'
+                            ? '#fef3c7'
+                            : '#f1f5f9',
+                      color:
+                        incident.impact === 'critical'
+                          ? '#991b1b'
+                          : incident.impact === 'major'
+                            ? '#92400e'
+                            : '#64748b',
                     }}
                   >
                     {incident.impact.toUpperCase()}
@@ -194,7 +246,8 @@ export default function StatusPage() {
                 </div>
                 <p style={{ color: '#64748b', marginBottom: '12px' }}>{incident.description}</p>
                 <div style={{ fontSize: '0.85rem', color: '#92400e' }}>
-                  Status: <strong>{incident.status}</strong> • Started {new Date(incident.createdAt).toLocaleString()}
+                  Status: <strong>{incident.status}</strong> • Started{' '}
+                  {new Date(incident.createdAt).toLocaleString()}
                 </div>
                 {incident.updates && incident.updates.length > 1 && (
                   <details style={{ marginTop: '12px' }}>
@@ -223,7 +276,7 @@ export default function StatusPage() {
         {statusData.maintenance && statusData.maintenance.length > 0 && (
           <section style={{ marginBottom: '32px' }}>
             <h2 style={{ fontSize: '1.25rem', marginBottom: '16px' }}>Scheduled Maintenance</h2>
-            {statusData.maintenance.map(maintenance => (
+            {statusData.maintenance.map((maintenance) => (
               <div
                 key={maintenance.id}
                 style={{
@@ -247,7 +300,15 @@ export default function StatusPage() {
 
         {/* Subscribe */}
         <section style={{ marginBottom: '32px' }}>
-          <div style={{ background: 'white', borderRadius: '8px', border: '1px solid #e2e8f0', padding: '24px', textAlign: 'center' }}>
+          <div
+            style={{
+              background: 'white',
+              borderRadius: '8px',
+              border: '1px solid #e2e8f0',
+              padding: '24px',
+              textAlign: 'center',
+            }}
+          >
             <h3 style={{ margin: '0 0 8px 0' }}>Subscribe to Updates</h3>
             <p style={{ color: '#64748b', marginBottom: '16px' }}>
               Get notified when incidents occur or maintenance is scheduled
@@ -255,30 +316,58 @@ export default function StatusPage() {
             {!showSubscribe ? (
               <button
                 onClick={() => setShowSubscribe(true)}
-                style={{ padding: '10px 20px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                style={{
+                  padding: '10px 20px',
+                  background: '#6366f1',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
               >
                 Subscribe
               </button>
             ) : (
-              <form onSubmit={handleSubscribe} style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+              <form
+                onSubmit={handleSubscribe}
+                style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}
+              >
                 <input
                   type="email"
                   required
                   value={email}
-                  onChange={e => setEmail(e.target.value)}
+                  onChange={(e) => setEmail(e.target.value)}
                   placeholder="your@email.com"
-                  style={{ padding: '10px 16px', border: '1px solid #e2e8f0', borderRadius: '6px', minWidth: '250px' }}
+                  style={{
+                    padding: '10px 16px',
+                    border: '1px solid #e2e8f0',
+                    borderRadius: '6px',
+                    minWidth: '250px',
+                  }}
                 />
                 <button
                   type="submit"
-                  style={{ padding: '10px 20px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                  style={{
+                    padding: '10px 20px',
+                    background: '#6366f1',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
                 >
                   Subscribe
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowSubscribe(false)}
-                  style={{ padding: '10px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                  style={{
+                    padding: '10px 16px',
+                    background: '#e2e8f0',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                  }}
                 >
                   Cancel
                 </button>
@@ -294,7 +383,12 @@ export default function StatusPage() {
           </p>
           <p style={{ margin: 0 }}>
             Powered by Trivela •{' '}
-            <a href="https://github.com/FinesseStudioLab/Trivela" target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1' }}>
+            <a
+              href="https://github.com/FinesseStudioLab/Trivela"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ color: '#6366f1' }}
+            >
               GitHub
             </a>
           </p>

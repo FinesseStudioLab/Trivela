@@ -2,7 +2,10 @@
 // Runs every OPERATOR_BALANCE_CHECK_INTERVAL_MS (default: 5 minutes).
 // Alerts via log.warn + metrics when any account is below threshold.
 
-import { checkOperatorBalances, resolveOperatorAddresses } from '../services/operatorBalanceService.js';
+import {
+  checkOperatorBalances,
+  resolveOperatorAddresses,
+} from '../services/operatorBalanceService.js';
 
 const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -16,7 +19,13 @@ const DEFAULT_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
  * }} options
  * @returns {{ start: () => void; stop: () => void; runOnce: () => Promise<void> }}
  */
-export function createOperatorBalanceJob({ db, stellarConfig, metrics, env = process.env, logger = console }) {
+export function createOperatorBalanceJob({
+  db,
+  stellarConfig,
+  metrics,
+  env = process.env,
+  logger = console,
+}) {
   const intervalMs = Number(env.OPERATOR_BALANCE_CHECK_INTERVAL_MS ?? DEFAULT_CHECK_INTERVAL_MS);
   const thresholdXlm = parseFloat(env.OPERATOR_BALANCE_THRESHOLD_XLM ?? '10');
   const autoTopupEnabled = env.AUTO_TOPUP_ENABLED === 'true';
@@ -54,13 +63,20 @@ export function createOperatorBalanceJob({ db, stellarConfig, metrics, env = pro
       }
     }, intervalMs);
     // Don't block startup — run after a short delay
-    setTimeout(() => runOnce().catch((err) => {
-      logger.error?.({ err: err.message }, '[operatorBalanceJob] initial check failed');
-    }), 5_000);
+    setTimeout(
+      () =>
+        runOnce().catch((err) => {
+          logger.error?.({ err: err.message }, '[operatorBalanceJob] initial check failed');
+        }),
+      5_000,
+    );
   }
 
   function stop() {
-    if (timer) { clearInterval(timer); timer = null; }
+    if (timer) {
+      clearInterval(timer);
+      timer = null;
+    }
   }
 
   return { start, stop, runOnce };

@@ -77,7 +77,7 @@ export default function AuditLog() {
 
   useEffect(() => {
     load(cursors[page] ?? null, filters);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [page, filters]);
 
   const applyFilters = (e) => {
@@ -223,7 +223,11 @@ export default function AuditLog() {
         </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', paddingBottom: 1 }}>
-          <button type="submit" className="btn btn-primary" style={{ fontSize: '0.8rem', padding: '6px 16px' }}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            style={{ fontSize: '0.8rem', padding: '6px 16px' }}
+          >
             Apply
           </button>
           <button
@@ -251,7 +255,9 @@ export default function AuditLog() {
       )}
 
       {loading ? (
-        <p role="status" style={{ color: 'var(--text-muted)' }}>Loading audit log…</p>
+        <p role="status" style={{ color: 'var(--text-muted)' }}>
+          Loading audit log…
+        </p>
       ) : (
         <>
           <div style={{ overflowX: 'auto', borderRadius: 12, border: '1px solid var(--border)' }}>
@@ -319,7 +325,16 @@ export default function AuditLog() {
                         </span>
                       </td>
                       <td style={cellStyle}>{entry.resource ?? '—'}</td>
-                      <td style={{ ...cellStyle, color: 'var(--text-muted)', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <td
+                        style={{
+                          ...cellStyle,
+                          color: 'var(--text-muted)',
+                          maxWidth: 220,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {entry.details ? JSON.stringify(entry.details) : '—'}
                       </td>
                     </tr>

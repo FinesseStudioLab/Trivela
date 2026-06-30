@@ -64,9 +64,7 @@ export default function NotificationCenter() {
   const handleMarkRead = async (id) => {
     try {
       await apiClient.markNotificationRead(id);
-      setNotifications((prev) =>
-        prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
-      );
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
       setUnreadCount((c) => Math.max(0, c - 1));
     } catch {
       // ignore

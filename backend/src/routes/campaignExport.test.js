@@ -13,11 +13,11 @@ import { createCampaignExportRoute } from './campaignExport.js';
 function makeDb(rows = [], { hasCreditEvents = true, hasClaimEvents = true } = {}) {
   return {
     prepare(sql) {
-      if (sql.includes("sqlite_master") && sql.includes("credit_events")) {
-        return { get: () => hasCreditEvents ? { name: 'credit_events' } : undefined };
+      if (sql.includes('sqlite_master') && sql.includes('credit_events')) {
+        return { get: () => (hasCreditEvents ? { name: 'credit_events' } : undefined) };
       }
-      if (sql.includes("sqlite_master") && sql.includes("claim_events")) {
-        return { get: () => hasClaimEvents ? { name: 'claim_events' } : undefined };
+      if (sql.includes('sqlite_master') && sql.includes('claim_events')) {
+        return { get: () => (hasClaimEvents ? { name: 'claim_events' } : undefined) };
       }
       return { all: (..._args) => rows, get: () => undefined };
     },
@@ -25,7 +25,9 @@ function makeDb(rows = [], { hasCreditEvents = true, hasClaimEvents = true } = {
 }
 
 function makeCampaignRepo(campaign = null) {
-  return { getById: (id) => campaign ?? (id === 'camp1' ? { id: 'camp1', name: 'Test Campaign' } : null) };
+  return {
+    getById: (id) => campaign ?? (id === 'camp1' ? { id: 'camp1', name: 'Test Campaign' } : null),
+  };
 }
 
 function makeAuditRepo() {
@@ -40,6 +42,9 @@ function makeRequireApiKey(req, res, next) {
   next();
 }
 
+/**
+ * @param {{ params?: Record<string, any>, query?: Record<string, any>, headers?: Record<string, any>, ip?: string }} [opts]
+ */
 function makeReq({ params = {}, query = {}, headers = {}, ip = '1.2.3.4' } = {}) {
   return { params, query, headers, ip, path: '/campaigns/' + (params.id ?? 'x') + '/export' };
 }
@@ -49,9 +54,17 @@ function makeRes() {
     _status: 200,
     _headers: {},
     _body: null,
-    status(code) { this._status = code; return this; },
-    setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-    json(body) { this._body = body; return this; },
+    status(code) {
+      this._status = code;
+      return this;
+    },
+    setHeader(k, v) {
+      this._headers[k.toLowerCase()] = v;
+    },
+    json(body) {
+      this._body = body;
+      return this;
+    },
   };
   return res;
 }
@@ -62,7 +75,11 @@ function makeStreamRes() {
   const chunks = [];
   res.write = (chunk) => chunks.push(chunk);
   res.end = () => {};
-  res.on = (event, cb) => { if (event === 'drain') {} };
+  res.on = (event, cb) => {
+    if (event === 'drain') {
+      /* no-op: stream never back-pressures in this test mock */
+    }
+  };
   res.once = () => res;
   res.emit = () => false;
   res.writable = true;
@@ -95,7 +112,10 @@ function routeHandler(router) {
   const handlers = layer.route.stack.map((s) => s.handle);
   return async (req, res) => {
     let i = 0;
-    const next = () => { i++; if (i < handlers.length) return handlers[i](req, res, next); };
+    const next = () => {
+      i++;
+      if (i < handlers.length) return handlers[i](req, res, next);
+    };
     return handlers[0](req, res, next);
   };
 }
@@ -135,10 +155,16 @@ describe('campaignExport — rate limiting', () => {
     // Use a unique campaign ID to avoid state leakage from other tests
     const uniqueId = `rl-headers-${Date.now()}`;
     const router = getRouter({
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'RL Test' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'RL Test' } : null),
+      },
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': 'key-rl-1' } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': 'key-rl-1' },
+    });
     const res = makeRes();
 
     await handler(req, res);
@@ -150,19 +176,29 @@ describe('campaignExport — rate limiting', () => {
   test('returns 429 after exceeding 5 exports per campaign per actor', async () => {
     const uniqueId = `rl-throttle-${Date.now()}`;
     const router = getRouter({
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'RL Throttle' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'RL Throttle' } : null),
+      },
     });
     const handler = routeHandler(router);
 
     // Exhaust 5 allowed exports
     for (let i = 0; i < 5; i++) {
-      const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': 'key-rl-throttle' } });
+      const req = makeReq({
+        params: { id: uniqueId },
+        query: { format: 'csv' },
+        headers: { 'x-api-key': 'key-rl-throttle' },
+      });
       const res = makeRes();
       await handler(req, res);
     }
 
     // 6th should be rate-limited
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': 'key-rl-throttle' } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': 'key-rl-throttle' },
+    });
     const res = makeRes();
     await handler(req, res);
 
@@ -174,19 +210,29 @@ describe('campaignExport — rate limiting', () => {
   test('different API keys have independent rate limit buckets', async () => {
     const uniqueId = `rl-keys-${Date.now()}`;
     const router = getRouter({
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'RL Keys' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'RL Keys' } : null),
+      },
     });
     const handler = routeHandler(router);
 
     // Exhaust key-A
     for (let i = 0; i < 5; i++) {
-      const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': 'key-A-isolated' } });
+      const req = makeReq({
+        params: { id: uniqueId },
+        query: { format: 'csv' },
+        headers: { 'x-api-key': 'key-A-isolated' },
+      });
       const res = makeRes();
       await handler(req, res);
     }
 
     // key-B should still be allowed
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': 'key-B-isolated' } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': 'key-B-isolated' },
+    });
     const res = makeRes();
     await handler(req, res);
 
@@ -198,18 +244,36 @@ describe('campaignExport — rate limiting', () => {
 
 describe('campaignExport — CSV format', () => {
   const PARTICIPANT_ROWS = [
-    { participantAddress: 'GABC', registeredAt: '2026-01-01', pointsCredited: 100, pointsClaimed: 50, netPoints: 50, referredBy: 'GXYZ' },
-    { participantAddress: 'GDEF', registeredAt: '2026-01-02', pointsCredited: 200, pointsClaimed: 0, netPoints: 200, referredBy: null },
+    {
+      participantAddress: 'GABC',
+      registeredAt: '2026-01-01',
+      pointsCredited: 100,
+      pointsClaimed: 50,
+      netPoints: 50,
+      referredBy: 'GXYZ',
+    },
+    {
+      participantAddress: 'GDEF',
+      registeredAt: '2026-01-02',
+      pointsCredited: 200,
+      pointsClaimed: 0,
+      netPoints: 200,
+      referredBy: null,
+    },
   ];
 
   test('sets Content-Type text/csv and Content-Disposition attachment', async () => {
     const uniqueId = `csv-headers-${Date.now()}`;
     const router = getRouter({
       rows: PARTICIPANT_ROWS,
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'CSV' } : null },
+      campaignRepo: { getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'CSV' } : null) },
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': `k-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': `k-${uniqueId}` },
+    });
     const res = makeRes();
 
     await handler(req, res);
@@ -224,25 +288,47 @@ describe('campaignExport — CSV format', () => {
     const auditRepo = makeAuditRepo();
     const router = getRouter({
       rows: PARTICIPANT_ROWS,
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'CSV Cols' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'CSV Cols' } : null),
+      },
       auditRepo,
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': `k-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': `k-${uniqueId}` },
+    });
 
     // Capture streamed output by intercepting the underlying stream pipeline
     let csvBody = '';
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
-      write(chunk) { csvBody += chunk; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
+      write(chunk) {
+        csvBody += chunk;
+      },
       end() {},
-      on(e, cb) { return this; },
-      once(e, cb) { return this; },
-      emit() { return false; },
+      on(e, cb) {
+        return this;
+      },
+      once(e, cb) {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -261,7 +347,7 @@ describe('campaignExport — CSV format', () => {
   });
 
   test('CSV escapes values containing commas', async () => {
-    const { buildCsv } = await import('./campaignExport.js').catch(() => ({}));
+    const { buildCsv } = /** @type {any} */ (await import('./campaignExport.js').catch(() => ({})));
     if (!buildCsv) return; // not exported — skip
 
     const columns = ['a', 'b'];
@@ -278,23 +364,45 @@ describe('campaignExport — JSON format', () => {
     const uniqueId = `json-headers-${Date.now()}`;
     const router = getRouter({
       rows: [],
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'JSON Test' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'JSON Test' } : null),
+      },
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'json' }, headers: { 'x-api-key': `k-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'json' },
+      headers: { 'x-api-key': `k-${uniqueId}` },
+    });
 
     let body = '';
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
-      write(chunk) { body += chunk; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
+      write(chunk) {
+        body += chunk;
+      },
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -311,24 +419,55 @@ describe('campaignExport — JSON format', () => {
   test('JSON export includes campaign metadata and participants array', async () => {
     const uniqueId = `json-shape-${Date.now()}`;
     const router = getRouter({
-      rows: [{ participantAddress: 'GABC', registeredAt: '2026-01-01', pointsCredited: 10, pointsClaimed: 0, netPoints: 10, referredBy: null }],
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'Shape Test' } : null },
+      rows: [
+        {
+          participantAddress: 'GABC',
+          registeredAt: '2026-01-01',
+          pointsCredited: 10,
+          pointsClaimed: 0,
+          netPoints: 10,
+          referredBy: null,
+        },
+      ],
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'Shape Test' } : null),
+      },
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'json' }, headers: { 'x-api-key': `k-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'json' },
+      headers: { 'x-api-key': `k-${uniqueId}` },
+    });
 
     let body = '';
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
-      write(chunk) { body += chunk; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
+      write(chunk) {
+        body += chunk;
+      },
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -354,7 +493,9 @@ describe('campaignExport — date range filter', () => {
     const router = getRouter({
       rows: [],
       db: makeDb([], { hasCreditEvents: false }),
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'Date Test' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'Date Test' } : null),
+      },
     });
     const handler = routeHandler(router);
     const req = makeReq({
@@ -367,14 +508,30 @@ describe('campaignExport — date range filter', () => {
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
-      write(chunk) { body += chunk; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
+      write(chunk) {
+        body += chunk;
+      },
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -396,23 +553,43 @@ describe('campaignExport — audit log', () => {
     const auditRepo = makeAuditRepo();
     const router = getRouter({
       rows: [],
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'Audit Test' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'Audit Test' } : null),
+      },
       auditRepo,
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': `k-audit-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': `k-audit-${uniqueId}` },
+    });
 
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
       write() {},
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -431,26 +608,50 @@ describe('campaignExport — audit log', () => {
 
   test('does not fail if audit log throws', async () => {
     const uniqueId = `audit-fail-${Date.now()}`;
-    const failingAuditRepo = { create: () => { throw new Error('audit DB down'); } };
+    const failingAuditRepo = {
+      create: () => {
+        throw new Error('audit DB down');
+      },
+    };
     const router = getRouter({
       rows: [],
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'Audit Fail' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'Audit Fail' } : null),
+      },
       auditRepo: failingAuditRepo,
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'csv' }, headers: { 'x-api-key': `k-af-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'csv' },
+      headers: { 'x-api-key': `k-af-${uniqueId}` },
+    });
 
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
       write() {},
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,
@@ -471,23 +672,45 @@ describe('campaignExport — referrals-only fallback', () => {
     ];
     const router = getRouter({
       db: makeDb(referralRows, { hasCreditEvents: false }),
-      campaignRepo: { getById: (id) => id === uniqueId ? { id: uniqueId, name: 'Fallback Test' } : null },
+      campaignRepo: {
+        getById: (id) => (id === uniqueId ? { id: uniqueId, name: 'Fallback Test' } : null),
+      },
     });
     const handler = routeHandler(router);
-    const req = makeReq({ params: { id: uniqueId }, query: { format: 'json' }, headers: { 'x-api-key': `k-fb-${uniqueId}` } });
+    const req = makeReq({
+      params: { id: uniqueId },
+      query: { format: 'json' },
+      headers: { 'x-api-key': `k-fb-${uniqueId}` },
+    });
 
     let body = '';
     const res = {
       _status: 200,
       _headers: {},
-      status(c) { this._status = c; return this; },
-      setHeader(k, v) { this._headers[k.toLowerCase()] = v; },
-      json(b) { this._body = b; return this; },
-      write(chunk) { body += chunk; },
+      status(c) {
+        this._status = c;
+        return this;
+      },
+      setHeader(k, v) {
+        this._headers[k.toLowerCase()] = v;
+      },
+      json(b) {
+        this._body = b;
+        return this;
+      },
+      write(chunk) {
+        body += chunk;
+      },
       end() {},
-      on() { return this; },
-      once() { return this; },
-      emit() { return false; },
+      on() {
+        return this;
+      },
+      once() {
+        return this;
+      },
+      emit() {
+        return false;
+      },
       writable: true,
       writableEnded: false,
       writableFinished: false,

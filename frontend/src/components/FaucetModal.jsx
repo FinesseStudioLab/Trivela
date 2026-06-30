@@ -54,10 +54,7 @@ export default function FaucetModal({ isOpen, onClose, publicKey, onSuccess }) {
       <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Fund Testnet Account</h2>
-          <button
-            onClick={onClose}
-            className="text-gray-500 hover:text-gray-700"
-          >
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             ✕
           </button>
         </div>
@@ -65,9 +62,8 @@ export default function FaucetModal({ isOpen, onClose, publicKey, onSuccess }) {
         {networkConfig.network !== 'testnet' ? (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
             <p className="text-yellow-800 text-sm">
-              <strong>Mainnet Notice:</strong> The faucet is only available on testnet.
-              To acquire assets on mainnet, please use a Stellar exchange or transfer
-              from another wallet.
+              <strong>Mainnet Notice:</strong> The faucet is only available on testnet. To acquire
+              assets on mainnet, please use a Stellar exchange or transfer from another wallet.
             </p>
           </div>
         ) : (
@@ -94,9 +90,7 @@ export default function FaucetModal({ isOpen, onClose, publicKey, onSuccess }) {
                   ✓ Account funded successfully!
                 </p>
                 {txHash && (
-                  <p className="text-xs text-green-600 font-mono break-all">
-                    TX: {txHash}
-                  </p>
+                  <p className="text-xs text-green-600 font-mono break-all">TX: {txHash}</p>
                 )}
               </div>
             )}

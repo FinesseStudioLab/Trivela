@@ -78,7 +78,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
 
   const handleWalletReturn = (state) => {
     localStorage.removeItem(APP_STATE_KEY);
-    
+
     if (state.publicKey) {
       setPublicKey(state.publicKey);
       setConnectionState('success');
@@ -99,7 +99,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
 
     // Generate a unique state ID for this connection attempt
     const stateId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    
+
     // Save state for return handling
     const connectionState = {
       stateId,
@@ -107,7 +107,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
       timestamp: Date.now(),
       returnUrl: window.location.href,
     };
-    
+
     localStorage.setItem(APP_STATE_KEY, JSON.stringify(connectionState));
     stateRef.current = connectionState;
 
@@ -119,13 +119,13 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
     });
 
     const deepLink = `${wallet.deepLink}?${deepLinkParams.toString()}`;
-    
+
     // Attempt to open deep link
     const opened = openDeepLink(deepLink, wallet.universalLink);
-    
+
     if (opened) {
       setConnectionState('waiting');
-      
+
       // Set timeout for connection
       timeoutRef.current = setTimeout(() => {
         if (connectionState === 'waiting') {
@@ -146,7 +146,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
     try {
       const start = Date.now();
       window.location.href = deepLink;
-      
+
       // If on iOS, the deep link might not work if app isn't installed
       // Use a timeout to detect if deep link failed
       setTimeout(() => {
@@ -155,7 +155,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
           window.location.href = universalLink;
         }
       }, 100);
-      
+
       return true;
     } catch (err) {
       console.error('Error opening deep link:', err);
@@ -173,7 +173,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
     setError(null);
 
     const stateId = Date.now().toString(36) + Math.random().toString(36).substr(2);
-    
+
     const signState = {
       stateId,
       walletName: selectedWallet.name,
@@ -182,7 +182,7 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
       transactionXdr,
       returnUrl: window.location.href,
     };
-    
+
     localStorage.setItem(APP_STATE_KEY, JSON.stringify(signState));
 
     const deepLinkParams = new URLSearchParams({
@@ -194,9 +194,9 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
 
     const deepLink = `${selectedWallet.deepLink}?${deepLinkParams.toString()}`;
     openDeepLink(deepLink, selectedWallet.universalLink);
-    
+
     setConnectionState('waiting');
-    
+
     timeoutRef.current = setTimeout(() => {
       setConnectionState('error');
       setError('Signing timed out');
@@ -222,15 +222,41 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
 
   if (!isMobile) {
     return (
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-        <div style={{ background: 'white', padding: '24px', borderRadius: '12px', maxWidth: '400px', width: '90%' }}>
+      <div
+        style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 1000,
+        }}
+      >
+        <div
+          style={{
+            background: 'white',
+            padding: '24px',
+            borderRadius: '12px',
+            maxWidth: '400px',
+            width: '90%',
+          }}
+        >
           <h2 style={{ marginTop: 0 }}>Mobile Wallet Connection</h2>
           <p style={{ color: '#64748b', marginBottom: '16px' }}>
-            This feature is designed for mobile devices. On desktop, please use a browser extension wallet like Freighter.
+            This feature is designed for mobile devices. On desktop, please use a browser extension
+            wallet like Freighter.
           </p>
           <button
             onClick={onClose}
-            style={{ padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+            style={{
+              padding: '8px 16px',
+              background: '#6366f1',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+            }}
           >
             Close
           </button>
@@ -240,13 +266,46 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-      <div style={{ background: 'white', padding: '24px', borderRadius: '12px', maxWidth: '450px', width: '90%', maxHeight: '90vh', overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+    <div
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 1000,
+      }}
+    >
+      <div
+        style={{
+          background: 'white',
+          padding: '24px',
+          borderRadius: '12px',
+          maxWidth: '450px',
+          width: '90%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+        }}
+      >
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: '20px',
+          }}
+        >
           <h2 style={{ margin: 0 }}>Connect Mobile Wallet</h2>
           <button
             onClick={onClose}
-            style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748b' }}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '1.5rem',
+              cursor: 'pointer',
+              color: '#64748b',
+            }}
           >
             ✕
           </button>
@@ -255,10 +314,11 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
         {connectionState === 'idle' && (
           <>
             <p style={{ color: '#64748b', marginBottom: '16px' }}>
-              Select your mobile wallet to connect. You'll be redirected to the wallet app to approve the connection.
+              Select your mobile wallet to connect. You'll be redirected to the wallet app to
+              approve the connection.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {MOBILE_WALLETS.map(wallet => (
+              {MOBILE_WALLETS.map((wallet) => (
                 <button
                   key={wallet.name}
                   onClick={() => initiateConnection(wallet)}
@@ -271,8 +331,8 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
                     textAlign: 'left',
                     transition: 'all 0.2s',
                   }}
-                  onMouseEnter={(e) => e.target.style.background = '#e0e7ff'}
-                  onMouseLeave={(e) => e.target.style.background = '#f8fafc'}
+                  onMouseEnter={(e) => (e.target.style.background = '#e0e7ff')}
+                  onMouseLeave={(e) => (e.target.style.background = '#f8fafc')}
                 >
                   <div style={{ fontWeight: 600, marginBottom: '4px' }}>{wallet.name}</div>
                   <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
@@ -302,7 +362,14 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
             </p>
             <button
               onClick={resetConnection}
-              style={{ marginTop: '16px', padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+              style={{
+                marginTop: '16px',
+                padding: '8px 16px',
+                background: '#e2e8f0',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
             >
               Cancel
             </button>
@@ -315,7 +382,17 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
             <p style={{ color: '#166534', fontWeight: 600, marginBottom: '8px' }}>
               Wallet Connected!
             </p>
-            <div style={{ background: '#f0fdf4', padding: '12px', borderRadius: '6px', marginBottom: '16px', fontFamily: 'monospace', fontSize: '0.85rem', wordBreak: 'break-all' }}>
+            <div
+              style={{
+                background: '#f0fdf4',
+                padding: '12px',
+                borderRadius: '6px',
+                marginBottom: '16px',
+                fontFamily: 'monospace',
+                fontSize: '0.85rem',
+                wordBreak: 'break-all',
+              }}
+            >
               {publicKey.slice(0, 8)}...{publicKey.slice(-8)}
             </div>
             <button
@@ -323,7 +400,15 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
                 onClose();
                 resetConnection();
               }}
-              style={{ marginTop: '16px', padding: '8px 16px', background: '#10b981', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+              style={{
+                marginTop: '16px',
+                padding: '8px 16px',
+                background: '#10b981',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                cursor: 'pointer',
+              }}
             >
               Continue
             </button>
@@ -340,13 +425,26 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
               <button
                 onClick={resetConnection}
-                style={{ padding: '8px 16px', background: '#6366f1', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px',
+                  background: '#6366f1',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
               >
                 Try Again
               </button>
               <button
                 onClick={() => setShowFallback(true)}
-                style={{ padding: '8px 16px', background: '#e2e8f0', border: 'none', borderRadius: '6px', cursor: 'pointer' }}
+                style={{
+                  padding: '8px 16px',
+                  background: '#e2e8f0',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                }}
               >
                 Install Wallet
               </button>
@@ -355,7 +453,14 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
         )}
 
         {showFallback && selectedWallet && (
-          <div style={{ marginTop: '16px', padding: '16px', background: '#fef3c7', borderRadius: '8px' }}>
+          <div
+            style={{
+              marginTop: '16px',
+              padding: '16px',
+              background: '#fef3c7',
+              borderRadius: '8px',
+            }}
+          >
             <h3 style={{ fontSize: '1rem', margin: '0 0 8px 0' }}>Wallet Not Installed</h3>
             <p style={{ fontSize: '0.9rem', color: '#92400e', marginBottom: '12px' }}>
               {selectedWallet.name} doesn't appear to be installed on your device.
@@ -364,14 +469,30 @@ export default function MobileWalletConnect({ isOpen, onClose, onConnect, onSign
               href={selectedWallet.installUrl}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ display: 'inline-block', padding: '8px 16px', background: '#f59e0b', color: 'white', textDecoration: 'none', borderRadius: '6px' }}
+              style={{
+                display: 'inline-block',
+                padding: '8px 16px',
+                background: '#f59e0b',
+                color: 'white',
+                textDecoration: 'none',
+                borderRadius: '6px',
+              }}
             >
               Install {selectedWallet.name}
             </a>
           </div>
         )}
 
-        <div style={{ marginTop: '16px', padding: '12px', background: '#f1f5f9', borderRadius: '8px', fontSize: '0.8rem', color: '#64748b' }}>
+        <div
+          style={{
+            marginTop: '16px',
+            padding: '12px',
+            background: '#f1f5f9',
+            borderRadius: '8px',
+            fontSize: '0.8rem',
+            color: '#64748b',
+          }}
+        >
           <strong>How it works:</strong>
           <ul style={{ margin: '8px 0 0 0', paddingLeft: '20px' }}>
             <li>Tap your wallet to open its app</li>

@@ -27,9 +27,7 @@ function matchDeprecation(method, path, registry) {
 
     if (patternParts.length !== pathParts.length) continue;
 
-    const matched = patternParts.every(
-      (seg, i) => seg.startsWith(':') || seg === pathParts[i],
-    );
+    const matched = patternParts.every((seg, i) => seg.startsWith(':') || seg === pathParts[i]);
 
     if (matched) return entry;
   }
@@ -44,7 +42,10 @@ function matchDeprecation(method, path, registry) {
  * @param {{ log?: { warn?: Function }, registry?: Record<string, DeprecationEntry> }} [options]
  * @returns {import('express').RequestHandler}
  */
-export function createDeprecationMiddleware({ log = console, registry = DEPRECATION_REGISTRY } = {}) {
+export function createDeprecationMiddleware({
+  log = console,
+  registry = DEPRECATION_REGISTRY,
+} = {}) {
   return function deprecationNotice(req, res, next) {
     const entry = matchDeprecation(req.method, req.path, registry);
 
@@ -54,15 +55,12 @@ export function createDeprecationMiddleware({ log = console, registry = DEPRECAT
 
       res.setHeader('Deprecation', deprecationDate);
       res.setHeader('Sunset', sunsetDate);
-      res.setHeader(
-        'Link',
-        `<${entry.replacement}>; rel="successor-version"`,
-      );
+      res.setHeader('Link', `<${entry.replacement}>; rel="successor-version"`);
 
       log.warn?.(
         `deprecated_endpoint_hit method=${req.method} path=${req.path} ` +
-        `deprecated_at=${entry.deprecatedAt} removed_at=${entry.removedAt} ` +
-        `replacement=${entry.replacement}`,
+          `deprecated_at=${entry.deprecatedAt} removed_at=${entry.removedAt} ` +
+          `replacement=${entry.replacement}`,
       );
     }
 

@@ -85,9 +85,8 @@ export function parseCurrenciesFromEnv(env = process.env) {
         name: env[`REWARD_TOKEN_${i}_NAME`],
         desc: env[`REWARD_TOKEN_${i}_DESC`],
         image: env[`REWARD_TOKEN_${i}_IMAGE`],
-        decimals: env[`REWARD_TOKEN_${i}_DECIMALS`] != null
-          ? Number(env[`REWARD_TOKEN_${i}_DECIMALS`])
-          : 7,
+        decimals:
+          env[`REWARD_TOKEN_${i}_DECIMALS`] != null ? Number(env[`REWARD_TOKEN_${i}_DECIMALS`]) : 7,
       });
     }
   }

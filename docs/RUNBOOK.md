@@ -131,10 +131,10 @@ If `npm run db:migrate` fails during deployment:
 
 ### RTO / RPO Targets
 
-| Metric | Target | Rationale |
-|--------|--------|-----------|
-| **RPO** (Recovery Point Objective) | ≤ 24 hours | Daily automated backups at 02:00 UTC |
-| **RTO** (Recovery Time Objective) | ≤ 30 minutes | pg_restore + smoke test suite |
+| Metric                             | Target       | Rationale                            |
+| ---------------------------------- | ------------ | ------------------------------------ |
+| **RPO** (Recovery Point Objective) | ≤ 24 hours   | Daily automated backups at 02:00 UTC |
+| **RTO** (Recovery Time Objective)  | ≤ 30 minutes | pg_restore + smoke test suite        |
 
 ### Automated Backups
 
@@ -155,17 +155,18 @@ BACKUP_ENCRYPTION_KEY=./backup-key.pub \
 ```
 
 Each backup produces:
+
 - A compressed `pg_dump` in custom format (`.dump.gz`)
 - A `manifest.json` with checksum, schema version, and indexer cursor
 - Optional age encryption (`.age` suffix)
 
 ### Retention Policy
 
-| Retention | Default | Configurable via |
-|-----------|---------|-----------------|
-| Daily | 7 days | `BACKUP_RETENTION_DAILY` |
-| Weekly | 4 weeks | `BACKUP_RETENTION_WEEKLY` |
-| Monthly | 6 months | `BACKUP_RETENTION_MONTHLY` |
+| Retention | Default  | Configurable via           |
+| --------- | -------- | -------------------------- |
+| Daily     | 7 days   | `BACKUP_RETENTION_DAILY`   |
+| Weekly    | 4 weeks  | `BACKUP_RETENTION_WEEKLY`  |
+| Monthly   | 6 months | `BACKUP_RETENTION_MONTHLY` |
 
 Old backups are pruned automatically by the backup script.
 
@@ -187,6 +188,7 @@ DATABASE_URL="postgresql://..." \
 ```
 
 The restore script performs:
+
 1. Checksum verification (if `.sha256` file present)
 2. Decryption (if `BACKUP_DECRYPTION_KEY` provided)
 3. Decompression and `pg_restore --clean --if-exists`
@@ -258,9 +260,11 @@ kubectl logs job/trivela-db-backup-manual-xxx -n trivela
 ```
 
 Required secrets for the CronJob:
+
 - `trivela-secrets.DATABASE_URL` — PostgreSQL connection string
 - `trivela-secrets.S3_BACKUP_BUCKET` — S3 bucket (if using S3)
 - `trivela-secrets.BACKUP_ENCRYPTION_PUBKEY` — age public key (optional)
+
 # Trivela Runbook
 
 Operational procedures for the Trivela backend and infrastructure.
@@ -269,22 +273,25 @@ Operational procedures for the Trivela backend and infrastructure.
 
 ## Secret Rotation Procedure
 
-If a private key, API key, or other secret is accidentally committed to the repository, follow these steps immediately.
+If a private key, API key, or other secret is accidentally committed to the repository, follow these
+steps immediately.
 
 ### 1. Assess the exposure
 
-- Determine what was committed: Stellar secret key, Trivela API key, environment variable, or third-party credential.
+- Determine what was committed: Stellar secret key, Trivela API key, environment variable, or
+  third-party credential.
 - Check if the commit reached GitHub (even briefly) — assume it did and treat it as compromised.
 
 ### 2. Revoke / rotate the secret immediately
 
-| Secret type | Rotation action |
-|---|---|
-| Stellar secret key | Generate a new keypair. If the key held on-chain funds, sweep them to a new address first. |
-| Trivela API key | Call `DELETE /api/v1/admin/api-keys/:id` to revoke the old key, then create a new one. |
-| Third-party credential | Follow the provider's key rotation procedure. |
+| Secret type            | Rotation action                                                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| Stellar secret key     | Generate a new keypair. If the key held on-chain funds, sweep them to a new address first. |
+| Trivela API key        | Call `DELETE /api/v1/admin/api-keys/:id` to revoke the old key, then create a new one.     |
+| Third-party credential | Follow the provider's key rotation procedure.                                              |
 
-Do **not** wait until the commit is removed before revoking — assume the secret is already exploited.
+Do **not** wait until the commit is removed before revoking — assume the secret is already
+exploited.
 
 ### 3. Remove the secret from git history
 
@@ -299,7 +306,9 @@ Then force-push all branches and tags. Coordinate with other contributors to re-
 
 ### 4. Request a GitHub secret scan review
 
-Open a GitHub support ticket to purge cached views of the exposed commit, and enable [GitHub's secret scanning alerts](https://docs.github.com/en/code-security/secret-scanning) if not already on.
+Open a GitHub support ticket to purge cached views of the exposed commit, and enable
+[GitHub's secret scanning alerts](https://docs.github.com/en/code-security/secret-scanning) if not
+already on.
 
 ### 5. Post-incident
 
@@ -314,6 +323,8 @@ Open a GitHub support ticket to purge cached views of the exposed commit, and en
 If the `Secrets Scanning` CI workflow fails on a PR:
 
 1. **Do not merge** until the finding is resolved.
-2. Read the workflow output to see which file/line triggered the rule (the secret value itself is not printed).
-3. If it is a **false positive**, add an `[allowlist]` entry in `.gitleaks.toml` for that path or pattern, and explain why in the PR.
+2. Read the workflow output to see which file/line triggered the rule (the secret value itself is
+   not printed).
+3. If it is a **false positive**, add an `[allowlist]` entry in `.gitleaks.toml` for that path or
+   pattern, and explain why in the PR.
 4. If it is a **real secret**, follow the rotation procedure above before amending the commit.

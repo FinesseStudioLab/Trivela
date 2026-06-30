@@ -114,9 +114,7 @@ export function createSponsoredAccountRoutes({ dal, stellarConfig, env = process
       });
 
       // CAP-33: wrap in sponsor envelope
-      txBuilder.addOperation(
-        Operation.beginSponsoringFutureReserves({ sponsoredId: address }),
-      );
+      txBuilder.addOperation(Operation.beginSponsoringFutureReserves({ sponsoredId: address }));
       txBuilder.addOperation(
         Operation.createAccount({
           destination: address,
@@ -132,9 +130,7 @@ export function createSponsoredAccountRoutes({ dal, stellarConfig, env = process
           }),
         );
       }
-      txBuilder.addOperation(
-        Operation.endSponsoringFutureReserves({ source: address }),
-      );
+      txBuilder.addOperation(Operation.endSponsoringFutureReserves({ source: address }));
 
       txBuilder.setTimeout(180);
       const tx = txBuilder.build();
@@ -163,7 +159,9 @@ export function createSponsoredAccountRoutes({ dal, stellarConfig, env = process
         note: 'Add the new account signature to transactionXdr before submitting to Horizon',
       });
     } catch (err) {
-      return res.status(502).json({ error: 'failed to build sponsorship transaction', detail: err.message });
+      return res
+        .status(502)
+        .json({ error: 'failed to build sponsorship transaction', detail: err.message });
     }
   });
 
@@ -191,7 +189,11 @@ export function createSponsoredAccountRoutes({ dal, stellarConfig, env = process
           "UPDATE sponsored_accounts SET status = 'revoked', revoked_at = ?, updated_at = ? WHERE id = ?",
         )
         .run(now, now, row.id);
-      return res.json({ ok: true, status: 'revoked', note: 'SPONSOR_SECRET_KEY not configured — revocation tracked only' });
+      return res.json({
+        ok: true,
+        status: 'revoked',
+        note: 'SPONSOR_SECRET_KEY not configured — revocation tracked only',
+      });
     }
 
     try {
@@ -223,7 +225,9 @@ export function createSponsoredAccountRoutes({ dal, stellarConfig, env = process
 
       return res.json({ ok: true, status: 'revoked', transactionXdr: xdr });
     } catch (err) {
-      return res.status(502).json({ error: 'failed to build revocation transaction', detail: err.message });
+      return res
+        .status(502)
+        .json({ error: 'failed to build revocation transaction', detail: err.message });
     }
   });
 

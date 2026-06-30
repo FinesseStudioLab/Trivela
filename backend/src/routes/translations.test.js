@@ -258,7 +258,11 @@ test('GET /campaigns list includes locale-negotiated names', async () => {
     await fetch(`${baseUrl}/api/v1/campaigns/${campaign.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'X-API-Key': 'test-key' },
-      body: JSON.stringify({ status: 'published', contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA', active: true }),
+      body: JSON.stringify({
+        status: 'published',
+        contractId: 'CAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+        active: true,
+      }),
     });
 
     const res = await fetch(`${baseUrl}/api/v1/campaigns?locale=es`);

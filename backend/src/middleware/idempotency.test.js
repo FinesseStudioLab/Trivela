@@ -31,7 +31,9 @@ describe('idempotency middleware', () => {
     const req = { method: 'GET', headers: {} };
     const res = {};
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(called);
   });
 
@@ -39,7 +41,9 @@ describe('idempotency middleware', () => {
     const req = { method: 'POST', headers: {}, body: {} };
     const res = {};
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(called);
   });
 
@@ -48,26 +52,48 @@ describe('idempotency middleware', () => {
     const res = {
       statusCode: null,
       body: null,
-      status(code) { this.statusCode = code; return this; },
-      json(body) { this.body = body; return this; },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
     };
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(!called);
     assert.strictEqual(res.statusCode, 400);
   });
 
   it('processes first request and stores result', async () => {
-    const req = { method: 'POST', headers: { 'idempotency-key': 'test-key-12345678' }, body: { data: 'test' }, originalUrl: '/test', log: null };
+    const req = {
+      method: 'POST',
+      headers: { 'idempotency-key': 'test-key-12345678' },
+      body: { data: 'test' },
+      originalUrl: '/test',
+      log: null,
+    };
     const res = {
       statusCode: 201,
       body: null,
-      status(code) { this.statusCode = code; return this; },
-      json(body) { this.body = body; return this; },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
       setHeader() {},
     };
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(called);
 
     res.json({ id: 1, name: 'test' });
@@ -82,16 +108,30 @@ describe('idempotency middleware', () => {
     repository.tryLock(key);
     repository.complete(key, 201, JSON.stringify({ id: 1 }));
 
-    const req = { method: 'POST', headers: { 'idempotency-key': key }, body: { data: 'test' }, originalUrl: '/test', log: null };
+    const req = {
+      method: 'POST',
+      headers: { 'idempotency-key': key },
+      body: { data: 'test' },
+      originalUrl: '/test',
+      log: null,
+    };
     const res = {
       statusCode: null,
       body: null,
-      status(code) { this.statusCode = code; return this; },
-      json(body) { this.body = body; return this; },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
       setHeader() {},
     };
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(!called);
     assert.strictEqual(res.statusCode, 201);
     assert.deepStrictEqual(res.body, { id: 1 });
@@ -102,16 +142,30 @@ describe('idempotency middleware', () => {
     repository.create(key, 'fingerprint1');
     repository.tryLock(key);
 
-    const req = { method: 'POST', headers: { 'idempotency-key': key }, body: { data: 'test' }, originalUrl: '/test', log: null };
+    const req = {
+      method: 'POST',
+      headers: { 'idempotency-key': key },
+      body: { data: 'test' },
+      originalUrl: '/test',
+      log: null,
+    };
     const res = {
       statusCode: null,
       body: null,
-      status(code) { this.statusCode = code; return this; },
-      json(body) { this.body = body; return this; },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
       setHeader() {},
     };
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(!called);
     assert.strictEqual(res.statusCode, 409);
   });
@@ -122,16 +176,30 @@ describe('idempotency middleware', () => {
     repository.tryLock(key);
     repository.complete(key, 200, JSON.stringify({ result: 'ok' }));
 
-    const req = { method: 'POST', headers: { 'idempotency-key': key }, body: { data: 'different' }, originalUrl: '/test', log: null };
+    const req = {
+      method: 'POST',
+      headers: { 'idempotency-key': key },
+      body: { data: 'different' },
+      originalUrl: '/test',
+      log: null,
+    };
     const res = {
       statusCode: null,
       body: null,
-      status(code) { this.statusCode = code; return this; },
-      json(body) { this.body = body; return this; },
+      status(code) {
+        this.statusCode = code;
+        return this;
+      },
+      json(body) {
+        this.body = body;
+        return this;
+      },
       setHeader() {},
     };
     let called = false;
-    await middleware(req, res, () => { called = true; });
+    await middleware(req, res, () => {
+      called = true;
+    });
     assert.ok(!called);
     assert.strictEqual(res.statusCode, 422);
   });

@@ -7,8 +7,8 @@ Trivela's Soroban contracts.
 
 ## Reporting a Vulnerability
 
-Do **not** open a public GitHub issue for security vulnerabilities. Email
-**security@trivela.com** with:
+Do **not** open a public GitHub issue for security vulnerabilities. Email **security@trivela.com**
+with:
 
 - A description of the vulnerability and the component affected
 - Steps to reproduce (or a proof-of-concept)
@@ -21,15 +21,15 @@ critical issues and 30 days for others. Please allow us to coordinate disclosure
 
 ## Key Inventory
 
-| Key / Secret              | Purpose                                           | Storage requirement               |
-| ------------------------- | ------------------------------------------------- | --------------------------------- |
-| Admin keypair (`G...`)    | Contract admin calls (`propose_admin`, upgrades)  | Hardware wallet or HSM            |
-| `STELLAR_SECRET_KEY`      | SEP-10 / sponsored account signing                | Secrets manager (Vault, AWS SM)   |
-| `TRIVELA_MASTER_KEY`      | Privileged API operations                         | Secrets manager                   |
-| `TRIVELA_API_KEYS`        | Standard API access                               | Secrets manager                   |
-| `TRIVELA_JWT_SECRET`      | JWT signing                                       | Secrets manager, min 32 chars     |
-| `DATABASE_URL`            | PostgreSQL credentials                            | Secrets manager                   |
-| `VAPID_PRIVATE_KEY`       | Web Push signing                                  | Secrets manager                   |
+| Key / Secret           | Purpose                                          | Storage requirement             |
+| ---------------------- | ------------------------------------------------ | ------------------------------- |
+| Admin keypair (`G...`) | Contract admin calls (`propose_admin`, upgrades) | Hardware wallet or HSM          |
+| `STELLAR_SECRET_KEY`   | SEP-10 / sponsored account signing               | Secrets manager (Vault, AWS SM) |
+| `TRIVELA_MASTER_KEY`   | Privileged API operations                        | Secrets manager                 |
+| `TRIVELA_API_KEYS`     | Standard API access                              | Secrets manager                 |
+| `TRIVELA_JWT_SECRET`   | JWT signing                                      | Secrets manager, min 32 chars   |
+| `DATABASE_URL`         | PostgreSQL credentials                           | Secrets manager                 |
+| `VAPID_PRIVATE_KEY`    | Web Push signing                                 | Secrets manager                 |
 
 **Rules:**
 
@@ -110,9 +110,9 @@ compromised, act immediately.
 
 ### Step 2 — Initiate emergency admin transfer
 
-Use a backup admin keypair or a multisig key that was established during initial setup. If no
-backup key exists, you will need to coordinate with the Stellar network — a compromised admin with
-no backup is a critical situation; contact **security@trivela.com** immediately.
+Use a backup admin keypair or a multisig key that was established during initial setup. If no backup
+key exists, you will need to coordinate with the Stellar network — a compromised admin with no
+backup is a critical situation; contact **security@trivela.com** immediately.
 
 Assuming you have a backup key (`trivela-admin-backup`):
 
@@ -152,15 +152,15 @@ stellar contract invoke \
 
 ### Step 3 — Rotate to a new permanent key
 
-Once the backup key is in control, generate a fresh keypair on a hardware wallet and transfer
-admin to it using the normal two-step procedure (see below).
+Once the backup key is in control, generate a fresh keypair on a hardware wallet and transfer admin
+to it using the normal two-step procedure (see below).
 
 ### Step 4 — Post-incident
 
-- Audit contract event logs for any unauthorized calls between the estimated compromise time and
-  the transfer.
-- Rotate all backend secrets as a precaution (the admin keypair is separate from backend secrets
-  but assume full breach).
+- Audit contract event logs for any unauthorized calls between the estimated compromise time and the
+  transfer.
+- Rotate all backend secrets as a precaution (the admin keypair is separate from backend secrets but
+  assume full breach).
 - Write an incident report covering timeline, root cause, and remediation.
 
 ---
@@ -173,16 +173,16 @@ because the current admin retains control until the new admin explicitly accepts
 
 ### Functions
 
-| Function                                  | Called by       | Effect                                            |
-| ----------------------------------------- | --------------- | ------------------------------------------------- |
-| `propose_admin(current_admin, new_admin)` | Current admin   | Writes `new_admin` to `pending_admin`; no change to `admin` slot |
-| `cancel_admin_transfer(current_admin)`    | Current admin   | Clears `pending_admin`; no transfer occurs        |
-| `accept_admin(new_admin)`                 | New admin       | Moves `new_admin` into `admin` slot; clears `pending_admin` |
+| Function                                  | Called by     | Effect                                                           |
+| ----------------------------------------- | ------------- | ---------------------------------------------------------------- |
+| `propose_admin(current_admin, new_admin)` | Current admin | Writes `new_admin` to `pending_admin`; no change to `admin` slot |
+| `cancel_admin_transfer(current_admin)`    | Current admin | Clears `pending_admin`; no transfer occurs                       |
+| `accept_admin(new_admin)`                 | New admin     | Moves `new_admin` into `admin` slot; clears `pending_admin`      |
 
 ### Pre-rotation checklist
 
-- [ ] Generate the new admin keypair on the target hardware wallet. Do not copy the secret over
-      the wire.
+- [ ] Generate the new admin keypair on the target hardware wallet. Do not copy the secret over the
+      wire.
 - [ ] Fund the new account (minimum 1 XLM).
 - [ ] Test that the new keypair can sign a no-op transaction on mainnet.
 - [ ] Confirm `pending_admin()` returns `None` (no in-flight transfer from a previous attempt).
@@ -258,8 +258,8 @@ voting).
   team members time to detect unauthorized proposals.
 - **Monitoring**: Alert on any `propose_admin` or `accept_admin` contract events in production.
   These should be rare and always expected.
-- **Backup key**: Maintain a cold-storage backup admin key in a separate geographic location.
-  Test it annually.
+- **Backup key**: Maintain a cold-storage backup admin key in a separate geographic location. Test
+  it annually.
 
 ---
 

@@ -12,8 +12,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, Bytes,
-    Env, Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address,
+    Bytes, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -29,10 +29,7 @@ pub enum Error {
     BadgeTypeAlreadyConfigured = 506,
 }
 
-contractmeta!(
-    key = "Description",
-    val = "Trivela NFT achievement badges"
-);
+contractmeta!(key = "Description", val = "Trivela NFT achievement badges");
 
 // ── Storage keys ─────────────────────────────────────────────────────────────
 
@@ -122,9 +119,7 @@ impl BadgesContract {
 
     /// Get the authorized minter for a badge type.
     pub fn get_badge_type_minter(env: Env, badge_type: Symbol) -> Option<Address> {
-        env.storage()
-            .instance()
-            .get(&(BADGE_TYPE_AUTH, badge_type))
+        env.storage().instance().get(&(BADGE_TYPE_AUTH, badge_type))
     }
 
     /// Mint an achievement badge to an address.
@@ -173,15 +168,11 @@ impl BadgesContract {
 
         // Allocate badge_id
         let badge_id: u64 = env.storage().instance().get(&BADGE_COUNTER).unwrap_or(0);
-        let next_id = badge_id
-            .checked_add(1)
-            .ok_or(Error::BadgeAlreadyMinted)?;
+        let next_id = badge_id.checked_add(1).ok_or(Error::BadgeAlreadyMinted)?;
         env.storage().instance().set(&BADGE_COUNTER, &next_id);
 
         // Store badge data
-        env.storage()
-            .instance()
-            .set(&(BADGE_OWNER, badge_id), &to);
+        env.storage().instance().set(&(BADGE_OWNER, badge_id), &to);
         env.storage()
             .instance()
             .set(&(BADGE_TYPE, badge_id), &badge_type);
@@ -204,10 +195,9 @@ impl BadgesContract {
 
         // Mark badge type as minted for this user (for soulbound dedup)
         if soulbound {
-            env.storage().instance().set(
-                &(USER_BADGE_SET, to.clone(), badge_type.clone()),
-                &true,
-            );
+            env.storage()
+                .instance()
+                .set(&(USER_BADGE_SET, to.clone(), badge_type.clone()), &true);
         }
 
         env.events().publish(
@@ -223,12 +213,7 @@ impl BadgesContract {
 
     /// Transfer a badge from one address to another.
     /// Reverts if the badge is soulbound.
-    pub fn transfer(
-        env: Env,
-        from: Address,
-        to: Address,
-        badge_id: u64,
-    ) -> Result<(), Error> {
+    pub fn transfer(env: Env, from: Address, to: Address, badge_id: u64) -> Result<(), Error> {
         from.require_auth();
 
         let owner: Address = env
@@ -251,9 +236,7 @@ impl BadgesContract {
         }
 
         // Update owner
-        env.storage()
-            .instance()
-            .set(&(BADGE_OWNER, badge_id), &to);
+        env.storage().instance().set(&(BADGE_OWNER, badge_id), &to);
 
         // Update user badge lists
         let from_key = (USER_BADGES, from.clone());
@@ -321,9 +304,7 @@ impl BadgesContract {
 
     /// Get the owner of a badge.
     pub fn owner_of(env: Env, badge_id: u64) -> Option<Address> {
-        env.storage()
-            .instance()
-            .get(&(BADGE_OWNER, badge_id))
+        env.storage().instance().get(&(BADGE_OWNER, badge_id))
     }
 
     /// Get the number of badges owned by an address.
@@ -338,16 +319,12 @@ impl BadgesContract {
 
     /// Get the badge type of a badge.
     pub fn badge_type(env: Env, badge_id: u64) -> Option<Symbol> {
-        env.storage()
-            .instance()
-            .get(&(BADGE_TYPE, badge_id))
+        env.storage().instance().get(&(BADGE_TYPE, badge_id))
     }
 
     /// Get the metadata URI of a badge.
     pub fn token_uri(env: Env, badge_id: u64) -> Option<Bytes> {
-        env.storage()
-            .instance()
-            .get(&(BADGE_METADATA, badge_id))
+        env.storage().instance().get(&(BADGE_METADATA, badge_id))
     }
 
     /// Check if a badge is soulbound (non-transferable).

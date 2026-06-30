@@ -60,13 +60,19 @@ export function createClaimableBalancesRoutes({
 
     let query = 'SELECT * FROM claimable_balances WHERE campaign_id = ?';
     const params = [campaignId];
-    if (status) { query += ' AND status = ?'; params.push(status); }
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
 
     const rows = dal.db.prepare(query).all(...params);
     const total = dal.db
-      .prepare('SELECT COUNT(*) as cnt FROM claimable_balances WHERE campaign_id = ?' + (status ? ' AND status = ?' : ''))
+      .prepare(
+        'SELECT COUNT(*) as cnt FROM claimable_balances WHERE campaign_id = ?' +
+          (status ? ' AND status = ?' : ''),
+      )
       .get(...(status ? [campaignId, status] : [campaignId])).cnt;
 
     return res.json({ data: rows, total, limit, offset });
@@ -102,7 +108,10 @@ export function createClaimableBalancesRoutes({
       stmt.run(now, row.id);
     }
 
-    return res.json({ reclaimed: reclaimable.length, balanceIds: reclaimable.map((r) => r.balance_id) });
+    return res.json({
+      reclaimed: reclaimable.length,
+      balanceIds: reclaimable.map((r) => r.balance_id),
+    });
   });
 
   return router;

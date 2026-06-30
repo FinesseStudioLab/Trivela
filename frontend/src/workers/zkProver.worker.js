@@ -116,7 +116,10 @@ self.onmessage = async (event) => {
       if (!secret || !path || !publicSignals) {
         self.postMessage({
           type: 'error',
-          payload: { message: 'Missing required inputs: secret, path, publicSignals', code: 'INVALID_INPUTS' },
+          payload: {
+            message: 'Missing required inputs: secret, path, publicSignals',
+            code: 'INVALID_INPUTS',
+          },
         });
         return;
       }

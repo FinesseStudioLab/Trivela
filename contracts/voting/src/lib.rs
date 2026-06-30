@@ -24,8 +24,8 @@
 #![no_std]
 
 use soroban_sdk::{
-    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address, BytesN, Env,
-    Symbol, Vec,
+    contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address,
+    BytesN, Env, Symbol, Vec,
 };
 
 #[contracterror]
@@ -266,11 +266,9 @@ impl VotingContract {
         };
 
         env.storage().persistent().set(&commit_key, &record);
-        env.storage().persistent().extend_ttl(
-            &commit_key,
-            TTL_THRESHOLD,
-            TTL_EXTEND_TO,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&commit_key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         env.events()
             .publish((COMMITTED_EVENT, vote_id, voter), commitment);
@@ -321,18 +319,9 @@ impl VotingContract {
         }
 
         // Compute hash: H(option || weight || salt)
-        let option_bytes = soroban_sdk::Bytes::from_slice(
-            &env,
-            &option.to_be_bytes(),
-        );
-        let weight_bytes = soroban_sdk::Bytes::from_slice(
-            &env,
-            &weight.to_be_bytes(),
-        );
-        let salt_bytes = soroban_sdk::Bytes::from_slice(
-            &env,
-            &salt.to_array(),
-        );
+        let option_bytes = soroban_sdk::Bytes::from_slice(&env, &option.to_be_bytes());
+        let weight_bytes = soroban_sdk::Bytes::from_slice(&env, &weight.to_be_bytes());
+        let salt_bytes = soroban_sdk::Bytes::from_slice(&env, &salt.to_array());
 
         let mut combined = soroban_sdk::Bytes::new(&env);
         combined.append(&option_bytes);
@@ -354,11 +343,9 @@ impl VotingContract {
         };
 
         env.storage().persistent().set(&reveal_key, &reveal_record);
-        env.storage().persistent().extend_ttl(
-            &reveal_key,
-            TTL_THRESHOLD,
-            TTL_EXTEND_TO,
-        );
+        env.storage()
+            .persistent()
+            .extend_ttl(&reveal_key, TTL_THRESHOLD, TTL_EXTEND_TO);
 
         // Clear commitment
         let cleared_record = CommitRecord {

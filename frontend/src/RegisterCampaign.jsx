@@ -101,7 +101,9 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
         if (!cancelled) setPrivacyMode(PRIVACY_MODE.NONE);
       });
 
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [campaignContractId]);
 
   /* Check ZK prover support (Web Worker + WASM) */
@@ -126,7 +128,9 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
       }
     };
     checkZkSupport();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [privacyMode]);
 
   /* On mount (and when the wallet changes), check participant status. */
@@ -146,9 +150,13 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
     // Track registration view
     analytics.trackRegistrationViewed(
       campaignContractId,
-      privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+      privacyMode === PRIVACY_MODE.NONE
+        ? 'open'
+        : privacyMode === PRIVACY_MODE.MERKLE
+          ? 'merkle'
+          : 'zk',
       isRegistered,
-      null // time_remaining_hours - would need campaign data
+      null, // time_remaining_hours - would need campaign data
     );
 
     checkParticipantStatus(walletAddress)
@@ -180,8 +188,12 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
     // Track registration initiated
     analytics.trackRegistrationInitiated(
       campaignContractId,
-      privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
-      false // has_allowlist_proof - would need to check
+      privacyMode === PRIVACY_MODE.NONE
+        ? 'open'
+        : privacyMode === PRIVACY_MODE.MERKLE
+          ? 'merkle'
+          : 'zk',
+      false, // has_allowlist_proof - would need to check
     );
 
     await run(() => submitRegisterTransaction(walletAddress), {
@@ -191,15 +203,19 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
         // Track registration failed
         analytics.trackRegistrationFailed(
           campaignContractId,
-          privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+          privacyMode === PRIVACY_MODE.NONE
+            ? 'open'
+            : privacyMode === PRIVACY_MODE.MERKLE
+              ? 'merkle'
+              : 'zk',
           'unknown',
-          'rollback'
+          'rollback',
         );
       },
       reconcile: ({ hash, alreadyRegistered }) => {
         setTxHash(hash);
         const timeToConfirm = Date.now() - startTime;
-        
+
         if (alreadyRegistered) {
           setNotice('You were already registered in this campaign.');
         } else {
@@ -209,10 +225,14 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
         // Track registration success
         analytics.trackRegistrationSuccess(
           campaignContractId,
-          privacyMode === PRIVACY_MODE.NONE ? 'open' : privacyMode === PRIVACY_MODE.MERKLE ? 'merkle' : 'zk',
+          privacyMode === PRIVACY_MODE.NONE
+            ? 'open'
+            : privacyMode === PRIVACY_MODE.MERKLE
+              ? 'merkle'
+              : 'zk',
           '0.0001', // tx_fee_xlm - would need actual fee
           timeToConfirm,
-          alreadyRegistered || false
+          alreadyRegistered || false,
         );
       },
     });
@@ -231,11 +251,11 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
           ? 'Not registered'
           : '—';
 
-  const showRegisterButton = !isRegistered && (
-    privacyMode !== PRIVACY_MODE.ZK ||
-    zkSupported === true ||
-    (zkSupported === false && fallbackAllowed)
-  );
+  const showRegisterButton =
+    !isRegistered &&
+    (privacyMode !== PRIVACY_MODE.ZK ||
+      zkSupported === true ||
+      (zkSupported === false && fallbackAllowed));
 
   const zkBlocked = privacyMode === PRIVACY_MODE.ZK && zkSupported === false && !fallbackAllowed;
 
@@ -249,10 +269,22 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
         Campaign registration
       </h3>
 
-      <div className="register-status" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+      <div
+        className="register-status"
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '8px',
+        }}
+      >
         <div>
           <span className="register-status-label">Participant status </span>
-          <strong id={statusId} className={isRegistered ? 'register-active' : ''} aria-live="polite">
+          <strong
+            id={statusId}
+            className={isRegistered ? 'register-active' : ''}
+            aria-live="polite"
+          >
             {statusLabel}
           </strong>
         </div>
@@ -285,7 +317,8 @@ export default function RegisterCampaign({ walletAddress, onRegistered }) {
 
       {zkBlocked && (
         <div style={FALLBACK_STYLE}>
-          Your browser does not support zero-knowledge proofs. Contact the campaign operator to enable fallback registration.
+          Your browser does not support zero-knowledge proofs. Contact the campaign operator to
+          enable fallback registration.
         </div>
       )}
 

@@ -219,6 +219,14 @@ export function setRuntimeStellarNetwork(network) {
   return getRuntimeConfig();
 }
 
+/**
+ * Returns the currently resolved Stellar network configuration
+ * ({ network, sorobanRpcUrl, horizonUrl, networkPassphrase, ... }).
+ */
+export function resolveStellarNetworkConfig() {
+  return { ...runtimeConfig.stellar };
+}
+
 export function getSorobanRpcUrl() {
   return runtimeConfig.stellar.sorobanRpcUrl;
 }
