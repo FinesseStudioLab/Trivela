@@ -404,9 +404,7 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             disabled={isSubmitting}
             onChange={(e) => setMaxParticipants(e.target.value)}
           />
-          <small className="create-campaign-hint">
-            Set to 0 for unlimited participants.
-          </small>
+          <small className="create-campaign-hint">Set to 0 for unlimited participants.</small>
         </div>
 
         <div className="create-campaign-field-row">

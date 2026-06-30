@@ -1113,7 +1113,11 @@ Update `frontend/src/components/Header.jsx`:
 ```jsx
 import { useTranslation } from 'react-i18next';
 
-export default function Header({/* existing props */}) {
+export default function Header(
+  {
+    /* existing props */
+  },
+) {
   const { t, i18n } = useTranslation();
 
   const changeLanguage = (lng) => {

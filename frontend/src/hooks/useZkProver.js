@@ -21,10 +21,9 @@ export function useZkProver() {
 
   // Initialize worker on mount
   useEffect(() => {
-    const worker = new Worker(
-      new URL('../workers/zkProver.worker.js', import.meta.url),
-      { type: 'module' },
-    );
+    const worker = new Worker(new URL('../workers/zkProver.worker.js', import.meta.url), {
+      type: 'module',
+    });
 
     worker.onmessage = (event) => {
       const { type, payload } = event.data;

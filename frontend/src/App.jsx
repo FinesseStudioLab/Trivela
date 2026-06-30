@@ -376,7 +376,7 @@ export default function App() {
                 walletBalance={walletBalance}
                 isWalletLoading={isWalletLoading}
                 isWalletBalanceLoading={isWalletBalanceLoading}
-                onConnectWallet={connectWallet}
+                onConnectWallet={openWalletModal}
                 onDisconnectWallet={disconnectWallet}
               />
             }
@@ -393,7 +393,7 @@ export default function App() {
                 walletBalance={walletBalance}
                 isWalletLoading={isWalletLoading}
                 isWalletBalanceLoading={isWalletBalanceLoading}
-                onConnectWallet={connectWallet}
+                onConnectWallet={openWalletModal}
                 onDisconnectWallet={disconnectWallet}
               />
             }
@@ -407,7 +407,20 @@ export default function App() {
         isLoading={isWalletLoading}
         error={walletError}
       />
-      <div className="sr-only" aria-live="assertive" style={{ position: 'absolute', width: '1px', height: '1px', padding: 0, margin: '-1px', overflow: 'hidden', clip: 'rect(0, 0, 0, 0)', border: 0 }}>
+      <div
+        className="sr-only"
+        aria-live="assertive"
+        style={{
+          position: 'absolute',
+          width: '1px',
+          height: '1px',
+          padding: 0,
+          margin: '-1px',
+          overflow: 'hidden',
+          clip: 'rect(0, 0, 0, 0)',
+          border: 0,
+        }}
+      >
         {announcement}
       </div>
       {showHelpModal && (
@@ -441,17 +454,149 @@ export default function App() {
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="shortcuts-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem' }}>Keyboard Shortcuts</h2>
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 20px', textAlign: 'left', lineHeight: '2' }}>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>/</kbd> : Focus search bar</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>n</kbd> : New campaign</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>h</kbd> : Go home</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>p</kbd> : Go to profile</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>g</kbd> then <kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>a</kbd> : Go to admin dashboard</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>Esc</kbd> : Close open modals</li>
-              <li><kbd style={{ background: '#334155', padding: '2px 6px', borderRadius: '4px', marginRight: '8px' }}>?</kbd> : Open this help menu</li>
+            <h2 id="shortcuts-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem' }}>
+              Keyboard Shortcuts
+            </h2>
+            <ul
+              style={{
+                listStyle: 'none',
+                padding: 0,
+                margin: '0 0 20px',
+                textAlign: 'left',
+                lineHeight: '2',
+              }}
+            >
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  /
+                </kbd>{' '}
+                : Focus search bar
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  n
+                </kbd>{' '}
+                : New campaign
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  h
+                </kbd>{' '}
+                : Go home
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  p
+                </kbd>{' '}
+                : Go to profile
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  g
+                </kbd>{' '}
+                then{' '}
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  a
+                </kbd>{' '}
+                : Go to admin dashboard
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  Esc
+                </kbd>{' '}
+                : Close open modals
+              </li>
+              <li>
+                <kbd
+                  style={{
+                    background: '#334155',
+                    padding: '2px 6px',
+                    borderRadius: '4px',
+                    marginRight: '8px',
+                  }}
+                >
+                  ?
+                </kbd>{' '}
+                : Open this help menu
+              </li>
             </ul>
-            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setShowHelpModal(false)}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              style={{ width: '100%' }}
+              onClick={() => setShowHelpModal(false)}
+            >
               Close
             </button>
           </div>

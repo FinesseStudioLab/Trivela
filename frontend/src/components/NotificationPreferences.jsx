@@ -78,8 +78,8 @@ export default function NotificationPreferences() {
           Notification Preferences
         </h2>
         <p style={{ margin: 0, color: 'var(--text-muted)', fontSize: '0.875rem' }}>
-          Choose which events trigger notifications and on which channels.
-          Security-critical notices cannot be disabled.
+          Choose which events trigger notifications and on which channels. Security-critical notices
+          cannot be disabled.
         </p>
       </div>
 
@@ -93,7 +93,9 @@ export default function NotificationPreferences() {
       )}
 
       {loading ? (
-        <p role="status" style={{ color: 'var(--text-muted)' }}>Loading preferences…</p>
+        <p role="status" style={{ color: 'var(--text-muted)' }}>
+          Loading preferences…
+        </p>
       ) : (
         <div
           style={{
@@ -201,7 +203,11 @@ export default function NotificationPreferences() {
                             checked={enabled}
                             disabled={disabled || isSaving}
                             onChange={() => handleToggle(event.id, ch, disabled)}
-                            style={{ width: 16, height: 16, cursor: disabled ? 'not-allowed' : 'pointer' }}
+                            style={{
+                              width: 16,
+                              height: 16,
+                              cursor: disabled ? 'not-allowed' : 'pointer',
+                            }}
                           />
                         </label>
                       </td>

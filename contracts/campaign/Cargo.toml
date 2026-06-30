@@ -13,7 +13,6 @@ doctest = false
 
 [dependencies]
 soroban-sdk = "25.1"
-trivela-nullifier-registry = { path = "../nullifiers" }
 
 [dev-dependencies]
 soroban-sdk = { version = "25.1", features = ["testutils"] }

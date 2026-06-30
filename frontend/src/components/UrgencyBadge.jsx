@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
-import { getUrgencyBadge, BADGE_TYPES, getTimeRemaining, formatCountdown } from '../utils/urgencyUtils';
+import {
+  getUrgencyBadge,
+  BADGE_TYPES,
+  getTimeRemaining,
+  formatCountdown,
+} from '../utils/urgencyUtils';
 import './UrgencyBadge.css';
 
 /**
@@ -35,7 +40,9 @@ export default function UrgencyBadge({ campaign }) {
     case BADGE_TYPES.ENDING_SOON:
       return (
         <span className="urgency-badge urgency-badge--ending-soon" role="status" aria-live="polite">
-          <span className="urgency-badge-icon" aria-hidden="true">⏱</span>
+          <span className="urgency-badge-icon" aria-hidden="true">
+            ⏱
+          </span>
           {badge.data.label}
         </span>
       );
@@ -43,7 +50,9 @@ export default function UrgencyBadge({ campaign }) {
     case BADGE_TYPES.FILLING_FAST:
       return (
         <span className="urgency-badge urgency-badge--filling-fast" role="status">
-          <span className="urgency-badge-icon" aria-hidden="true">🔥</span>
+          <span className="urgency-badge-icon" aria-hidden="true">
+            🔥
+          </span>
           {badge.data.label}
         </span>
       );
@@ -51,7 +60,9 @@ export default function UrgencyBadge({ campaign }) {
     case BADGE_TYPES.JUST_LAUNCHED:
       return (
         <span className="urgency-badge urgency-badge--just-launched" role="status">
-          <span className="urgency-badge-icon" aria-hidden="true">✨</span>
+          <span className="urgency-badge-icon" aria-hidden="true">
+            ✨
+          </span>
           {badge.data.label}
         </span>
       );

@@ -729,7 +729,12 @@ impl CampaignContract {
                 env.current_contract_address().to_val(),
                 nullifier.to_val(),
             ];
-            let result: Result<(), trivela_nullifier_registry::Error> =
+            // Decode the cross-contract result generically: we only care
+            // whether the spend succeeded, not the specific registry error
+            // variant. Decoding as soroban_sdk::Error avoids depending on the
+            // nullifier-registry contract crate (whose exported entrypoints
+            // would otherwise collide with this contract's own on WASM link).
+            let result: Result<(), soroban_sdk::Error> =
                 env.invoke_contract(&registry_addr, &symbol_short!("spend"), spend_args);
 
             if result.is_err() {
