@@ -55,9 +55,7 @@ export default function CampaignDetail({
       try {
         canvas.toBlob(async (blob) => {
           if (blob) {
-            await navigator.clipboard.write([
-              new ClipboardItem({ 'image/png': blob })
-            ]);
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
             alert('QR Code copied to clipboard!');
           }
         });
@@ -509,9 +507,25 @@ export default function CampaignDetail({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <h2 id="qr-modal-title" style={{ margin: '0 0 16px', fontSize: '1.25rem', color: 'var(--color-text, #f8fafc)' }}>Campaign QR Code</h2>
-            
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '16px' }}>
+            <h2
+              id="qr-modal-title"
+              style={{
+                margin: '0 0 16px',
+                fontSize: '1.25rem',
+                color: 'var(--color-text, #f8fafc)',
+              }}
+            >
+              Campaign QR Code
+            </h2>
+
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'center',
+                gap: '8px',
+                marginBottom: '16px',
+              }}
+            >
               <button
                 type="button"
                 className={`btn btn-sm ${qrSize === 128 ? 'btn-primary' : 'btn-secondary'}`}
@@ -538,7 +552,15 @@ export default function CampaignDetail({
               </button>
             </div>
 
-            <div style={{ background: '#fff', padding: '16px', borderRadius: '8px', display: 'inline-block', marginBottom: '16px' }}>
+            <div
+              style={{
+                background: '#fff',
+                padding: '16px',
+                borderRadius: '8px',
+                display: 'inline-block',
+                marginBottom: '16px',
+              }}
+            >
               <QRCodeCanvas
                 id="campaign-qr-code"
                 value={buildInviteLink()}
@@ -548,23 +570,22 @@ export default function CampaignDetail({
               />
             </div>
 
-            <p style={{ margin: '0 0 16px', fontWeight: 'bold', fontSize: '0.9rem', color: 'var(--color-text, #f8fafc)' }}>
+            <p
+              style={{
+                margin: '0 0 16px',
+                fontWeight: 'bold',
+                fontSize: '0.9rem',
+                color: 'var(--color-text, #f8fafc)',
+              }}
+            >
               {campaign?.name}
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleDownloadQR}
-              >
+              <button type="button" className="btn btn-primary" onClick={handleDownloadQR}>
                 Download PNG
               </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={handleCopyQRToClipboard}
-              >
+              <button type="button" className="btn btn-secondary" onClick={handleCopyQRToClipboard}>
                 Copy to Clipboard
               </button>
               <button

@@ -16,7 +16,7 @@ function rowToFlag(row) {
 }
 
 /**
- * @param {{ db: import('better-sqlite3').Database }} deps
+ * @param {{ db: InstanceType<import('better-sqlite3')> }} deps
  */
 export function createSqliteFeatureFlagRepository({ db }) {
   function upsert({ flagKey, enabled = false, targeting = {}, description = null }) {

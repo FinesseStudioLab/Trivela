@@ -8,12 +8,11 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "generate": "openapi-ts",
-    "check-drift": "openapi-ts && git diff --exit-code src/"
+    "generate": "openapi-ts --input ../../backend/openapi.yaml --output src --plugins @hey-api/typescript",
+    "check-drift": "npm run generate && git diff --exit-code src/"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "^0.46.0",
-    "@hey-api/typescript": "^0.46.0"
+    "@hey-api/openapi-ts": "0.99.0"
   },
   "license": "Apache-2.0"
 }

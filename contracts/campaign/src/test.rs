@@ -1240,7 +1240,13 @@ fn test_self_referral_rejected() {
     // Registering with yourself as referrer is rejected with SelfReferral and
     // leaves no participant record behind.
     assert_eq!(
-        client.try_register(&participant, &leaf, &proof, &None, &Some(participant.clone())),
+        client.try_register(
+            &participant,
+            &leaf,
+            &proof,
+            &None,
+            &Some(participant.clone())
+        ),
         Err(Ok(Error::SelfReferral))
     );
     assert!(!client.is_participant(&participant));
@@ -1381,7 +1387,7 @@ fn test_activity_log_ring_buffer_evicts_oldest() {
 fn test_activity_log_chronological_order() {
     let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
-    
+
     client.initialize(&admin);
     env.mock_all_auths();
     let (leaf, proof) = no_proof_args(&env);
@@ -1395,7 +1401,7 @@ fn test_activity_log_chronological_order() {
 
     let log = client.activity_log();
     assert_eq!(log.len(), 5);
-    
+
     // Verify chronological order (oldest first)
     for i in 0..5 {
         assert_eq!(log.get(i as u32).unwrap().ledger, i as u32);
@@ -1411,13 +1417,13 @@ fn test_set_activity_log_size_validates_range() {
 
     // Min boundary (10) - should succeed
     client.set_activity_log_size(&admin, &0, &10);
-    
+
     // Max boundary (200) - should succeed
     client.set_activity_log_size(&admin, &1, &200);
-    
+
     // Below min (9) - should fail
     assert!(client.try_set_activity_log_size(&admin, &2, &9).is_err());
-    
+
     // Above max (201) - should fail
     assert!(client.try_set_activity_log_size(&admin, &3, &201).is_err());
 }
@@ -1442,7 +1448,7 @@ fn test_set_activity_log_size_trims_existing_log() {
 
     // Reduce size to 10 - should trim oldest 10 entries
     client.set_activity_log_size(&admin, &0, &10);
-    
+
     let trimmed_log = client.activity_log();
     assert_eq!(trimmed_log.len(), 10);
 }
@@ -1452,7 +1458,7 @@ fn test_activity_log_view_returns_empty_on_init() {
     let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
     client.initialize(&admin);
-    
+
     let log = client.activity_log();
     assert_eq!(log.len(), 0);
 }

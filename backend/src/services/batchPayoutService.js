@@ -194,7 +194,9 @@ export function createBatchPayoutService({
 
       log.info(`batch:chunk_start id=${batchId} head=${head} ops=${chunk.length} k=${k}`);
 
-      const simResult = await simulateChunk(chunk.map((r) => ({ address: r.address, amount: r.amount })));
+      const simResult = await simulateChunk(
+        chunk.map((r) => ({ address: r.address, amount: r.amount })),
+      );
 
       if (!simResult.success) {
         if (simResult.resourceLimitExceeded && k > MIN_OPS_PER_CHUNK) {
@@ -223,7 +225,9 @@ export function createBatchPayoutService({
       }
 
       // Simulation passed — submit the chunk
-      const submitResult = await submitChunk(chunk.map((r) => ({ address: r.address, amount: r.amount })));
+      const submitResult = await submitChunk(
+        chunk.map((r) => ({ address: r.address, amount: r.amount })),
+      );
 
       if (submitResult.success) {
         for (const r of chunk) {
@@ -268,8 +272,12 @@ export function createBatchPayoutService({
     // (where a previously-failed recipient was reset to pending and retried)
     // report accurate counts rather than accumulated deltas.
     const finalBatch = store.getBatch(batchId);
-    const finalSuccess = finalBatch.recipients.filter((r) => r.status === RECIPIENT_STATUS.SUCCESS).length;
-    const finalFail = finalBatch.recipients.filter((r) => r.status === RECIPIENT_STATUS.FAILED).length;
+    const finalSuccess = finalBatch.recipients.filter(
+      (r) => r.status === RECIPIENT_STATUS.SUCCESS,
+    ).length;
+    const finalFail = finalBatch.recipients.filter(
+      (r) => r.status === RECIPIENT_STATUS.FAILED,
+    ).length;
 
     const finalStatus = aborted
       ? BATCH_STATUS.FAILED
@@ -304,7 +312,12 @@ export function createBatchPayoutService({
     const merged = batch.recipients.map((r) => {
       const updated = queueMap.get(r.address);
       return updated
-        ? { ...r, status: updated.status, txHash: updated.txHash, errorMessage: updated.errorMessage }
+        ? {
+            ...r,
+            status: updated.status,
+            txHash: updated.txHash,
+            errorMessage: updated.errorMessage,
+          }
         : r;
     });
 

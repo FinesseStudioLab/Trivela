@@ -30,7 +30,7 @@ const WALLETS = [
     description: 'Connect any compatible mobile wallet via QR code',
     icon: '⬡',
     installUrl: 'https://walletconnect.com/explorer',
-    detected: () => !!(window.__walletConnectClient),
+    detected: () => !!window.__walletConnectClient,
     comingSoon: false,
   },
   {

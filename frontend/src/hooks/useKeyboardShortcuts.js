@@ -43,7 +43,9 @@ export function useKeyboardShortcuts(isAdmin = false) {
       // Search focus shortcut
       if (key === '/') {
         e.preventDefault();
-        const searchInput = document.querySelector('input[type="search"], .search-input, input[placeholder*="search" i]');
+        const searchInput = document.querySelector(
+          'input[type="search"], .search-input, input[placeholder*="search" i]',
+        );
         if (searchInput) {
           searchInput.focus();
           setAnnouncement('Focused search input');

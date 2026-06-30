@@ -69,7 +69,7 @@ export default function SignInWithStellar({ onSignIn }) {
 
       // 3. Sign the challenge with the connected wallet
       const signedXdr = await walletManager.signTransaction(challengeXdr, {
-        networkPassphrase,
+        networkPassphrase: network_passphrase,
       });
 
       // 4. Submit signed transaction for verification + JWT
@@ -110,13 +110,15 @@ export default function SignInWithStellar({ onSignIn }) {
         onMouseEnter={(e) => {
           if (!isLoading) {
             e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.7)';
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25))';
+            e.currentTarget.style.background =
+              'linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(139, 92, 246, 0.25))';
           }
         }}
         onMouseLeave={(e) => {
           if (!isLoading) {
             e.currentTarget.style.borderColor = 'rgba(99, 102, 241, 0.4)';
-            e.currentTarget.style.background = 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15))';
+            e.currentTarget.style.background =
+              'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15))';
           }
         }}
       >

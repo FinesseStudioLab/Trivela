@@ -41,7 +41,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/python-sdk-v')
     environment: pypi
     permissions:
-      id-token: write  # OIDC trusted publishing
+      id-token: write # OIDC trusted publishing
 
     steps:
       - uses: actions/checkout@v4

@@ -32,13 +32,14 @@ tags:
   - name: Organizations
     description: Organization and team member management
   - name: IndexRead
-    description: "Public read API over indexed Soroban event data (cursor-paginated, ETag-cached) — #560"
+    description:
+      'Public read API over indexed Soroban event data (cursor-paginated, ETag-cached) — #560'
   - name: StellarToml
-    description: "SEP-1 stellar.toml reward-token metadata — #551"
+    description: 'SEP-1 stellar.toml reward-token metadata — #551'
   - name: SponsoredAccounts
-    description: "CAP-33 Stellar reserve sponsorship for new accounts — #556"
+    description: 'CAP-33 Stellar reserve sponsorship for new accounts — #556'
   - name: ClaimableBalances
-    description: "Claimable balance lifecycle for unclaimed/expired rewards (CAP-23) — #548"
+    description: 'Claimable balance lifecycle for unclaimed/expired rewards (CAP-23) — #548'
 
 security:
   - ApiKeyAuth: []
@@ -1437,7 +1438,11 @@ paths:
           schema: { type: string }
         - in: query
           name: status
-          schema: { type: string, enum: [pending, created, claimed_by_user, reclaimed_by_operator, failed] }
+          schema:
+            {
+              type: string,
+              enum: [pending, created, claimed_by_user, reclaimed_by_operator, failed],
+            }
         - in: query
           name: limit
           schema: { type: integer, default: 50, maximum: 200 }

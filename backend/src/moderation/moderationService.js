@@ -2,10 +2,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const DEFAULT_BLOCKLIST_PATH = join(
-  dirname(fileURLToPath(import.meta.url)),
-  'blocklist.json',
-);
+const DEFAULT_BLOCKLIST_PATH = join(dirname(fileURLToPath(import.meta.url)), 'blocklist.json');
 
 function loadBlocklistFile(path) {
   try {

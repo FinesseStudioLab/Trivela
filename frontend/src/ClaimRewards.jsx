@@ -63,7 +63,9 @@ export default function ClaimRewards({ walletAddress, hasPayoutAsset = false, on
           setTxHash(hash);
           setRedeemResult({ points: submittedAmount, asset: assetAmount });
           onClaimSuccess?.();
-          fetchPayoutReserveBalance().then(setReserveBalance).catch(() => {});
+          fetchPayoutReserveBalance()
+            .then(setReserveBalance)
+            .catch(() => {});
         },
       });
     } else {
@@ -85,7 +87,10 @@ export default function ClaimRewards({ walletAddress, hasPayoutAsset = false, on
       </h3>
 
       {hasPayoutAsset && (
-        <div className="claim-mode-toggle" style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <div
+          className="claim-mode-toggle"
+          style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}
+        >
           <button
             type="button"
             className={`btn ${mode === 'redeem' ? 'btn-primary' : 'btn-secondary'}`}
@@ -106,7 +111,10 @@ export default function ClaimRewards({ walletAddress, hasPayoutAsset = false, on
       )}
 
       {mode === 'redeem' && reserveBalance && (
-        <p className="claim-reserve-info" style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '8px' }}>
+        <p
+          className="claim-reserve-info"
+          style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '8px' }}
+        >
           Reserve: {reserveBalance} tokens available
         </p>
       )}

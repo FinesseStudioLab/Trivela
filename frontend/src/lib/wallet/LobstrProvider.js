@@ -72,7 +72,9 @@ export class LobstrProvider extends WalletProvider {
   async signTransaction(xdr, options = {}) {
     const api = this.getApi();
     if (typeof api.signTransaction === 'function') {
-      const result = await api.signTransaction(xdr, { networkPassphrase: options.networkPassphrase });
+      const result = await api.signTransaction(xdr, {
+        networkPassphrase: options.networkPassphrase,
+      });
       const signed = result?.signedTxXdr ?? result?.xdr ?? result;
       if (!signed || typeof signed !== 'string') {
         throw new Error('Lobstr did not return a signed transaction.');

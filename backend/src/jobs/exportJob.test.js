@@ -58,10 +58,12 @@ test('exportJob: exports empty DB — manifest uploaded, checkpoint recorded', a
 test('exportJob: seeded campaigns — CSV has correct headers and rows', async () => {
   const db = await setup();
   // Insert a test campaign
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO campaigns (id, name, slug, description, active, reward_per_action, created_at, updated_at)
     VALUES (1, 'Test Campaign', 'test-campaign', 'desc', 1, 100, '2024-01-01T00:00:00.000Z', '2024-01-01T00:00:00.000Z')
-  `).run();
+  `,
+  ).run();
 
   const storage = makeStorage();
   const job = createExportJob({ db, storage, logger: silentLogger() });
@@ -124,10 +126,12 @@ test('exportJob: missing on-chain tables produce empty CSVs without crashing', a
 test('exportJob: CSV cells with comma, quote, and newline are correctly escaped', async () => {
   const db = await setup();
   // Insert campaign with special characters in name
-  db.prepare(`
+  db.prepare(
+    `
     INSERT INTO campaigns (id, name, slug, description, active, reward_per_action, created_at, updated_at)
     VALUES (1, 'Name, with "quotes"', 'special-name', 'line1\nline2', 1, 0, '2024-01-01T00:00:00.000Z', '2024-01-01T00:00:00.000Z')
-  `).run();
+  `,
+  ).run();
 
   const storage = makeStorage();
   const job = createExportJob({ db, storage, logger: silentLogger() });

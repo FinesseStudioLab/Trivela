@@ -158,10 +158,7 @@ export default function AdminCampaigns({
           )}
         </section>
 
-        <section
-          className="section"
-          style={{ marginTop: 0, paddingTop: 0 }}
-        >
+        <section className="section" style={{ marginTop: 0, paddingTop: 0 }}>
           <AuditLog />
         </section>
       </main>

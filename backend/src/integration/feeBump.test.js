@@ -3,7 +3,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import request from 'supertest';
-import { Keypair, TransactionBuilder, Operation, Networks, BASE_FEE, Asset } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  TransactionBuilder,
+  Operation,
+  Networks,
+  BASE_FEE,
+  Asset,
+} from '@stellar/stellar-sdk';
 import { createApp } from '../index.js';
 
 // Generate a real-looking but invalid inner transaction XDR for testing.
@@ -127,7 +134,9 @@ test('GET /api/v1/payment-paths returns 400 for invalid destination_asset', asyn
   const app = await createTestApp();
   const account = Keypair.random().publicKey();
   const res = await request(app)
-    .get(`/api/v1/payment-paths?source_account=${account}&destination_asset=INVALID&destination_amount=10`)
+    .get(
+      `/api/v1/payment-paths?source_account=${account}&destination_asset=INVALID&destination_amount=10`,
+    )
     .expect(400);
   assert.ok(res.body.error);
 });
@@ -136,7 +145,9 @@ test('GET /api/v1/payment-paths returns 400 for non-numeric destination_amount',
   const app = await createTestApp();
   const account = Keypair.random().publicKey();
   const res = await request(app)
-    .get(`/api/v1/payment-paths?source_account=${account}&destination_asset=native&destination_amount=abc`)
+    .get(
+      `/api/v1/payment-paths?source_account=${account}&destination_asset=native&destination_amount=abc`,
+    )
     .expect(400);
   assert.ok(res.body.error);
 });

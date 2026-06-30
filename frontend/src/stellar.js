@@ -506,7 +506,12 @@ export async function setCampaignMaxCap(walletAddress, contractId, maxCap) {
  * @param {number} amount
  * @param {number} expirationLedger
  */
-export async function submitApproveTransaction(walletAddress, spender, amount, expirationLedger = 0) {
+export async function submitApproveTransaction(
+  walletAddress,
+  spender,
+  amount,
+  expirationLedger = 0,
+) {
   const contractId = getRewardsContractId();
   if (!contractId) throw new Error('Set VITE_REWARDS_CONTRACT_ID before approving.');
 
@@ -645,7 +650,12 @@ export async function submitBurnFromTransaction(spenderAddress, from, amount) {
  * @param {string} [sourceAsset] - "native" or "CODE:ISSUER"
  * @returns {Promise<Array<{ sourceAmount: string; sourceAsset: string; path: any[] }>>}
  */
-export async function fetchPaymentPaths(sourceAccount, destinationAsset, destinationAmount, sourceAsset = 'native') {
+export async function fetchPaymentPaths(
+  sourceAccount,
+  destinationAsset,
+  destinationAmount,
+  sourceAsset = 'native',
+) {
   const params = new URLSearchParams({
     source_account: sourceAccount,
     destination_asset: destinationAsset,
@@ -683,12 +693,20 @@ export async function submitPathPaymentClaimTransaction(
   destinationAmount,
   path = [],
 ) {
-  const { Horizon: HorizonSdk, TransactionBuilder: TxBuilder, Operation, Asset, BASE_FEE: FEE } =
-    await import('@stellar/stellar-sdk');
+  const {
+    Horizon: HorizonSdk,
+    TransactionBuilder: TxBuilder,
+    Operation,
+    Asset,
+    BASE_FEE: FEE,
+  } = await import('@stellar/stellar-sdk');
 
   const networkPassphrase = getNetworkPassphrase();
   const { horizonUrl } = await import('./config').then((m) => ({
-    horizonUrl: m.getHorizonUrl?.() ?? import.meta.env.VITE_HORIZON_URL ?? 'https://horizon-testnet.stellar.org',
+    horizonUrl:
+      m.getHorizonUrl?.() ??
+      import.meta.env.VITE_HORIZON_URL ??
+      'https://horizon-testnet.stellar.org',
   }));
 
   const server = new HorizonSdk.Server(horizonUrl);

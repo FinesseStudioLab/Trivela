@@ -27,7 +27,7 @@ export class PasskeyProvider extends WalletProvider {
   }
 
   async connect() {
-    if (!await this.isAvailable()) {
+    if (!(await this.isAvailable())) {
       throw new Error('WebAuthn is not available in this browser');
     }
 
@@ -140,7 +140,7 @@ export class PasskeyProvider extends WalletProvider {
       const bitOffset = (i * 5) % 8;
       const byte = addressBytes[byteIndex] || 0;
       const nextByte = addressBytes[byteIndex + 1] || 0;
-      const value = ((byte << 8) | nextByte) >> (11 - bitOffset) & 0x1f;
+      const value = (((byte << 8) | nextByte) >> (11 - bitOffset)) & 0x1f;
       address += stellarChars[value] || 'A';
     }
     return address;

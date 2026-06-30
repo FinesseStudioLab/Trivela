@@ -11,7 +11,14 @@
 // runaway spending.
 
 import { randomUUID } from 'node:crypto';
-import { Keypair, TransactionBuilder, Operation, Asset, BASE_FEE, Horizon } from '@stellar/stellar-sdk';
+import {
+  Keypair,
+  TransactionBuilder,
+  Operation,
+  Asset,
+  BASE_FEE,
+  Horizon,
+} from '@stellar/stellar-sdk';
 
 const DEFAULT_THRESHOLD_XLM = '10';
 const DEFAULT_AUTO_TOPUP_AMOUNT = '5';
@@ -106,17 +113,11 @@ export async function checkOperatorBalances({
             logger,
           });
         } catch (err) {
-          logger.error?.(
-            { address, err: err.message },
-            '[operatorBalance] auto-topup failed',
-          );
+          logger.error?.({ address, err: err.message }, '[operatorBalance] auto-topup failed');
         }
       }
     } else {
-      logger.info?.(
-        { address, balance, threshold: thresholdXlm },
-        '[operatorBalance] balance OK',
-      );
+      logger.info?.({ address, balance, threshold: thresholdXlm }, '[operatorBalance] balance OK');
     }
 
     results.push({ address, balance, belowThreshold });
@@ -128,7 +129,14 @@ export async function checkOperatorBalances({
 /**
  * Send XLM from a topup source to a low-balance operator account.
  */
-async function performAutoTopup({ horizonUrl, networkPassphrase, topupSourceSecret, destinationAddress, amountXlm, logger }) {
+async function performAutoTopup({
+  horizonUrl,
+  networkPassphrase,
+  topupSourceSecret,
+  destinationAddress,
+  amountXlm,
+  logger,
+}) {
   const sourceKeypair = Keypair.fromSecret(topupSourceSecret);
   const server = new Horizon.Server(horizonUrl);
   const sourceAccount = await server.loadAccount(sourceKeypair.publicKey());

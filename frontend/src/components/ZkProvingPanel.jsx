@@ -103,9 +103,7 @@ export default function ZkProvingPanel({ walletAddress, campaignId, onProofReady
             <span style={{ fontSize: '0.85rem', color: '#a5b4fc' }}>
               {STAGE_LABELS[progress.stage] || progress.stage}
             </span>
-            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>
-              {progress.percent}%
-            </span>
+            <span style={{ fontSize: '0.8rem', color: '#64748b' }}>{progress.percent}%</span>
           </div>
           <div style={PROGRESS_BAR_STYLE}>
             <div style={{ ...PROGRESS_FILL_STYLE, width: `${progress.percent}%` }} />
@@ -124,7 +122,15 @@ export default function ZkProvingPanel({ walletAddress, campaignId, onProofReady
             color: '#4ade80',
           }}
         >
-          Proof generated successfully. Nullifier: {result.nullifier ? '0x' + Array.from(result.nullifier).map(b => b.toString(16).padStart(2, '0')).join('').slice(0, 16) + '…' : '—'}
+          Proof generated successfully. Nullifier:{' '}
+          {result.nullifier
+            ? '0x' +
+              Array.from(result.nullifier)
+                .map((b) => b.toString(16).padStart(2, '0'))
+                .join('')
+                .slice(0, 16) +
+              '…'
+            : '—'}
         </div>
       )}
 

@@ -42,7 +42,11 @@ const ALLOWED_OP_TYPES = new Set([
  */
 function isValidAddress(address) {
   if (!address) return false;
-  try { return StrKey.isValidEd25519PublicKey(address); } catch { return false; }
+  try {
+    return StrKey.isValidEd25519PublicKey(address);
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -131,7 +135,9 @@ export function createFeeBumpRoutes({ dal, stellarConfig, env = process.env, log
         });
       }
     } catch (err) {
-      return res.status(502).json({ error: 'Failed to verify sponsor balance', detail: err.message });
+      return res
+        .status(502)
+        .json({ error: 'Failed to verify sponsor balance', detail: err.message });
     }
 
     // Quota check + increment (atomic upsert)
@@ -164,7 +170,13 @@ export function createFeeBumpRoutes({ dal, stellarConfig, env = process.env, log
             `INSERT INTO fee_bump_quota (id, wallet, date, count, created_at, updated_at)
              VALUES (?, ?, ?, 1, ?, ?)`,
           )
-          .run(randomUUID(), walletAddress, today, new Date().toISOString(), new Date().toISOString());
+          .run(
+            randomUUID(),
+            walletAddress,
+            today,
+            new Date().toISOString(),
+            new Date().toISOString(),
+          );
       }
     }
 
@@ -179,14 +191,13 @@ export function createFeeBumpRoutes({ dal, stellarConfig, env = process.env, log
       feeBumpTx.sign(sponsorKeypair);
       const feeBumpXdr = feeBumpTx.toEnvelope().toXDR('base64');
 
-      logger.info?.(
-        { walletAddress, ops: parsed.opTypes },
-        '[feeBump] fee-bump transaction built',
-      );
+      logger.info?.({ walletAddress, ops: parsed.opTypes }, '[feeBump] fee-bump transaction built');
 
       return res.status(200).json({ feeBumpXdr });
     } catch (err) {
-      return res.status(502).json({ error: 'Failed to build fee-bump transaction', detail: err.message });
+      return res
+        .status(502)
+        .json({ error: 'Failed to build fee-bump transaction', detail: err.message });
     }
   });
 

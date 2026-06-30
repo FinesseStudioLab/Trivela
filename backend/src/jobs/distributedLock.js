@@ -24,7 +24,9 @@ export function createDistributedLock(redisClient, { ttlMs = 30_000 } = {}) {
     async acquire(key) {
       const fullKey = `lock:job:${key}`;
       const nonce = randomBytes(16).toString('hex');
-      const result = await redisClient.set(fullKey, nonce, 'NX', 'PX', ttlMs);
+      // ioredis types expect the expiry token/value before the SET mode:
+      // SET <key> <nonce> PX <ttlMs> NX (functionally identical to NX PX).
+      const result = await redisClient.set(fullKey, nonce, 'PX', ttlMs, 'NX');
       if (result !== 'OK') return null;
 
       // Renew the TTL at ttlMs/3 intervals so long-running jobs keep their lock

@@ -2,7 +2,8 @@
 
 ## Summary
 
-This PR implements four major ecosystem and mobile enhancements to improve user onboarding, partner integration, mobile accessibility, and operational transparency:
+This PR implements four major ecosystem and mobile enhancements to improve user onboarding, partner
+integration, mobile accessibility, and operational transparency:
 
 1. **#808** - In-app testnet faucet/funding helper for new users
 2. **#811** - Partner webhook subscription management UI with delivery logs and replay
@@ -14,6 +15,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ### #808: In-app testnet faucet/funding helper
 
 **Backend:**
+
 - Created `backend/src/routes/faucet.js` - New faucet route with:
   - POST `/api/v1/faucet/fund` - Friendbot integration with rate limiting (5 requests/hour)
   - GET `/api/v1/faucet/status` - Faucet availability and rate limit info
@@ -21,6 +23,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Abuse guards via rate limiting middleware
 
 **Frontend:**
+
 - Created `frontend/src/components/FaucetModal.jsx` - Modal component with:
   - Account funding via Friendbot
   - Network detection (testnet vs mainnet)
@@ -33,6 +36,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Balance refresh after successful funding
 
 **Acceptance Criteria Met:**
+
 - ✅ New testnet user can fund and participate without leaving the app
 - ✅ Faucet is abuse-limited (5 requests/hour per IP)
 - ✅ Clear flow: connect → fund → participate
@@ -43,6 +47,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ### #811: Partner webhook subscription management UI
 
 **Backend:**
+
 - Created `backend/src/routes/webhooks.js` - Webhook management API with:
   - POST `/api/v1/webhooks` - Register webhook endpoints with event subscriptions
   - GET `/api/v1/webhooks` - List all webhooks
@@ -50,12 +55,14 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - PUT `/api/v1/webhooks/:id` - Update webhook (URL, events, rotate secret)
   - DELETE `/api/v1/webhooks/:id` - Delete webhook
   - GET `/api/v1/webhooks/:id/deliveries` - View delivery logs
-  - POST `/api/v1/webhooks/:id/deliveries/:deliveryId/replay` - Replay failed deliveries (idempotent)
+  - POST `/api/v1/webhooks/:id/deliveries/:deliveryId/replay` - Replay failed deliveries
+    (idempotent)
   - POST `/api/v1/webhooks/:id/test` - Test-send with signature verification
   - HMAC-SHA256 signature generation for webhook security
   - In-memory storage (production should use database)
 
 **Frontend:**
+
 - Created `frontend/src/components/WebhookManagement.jsx` - Full management UI with:
   - Webhook list with status indicators
   - Create webhook modal (URL, events, description, secret)
@@ -64,9 +71,11 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Test webhook with sample events
   - Failed delivery replay with one-click retry
   - Signature verification helper in test results
-  - Event type filtering (campaign.created, campaign.updated, participant.registered, reward.claimed)
+  - Event type filtering (campaign.created, campaign.updated, participant.registered,
+    reward.claimed)
 
 **Acceptance Criteria Met:**
+
 - ✅ Partners can self-manage webhooks without support
 - ✅ View delivery logs with status, response codes
 - ✅ Replay failed deliveries with one click
@@ -78,6 +87,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ### #812: Mobile wallet deep-link/WalletConnect flow
 
 **Frontend:**
+
 - Created `frontend/src/components/MobileWalletConnect.jsx` - Mobile wallet connection with:
   - Deep-link support for Lobstr, Freighter, Rabet, xBull
   - Universal link fallback for iOS
@@ -91,6 +101,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Clear UX instructions for the flow
 
 **Acceptance Criteria Met:**
+
 - ✅ Mobile user connects via deep link
 - ✅ App-switch round trips handled correctly
 - ✅ State restoration on return to app
@@ -103,6 +114,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ### #818: Public status page + incident communication
 
 **Backend:**
+
 - Created `backend/src/routes/status.js` - Status page API with:
   - GET `/api/v1/status` - Public status page with component health
   - Component health checks (API, Soroban RPC, Indexer, Contracts, Database)
@@ -120,6 +132,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Component status affected by active incidents
 
 **Frontend:**
+
 - Created `frontend/src/components/StatusPage.jsx` - Public status page with:
   - Real-time component status display with health indicators
   - Overall system status banner
@@ -133,6 +146,7 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
   - Color-coded status indicators (green/yellow/red)
 
 **Acceptance Criteria Met:**
+
 - ✅ Real-time component status is public
 - ✅ Incidents communicated with lifecycle (investigating → identified → resolved)
 - ✅ Scheduled maintenance notices displayed
@@ -144,11 +158,13 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ## Files Added
 
 **Backend:**
+
 - `backend/src/routes/faucet.js` - Testnet faucet routes
 - `backend/src/routes/webhooks.js` - Webhook management routes
 - `backend/src/routes/status.js` - Status page and incident management routes
 
 **Frontend:**
+
 - `frontend/src/components/FaucetModal.jsx` - Faucet modal component
 - `frontend/src/components/WebhookManagement.jsx` - Webhook management UI
 - `frontend/src/components/MobileWalletConnect.jsx` - Mobile wallet connection component
@@ -157,30 +173,38 @@ This PR implements four major ecosystem and mobile enhancements to improve user 
 ## Files Modified
 
 **Backend:**
-- `backend/src/index.js` - Added imports and route registrations for faucet, webhooks, and status routes
+
+- `backend/src/index.js` - Added imports and route registrations for faucet, webhooks, and status
+  routes
 
 **Frontend:**
-- `frontend/src/components/Header.jsx` - Added faucet modal integration and "Fund" button for testnet users
+
+- `frontend/src/components/Header.jsx` - Added faucet modal integration and "Fund" button for
+  testnet users
 
 ## Testing
 
 ### #808 Verification
+
 - E2E: Fresh account → in-app fund → successful register
 - Rate limiting: 5 requests per hour enforced
 - Mainnet shows guidance instead of faucet
 
 ### #811 Verification
+
 - E2E: Create endpoint → receive signed event → replay failed delivery
 - Secret rotation generates new secret
 - Test webhook sends with verifiable signature
 
 ### #812 Verification
+
 - Mobile E2E: Connect → sign → return reliably
 - Desktop shows appropriate fallback message
 - Timeout handling after 2 minutes
 - State restoration on app return
 
 ### #818 Verification
+
 - Status page displays real-time component health
 - Incident creation and lifecycle updates
 - Maintenance notices with scheduled windows

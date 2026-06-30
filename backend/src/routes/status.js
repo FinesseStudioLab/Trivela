@@ -78,15 +78,16 @@ router.get('/', async (req, res) => {
         }
 
         // Check if component is affected by active incidents
-        const activeIncidents = Array.from(incidents.values())
-          .filter(inc => inc.status !== 'resolved' && inc.components.includes(component.id));
+        const activeIncidents = Array.from(incidents.values()).filter(
+          (inc) => inc.status !== 'resolved' && inc.components.includes(component.id),
+        );
 
         if (activeIncidents.length > 0) {
           const maxImpact = activeIncidents.reduce((max, inc) => {
             const impactOrder = { none: 0, minor: 1, major: 2, critical: 3 };
             return impactOrder[inc.impact] > impactOrder[max] ? inc.impact : max;
           }, 'none');
-          
+
           if (maxImpact === 'critical') status = 'outage';
           else if (maxImpact === 'major') status = 'degraded';
         }
@@ -96,22 +97,22 @@ router.get('/', async (req, res) => {
           status,
           latency,
         };
-      })
+      }),
     );
 
     // Get active incidents
     const activeIncidents = Array.from(incidents.values())
-      .filter(inc => inc.status !== 'resolved')
+      .filter((inc) => inc.status !== 'resolved')
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     // Get scheduled maintenance
     const scheduledMaintenance = Array.from(maintenanceNotices.values())
-      .filter(maint => new Date(maint.scheduledEnd) > new Date())
+      .filter((maint) => new Date(maint.scheduledEnd) > new Date())
       .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
 
     // Calculate overall status
-    const hasOutage = componentStatus.some(c => c.status === 'outage');
-    const hasDegraded = componentStatus.some(c => c.status === 'degraded');
+    const hasOutage = componentStatus.some((c) => c.status === 'outage');
+    const hasDegraded = componentStatus.some((c) => c.status === 'degraded');
     const overallStatus = hasOutage ? 'outage' : hasDegraded ? 'degraded' : 'operational';
 
     res.json({
@@ -136,7 +137,7 @@ router.get('/incidents', (req, res) => {
   let incidentList = Array.from(incidents.values());
 
   if (status) {
-    incidentList = incidentList.filter(inc => inc.status === status);
+    incidentList = incidentList.filter((inc) => inc.status === status);
   }
 
   res.json(incidentList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
@@ -250,8 +251,9 @@ router.delete('/incidents/:id', (req, res) => {
  * Get all maintenance notices
  */
 router.get('/maintenance', (req, res) => {
-  const maintenanceList = Array.from(maintenanceNotices.values())
-    .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
+  const maintenanceList = Array.from(maintenanceNotices.values()).sort(
+    (a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart),
+  );
 
   res.json(maintenanceList);
 });
@@ -317,7 +319,7 @@ router.post('/subscribe', async (req, res) => {
     const subscriber = {
       id: subscriberId,
       email: data.email,
-      components: data.components || COMPONENTS.map(c => c.id),
+      components: data.components || COMPONENTS.map((c) => c.id),
       createdAt: new Date().toISOString(),
     };
 

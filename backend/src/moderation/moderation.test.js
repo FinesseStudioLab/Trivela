@@ -22,7 +22,11 @@ test('moderationService (local): passes clean content', async () => {
 
 test('moderationService (local): checks description and tags too', async () => {
   const svc = createModerationService({ provider: 'local', terms: ['free money'] });
-  const result = await svc.check({ name: 'Good Name', description: 'Earn free money now', tags: [] });
+  const result = await svc.check({
+    name: 'Good Name',
+    description: 'Earn free money now',
+    tags: [],
+  });
   assert.equal(result.flagged, true);
 });
 
@@ -60,7 +64,12 @@ test('moderationService: getTerms returns current list', () => {
 // ── Integration tests: HTTP endpoints ────────────────────────────────────────
 
 async function startTestServer(options = {}) {
-  const app = await createApp({ disableJobs: true, disableWebSocket: true, dbPath: ':memory:', ...options });
+  const app = await createApp({
+    disableJobs: true,
+    disableWebSocket: true,
+    dbPath: ':memory:',
+    ...options,
+  });
   const server = app.listen(0);
   await once(server, 'listening');
   const { port } = server.address();

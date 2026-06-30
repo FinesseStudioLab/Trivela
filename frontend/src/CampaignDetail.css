@@ -475,11 +475,23 @@
 }
 
 @media print {
-  body, html {
+  body,
+  html {
     background: #fff !important;
     color: #000 !important;
   }
-  .header, .footer, .detail-nav, .detail-cta, .embed-section, .referral-section, .detail-live-badge, .detail-print-btn, .detail-refresh-btn, .detail-toast, .back-link, .detail-footer {
+  .header,
+  .footer,
+  .detail-nav,
+  .detail-cta,
+  .embed-section,
+  .referral-section,
+  .detail-live-badge,
+  .detail-print-btn,
+  .detail-refresh-btn,
+  .detail-toast,
+  .back-link,
+  .detail-footer {
     display: none !important;
   }
   .campaign-detail-page {
@@ -496,7 +508,10 @@
     padding: 0 !important;
     color: #000 !important;
   }
-  .detail-eyebrow, .detail-title, .detail-description, .stat-value {
+  .detail-eyebrow,
+  .detail-title,
+  .detail-description,
+  .stat-value {
     color: #000 !important;
   }
   .detail-grid {

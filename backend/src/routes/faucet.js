@@ -19,7 +19,10 @@ const faucetLimiter = createRateLimiter({
 });
 
 const faucetRequestSchema = z.object({
-  publicKey: z.string().length(56).regex(/^G[A-Z0-9]{55}$/),
+  publicKey: z
+    .string()
+    .length(56)
+    .regex(/^G[A-Z0-9]{55}$/),
 });
 
 /**

@@ -25,8 +25,5 @@ export function canonicalise({ actor, action, entity, entityId, diff, orgId, cre
  * @returns {string}         hex digest
  */
 export function computeEntryHash(prevHash, entry) {
-  return createHash('sha256')
-    .update(prevHash)
-    .update(canonicalise(entry))
-    .digest('hex');
+  return createHash('sha256').update(prevHash).update(canonicalise(entry)).digest('hex');
 }

@@ -77,7 +77,10 @@ export class WalletConnectProvider extends WalletProvider {
     try {
       const sessions = client.session?.getAll?.() ?? [];
       for (const session of sessions) {
-        await client.disconnect({ topic: session.topic, reason: { code: 6000, message: 'User disconnected' } });
+        await client.disconnect({
+          topic: session.topic,
+          reason: { code: 6000, message: 'User disconnected' },
+        });
       }
     } catch {
       // best-effort

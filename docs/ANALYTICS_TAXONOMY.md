@@ -2,7 +2,9 @@
 
 ## Overview
 
-This document defines the complete event taxonomy for Trivela's privacy-respecting analytics pipeline. All events follow strict privacy principles: no PII collection, consent-aware tracking, and local storage preference.
+This document defines the complete event taxonomy for Trivela's privacy-respecting analytics
+pipeline. All events follow strict privacy principles: no PII collection, consent-aware tracking,
+and local storage preference.
 
 ## Privacy Principles
 
@@ -34,14 +36,17 @@ interface BaseEvent {
 ### 1. Wallet Connection Events
 
 #### `wallet_connect_initiated`
+
 Fired when user clicks "Connect Wallet" button.
 
 **Properties:**
+
 - `provider`: `'freighter' | 'albedo' | 'xbull' | 'rabet'`
 - `page`: Current page path
 - `campaign_id`: Campaign ID if on campaign page
 
 **Example:**
+
 ```json
 {
   "event_name": "wallet_connect_initiated",
@@ -56,17 +61,21 @@ Fired when user clicks "Connect Wallet" button.
 ```
 
 #### `wallet_connect_success`
+
 Fired when wallet connection succeeds.
 
 **Properties:**
+
 - `provider`: Wallet provider used
 - `network`: `'mainnet' | 'testnet' | 'futurenet'`
 - `time_to_connect_ms`: Time from initiation to success
 
 #### `wallet_connect_failed`
+
 Fired when wallet connection fails.
 
 **Properties:**
+
 - `provider`: Wallet provider attempted
 - `error_type`: Error category (`user_rejected`, `not_installed`, `network_error`, `unknown`)
 - `time_to_failure_ms`: Time from initiation to failure
@@ -76,34 +85,42 @@ Fired when wallet connection fails.
 ### 2. Campaign Registration Events
 
 #### `registration_viewed`
+
 Fired when user views registration section.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `privacy_mode`: `'open' | 'merkle' | 'zk'`
 - `is_registered`: Current registration status
 - `time_remaining_hours`: Hours until campaign ends
 
 #### `registration_initiated`
+
 Fired when user clicks "Register" button.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `privacy_mode`: Privacy mode used
 - `has_allowlist_proof`: Whether user has proof ready (for Merkle mode)
 
 #### `registration_tx_signed`
+
 Fired when user signs registration transaction.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `privacy_mode`: Privacy mode used
 - `time_to_sign_ms`: Time from initiation to signing
 
 #### `registration_success`
+
 Fired when registration transaction confirms.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `privacy_mode`: Privacy mode used
 - `tx_fee_xlm`: Transaction fee paid
@@ -111,9 +128,11 @@ Fired when registration transaction confirms.
 - `already_registered`: Whether user was already registered
 
 #### `registration_failed`
+
 Fired when registration fails.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `privacy_mode`: Privacy mode used
 - `error_type`: Error category
@@ -124,33 +143,41 @@ Fired when registration fails.
 ### 3. Claim/Redeem Events
 
 #### `rewards_viewed`
+
 Fired when user views their rewards balance.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier (if applicable)
 - `balance_points`: Current points balance (rounded to 100s for privacy)
 - `has_payout_asset`: Whether campaign has payout asset configured
 
 #### `claim_initiated`
+
 Fired when user starts claim process.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `claim_type`: `'points' | 'redeem'`
 - `amount_requested`: Amount requested (rounded to 100s)
 
 #### `claim_tx_signed`
+
 Fired when user signs claim transaction.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `claim_type`: Claim type
 - `time_to_sign_ms`: Time from initiation to signing
 
 #### `claim_success`
+
 Fired when claim transaction confirms.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `claim_type`: Claim type
 - `amount_claimed`: Amount claimed (rounded to 100s)
@@ -158,9 +185,11 @@ Fired when claim transaction confirms.
 - `time_to_confirm_ms`: Total time from initiation to confirmation
 
 #### `claim_failed`
+
 Fired when claim fails.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `claim_type`: Claim type
 - `error_type`: Error category
@@ -171,26 +200,32 @@ Fired when claim fails.
 ### 4. Campaign Discovery Events
 
 #### `campaign_list_viewed`
+
 Fired when user views campaign list.
 
 **Properties:**
+
 - `filter_status`: `'active' | 'upcoming' | 'ended' | 'all'`
 - `filter_category`: Category filter applied (if any)
 - `campaigns_visible`: Number of campaigns displayed
 
 #### `campaign_card_clicked`
+
 Fired when user clicks a campaign card.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `campaign_status`: `'active' | 'upcoming' | 'ended'`
 - `position`: Card position in list (1-indexed)
 - `source_page`: Page where card was clicked
 
 #### `campaign_detail_viewed`
+
 Fired when user views campaign detail page.
 
 **Properties:**
+
 - `campaign_id`: Campaign identifier
 - `campaign_status`: Campaign status
 - `has_payout_asset`: Whether campaign has payout
@@ -202,24 +237,30 @@ Fired when user views campaign detail page.
 ### 5. Campaign Creation Events
 
 #### `campaign_create_started`
+
 Fired when user opens campaign creation flow.
 
 **Properties:**
+
 - `is_admin`: Whether user is admin
 - `has_created_before`: Whether user has created campaigns before
 
 #### `campaign_create_step_completed`
+
 Fired when user completes a creation step.
 
 **Properties:**
+
 - `step`: Step identifier (`'basic_info' | 'rewards' | 'privacy' | 'review'`)
 - `step_number`: Step index
 - `time_on_step_ms`: Time spent on step
 
 #### `campaign_create_success`
+
 Fired when campaign creation succeeds.
 
 **Properties:**
+
 - `campaign_id`: New campaign identifier
 - `privacy_mode`: Privacy mode selected
 - `has_payout_asset`: Whether payout asset configured
@@ -227,9 +268,11 @@ Fired when campaign creation succeeds.
 - `steps_visited`: Number of steps visited (including back navigation)
 
 #### `campaign_create_abandoned`
+
 Fired when user abandons creation flow.
 
 **Properties:**
+
 - `last_step`: Last step reached
 - `time_spent_ms`: Total time in flow before abandoning
 
@@ -238,9 +281,11 @@ Fired when user abandons creation flow.
 ## Session Events
 
 #### `session_started`
+
 Fired when a new session begins.
 
 **Properties:**
+
 - `entry_page`: First page visited
 - `source`: UTM source (if present)
 - `medium`: UTM medium (if present)
@@ -248,9 +293,11 @@ Fired when a new session begins.
 - `referrer_domain`: Referrer domain (not full URL)
 
 #### `page_viewed`
+
 Fired on each page view.
 
 **Properties:**
+
 - `page_path`: Page path (no query params)
 - `page_title`: Page title
 - `previous_page`: Previous page path
@@ -260,11 +307,13 @@ Fired on each page view.
 ## Conversion Metrics
 
 ### Primary Funnel
+
 ```
 Session Start → Campaign View → Connect → Register → Claim → Redeem
 ```
 
 ### Drop-off Points Measured
+
 1. Campaign view → Connect attempt
 2. Connect attempt → Connect success
 3. Connect success → Registration view
@@ -274,6 +323,7 @@ Session Start → Campaign View → Connect → Register → Claim → Redeem
 7. Claim attempt → Claim success
 
 ### Retention Metrics
+
 - Day 1, 7, 30 return rates
 - Campaigns participated per user (bucketed: 1, 2-5, 6-10, 11+)
 - Average time between registration and first claim
@@ -297,13 +347,17 @@ Attribution persists for the session duration.
 These events track technical performance for debugging:
 
 #### `transaction_simulation_failed`
+
 **Properties:**
+
 - `operation_type`: Operation that failed
 - `error_code`: Soroban error code
 - `network`: Network used
 
 #### `rpc_request_timeout`
+
 **Properties:**
+
 - `endpoint`: RPC endpoint
 - `timeout_ms`: Timeout threshold
 - `operation`: Operation attempted
@@ -325,11 +379,13 @@ Events are exported in newline-delimited JSON (NDJSON) for analysis:
 ## Consent Management
 
 Users can opt-out via:
+
 1. Cookie banner on first visit
 2. Privacy settings in user profile
 3. Browser Do-Not-Track header (automatically respected)
 
 When opted-out:
+
 - No events are collected
 - Local storage cleared
 - Analytics scripts not loaded
@@ -352,13 +408,14 @@ When opted-out:
 ✅ Data retention limits enforced  
 ✅ No third-party trackers  
 ✅ Self-hosted analytics infrastructure  
-✅ Data export available on request  
+✅ Data export available on request
 
 ---
 
 ## Dashboard Metrics
 
 ### Funnel Overview
+
 - Total sessions
 - Unique campaigns viewed
 - Wallet connections (attempts, success rate)
@@ -367,17 +424,20 @@ When opted-out:
 - Redeems (attempts, success rate, volume)
 
 ### Conversion Rates
+
 - Campaign view → Wallet connect: X%
 - Wallet connect → Registration: X%
 - Registration → Claim: X%
 - Claim → Redeem: X%
 
 ### Drop-off Analysis
+
 - Top drop-off point: [Stage]
 - Average time to complete funnel: X minutes
 - Funnel completion rate: X%
 
 ### Source Attribution
+
 - Top acquisition sources
 - Conversion rate by source
 - Campaign performance by source

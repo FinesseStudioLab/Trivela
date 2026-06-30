@@ -126,9 +126,9 @@ export function createJobRunner({
       }
     } finally {
       if (lockProvider && lock !== null) {
-        await lockProvider.release(job.type, lock).catch((err) =>
-          logger.warn?.(`job:lock_release_failed type=${job.type}`, err),
-        );
+        await lockProvider
+          .release(job.type, lock)
+          .catch((err) => logger.warn?.(`job:lock_release_failed type=${job.type}`, err));
       }
       running = false;
       scheduleNext();

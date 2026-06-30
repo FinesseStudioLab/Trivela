@@ -249,7 +249,10 @@ export function createIndexReadRoutes({ dal, campaignRepository }) {
     const now = Date.now();
     if (cached && now - cached.at < STATS_CACHE_TTL_MS) {
       if (req.headers['if-none-match'] === cached.etag) return res.status(304).end();
-      res.set({ ETag: cached.etag, 'Cache-Control': 'public, max-age=30, stale-while-revalidate=120' });
+      res.set({
+        ETag: cached.etag,
+        'Cache-Control': 'public, max-age=30, stale-while-revalidate=120',
+      });
       return res.json(cached.data);
     }
 
@@ -258,15 +261,21 @@ export function createIndexReadRoutes({ dal, campaignRepository }) {
     let totalClaimed = BigInt(0);
 
     if (tableExists(db, 'balances')) {
-      const row = db.prepare('SELECT COUNT(*) as cnt FROM balances WHERE CAST(balance AS INTEGER) > 0').get();
+      const row = db
+        .prepare('SELECT COUNT(*) as cnt FROM balances WHERE CAST(balance AS INTEGER) > 0')
+        .get();
       totalParticipants = row?.cnt ?? 0;
     }
     if (tableExists(db, 'credit_events')) {
-      const row = db.prepare("SELECT COALESCE(SUM(CAST(amount AS INTEGER)), 0) as total FROM credit_events").get();
+      const row = db
+        .prepare('SELECT COALESCE(SUM(CAST(amount AS INTEGER)), 0) as total FROM credit_events')
+        .get();
       totalCredited = BigInt(row?.total ?? 0);
     }
     if (tableExists(db, 'claim_events')) {
-      const row = db.prepare("SELECT COALESCE(SUM(CAST(amount AS INTEGER)), 0) as total FROM claim_events").get();
+      const row = db
+        .prepare('SELECT COALESCE(SUM(CAST(amount AS INTEGER)), 0) as total FROM claim_events')
+        .get();
       totalClaimed = BigInt(row?.total ?? 0);
     }
 

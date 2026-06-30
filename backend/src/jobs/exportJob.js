@@ -36,9 +36,7 @@ export function createExportJob({
   retentionDays = 30,
   uploadDir = './uploads',
 }) {
-  const checkpointSelectStmt = db.prepare(
-    'SELECT date FROM export_checkpoints WHERE date = ?',
-  );
+  const checkpointSelectStmt = db.prepare('SELECT date FROM export_checkpoints WHERE date = ?');
   const checkpointInsertStmt = db.prepare(
     'INSERT INTO export_checkpoints (date, completed_at) VALUES (?, ?)',
   );

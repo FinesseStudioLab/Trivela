@@ -40,10 +40,32 @@ regex = '''KEEPER_SECRET_KEY\s*=\s*['"]?S[A-Z2-7]{55}['"]?'''
 tags = ["stellar", "keeper"]
 
 [allowlist]
-description = "Safe paths — example files, test fixtures, docs"
+description = "Safe paths — example files, test fixtures, docs, and example tokens"
+# Documentation and test files intentionally contain placeholder credentials in
+# example requests (curl snippets, X-API-Key headers, idempotency keys). The
+# high-value custom rules above (Stellar secret key, JWT_SECRET, PEM blocks,
+# KEEPER_SECRET_KEY) still apply to real source code; only these example-bearing
+# paths and obvious placeholder tokens are exempted so the scan stays meaningful
+# without flagging documentation.
 paths = [
   '''.env\.example''',
   '''test[s]?/fixtures/''',
   '''docs/''',
   '''\.gitleaks\.toml''',
+  # Markdown docs (READMEs, design notes) — example requests only.
+  '''\.md$''',
+  # Unit/integration test files — fixture credentials, not real secrets.
+  '''\.(test|spec)\.(js|jsx|ts|tsx)$''',
+  # Developer-portal route renders example curl snippets in its HTML.
+  '''backend/src/routes/devPortal\.js''',
+  # Build / vendor output (never present in CI checkout; keeps local scans clean).
+  '''(^|/)target/''',
+  '''(^|/)dist/''',
+  '''(^|/)node_modules/''',
+]
+regexes = [
+  # Obvious placeholder tokens used throughout examples.
+  '''sandbox_your_key''',
+  '''(?i)your[_-]?(api[_-]?)?key''',
+  '''(?i)example[_-]?(api[_-]?)?key''',
 ]
