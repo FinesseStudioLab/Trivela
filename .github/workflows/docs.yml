@@ -43,7 +43,9 @@ jobs:
         if: steps.pages_check.outputs.enabled == 'true'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          # Soroban's supported wasm target on Rust 1.84+ (wasm32-unknown-unknown
+          # is rejected by soroban-sdk's build script on 1.82+).
+          targets: wasm32v1-none
 
       - name: Cache cargo registry and target
         if: steps.pages_check.outputs.enabled == 'true'

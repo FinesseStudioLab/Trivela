@@ -107,7 +107,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: wasm32-unknown-unknown
+          # Soroban dropped wasm32-unknown-unknown on Rust 1.82+ (build-script
+          # panic); wasm32v1-none is the supported target on Rust 1.84+.
+          targets: wasm32v1-none
 
       - name: Restore cargo cache
         uses: actions/cache@v4
@@ -130,5 +132,5 @@ jobs:
 
       - name: Build WASM artifacts
         run:
-          cargo build --target wasm32-unknown-unknown --release -p trivela-rewards-contract -p
+          cargo build --target wasm32v1-none --release -p trivela-rewards-contract -p
           trivela-campaign-contract
