@@ -178,7 +178,8 @@ test('executeBatch rejects if batch does not exist', async () => {
 });
 
 test('executeBatch rejects concurrent execution of the same batch', async () => {
-  let resolveSubmit;
+  /** @type {(value?: any) => void} */
+  let resolveSubmit = () => {};
   const submitDone = new Promise((r) => {
     resolveSubmit = r;
   });

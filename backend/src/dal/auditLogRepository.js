@@ -1,3 +1,14 @@
+/**
+ * Duck-typed audit-log repository. Concrete implementations provide these
+ * methods; consumers validate via {@link assertAuditLogRepository}.
+ *
+ * @typedef {object} AuditLogRepository
+ * @property {(...args: any[]) => any} list
+ * @property {(...args: any[]) => any} create
+ * @property {(...args: any[]) => any} count
+ * @property {(...args: any[]) => any} verify
+ */
+
 const REQUIRED_METHODS = ['list', 'create', 'count', 'verify'];
 
 export function assertAuditLogRepository(repository) {

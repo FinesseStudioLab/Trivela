@@ -52,7 +52,7 @@ function buildCsv(columns, rows) {
 
 /**
  * @param {{
- *   db: import('better-sqlite3').Database,
+ *   db: InstanceType<import('better-sqlite3')>,
  *   campaignRepository: import('../dal/campaignRepository.js').CampaignRepository,
  *   auditLogRepository: import('../dal/auditLogRepository.js').AuditLogRepository,
  *   requireApiKey: import('express').RequestHandler,

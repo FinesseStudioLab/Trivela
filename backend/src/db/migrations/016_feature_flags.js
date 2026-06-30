@@ -2,7 +2,7 @@
 export const version = 16;
 export const description = 'feature flags store';
 
-/** @param {import('better-sqlite3').Database} db */
+/** @param {InstanceType<import('better-sqlite3')>} db */
 export function up(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS feature_flags (

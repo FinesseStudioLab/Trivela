@@ -42,6 +42,9 @@ function makeRequireApiKey(req, res, next) {
   next();
 }
 
+/**
+ * @param {{ params?: Record<string, any>, query?: Record<string, any>, headers?: Record<string, any>, ip?: string }} [opts]
+ */
 function makeReq({ params = {}, query = {}, headers = {}, ip = '1.2.3.4' } = {}) {
   return { params, query, headers, ip, path: '/campaigns/' + (params.id ?? 'x') + '/export' };
 }
@@ -344,7 +347,7 @@ describe('campaignExport — CSV format', () => {
   });
 
   test('CSV escapes values containing commas', async () => {
-    const { buildCsv } = await import('./campaignExport.js').catch(() => ({}));
+    const { buildCsv } = /** @type {any} */ (await import('./campaignExport.js').catch(() => ({})));
     if (!buildCsv) return; // not exported — skip
 
     const columns = ['a', 'b'];

@@ -18,14 +18,16 @@ import { computeBackoffMs } from './jobRunner.js';
  *   pollIntervalMs?: number,
  * }} options
  */
-export function createDurableJobQueue({
-  store,
-  handlers = {},
-  logger = console,
-  deadLetter,
-  visibilityTimeoutMs = 60_000,
-  pollIntervalMs = 5_000,
-} = {}) {
+export function createDurableJobQueue(
+  {
+    store,
+    handlers = {},
+    logger = console,
+    deadLetter,
+    visibilityTimeoutMs = 60_000,
+    pollIntervalMs = 5_000,
+  } = /** @type {any} */ ({}),
+) {
   let stopped = false;
   let processing = false;
   let pollTimer = null;
