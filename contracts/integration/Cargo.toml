@@ -12,6 +12,6 @@ path = "src/lib.rs"
 doctest = false
 
 [dev-dependencies]
-soroban-sdk = { version = "25.1", features = ["testutils"] }
+soroban-sdk = { version = "26.1", features = ["testutils"] }
 trivela-rewards-contract = { path = "../rewards" }
 trivela-campaign-contract = { path = "../campaign" }
