@@ -1,5 +1,6 @@
 import { useId } from 'react';
 import { Link } from 'react-router-dom';
+import AmountFormatter from './AmountFormatter';
 import StatusBadge from './StatusBadge';
 import UrgencyBadge from './UrgencyBadge';
 
@@ -45,7 +46,9 @@ export default function CampaignCard({ campaign }) {
         <dl className="campaign-card-metadata">
           <div className="campaign-card-metadata-item">
             <dt>Reward</dt>
-            <dd>{rewardPerAction} pts</dd>
+            <dd>
+              <AmountFormatter value={rewardPerAction} tokenSymbol="pts" maximumFractionDigits={2} />
+            </dd>
           </div>
 
           {formattedDate && (

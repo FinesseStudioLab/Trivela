@@ -1,0 +1,30 @@
+.amount-formatter {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.amount-formatter-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.amount-formatter--default {
+  color: inherit;
+}
+
+.amount-formatter--accent {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.amount-formatter--muted {
+  color: var(--text-muted);
+}
+
+.amount-formatter--success {
+  color: var(--success);
+  font-weight: 700;
+}
