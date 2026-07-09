@@ -1,0 +1,139 @@
+.skeleton-loader {
+  width: 100%;
+  color: var(--text-muted);
+}
+
+.skeleton-loader-block {
+  display: block;
+  min-height: 0.85rem;
+  border-radius: 8px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.08), transparent),
+    var(--border);
+  background-size: 220% 100%;
+  animation: skeleton-loader-shimmer 1.35s ease-in-out infinite;
+}
+
+:root[data-theme='light'] .skeleton-loader-block {
+  background:
+    linear-gradient(90deg, transparent, rgba(15, 98, 254, 0.08), transparent),
+    rgba(21, 34, 53, 0.12);
+}
+
+.skeleton-loader-text {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.skeleton-loader-line {
+  height: 0.85rem;
+}
+
+.skeleton-loader-line--short {
+  width: 68%;
+}
+
+.skeleton-loader-line--tiny {
+  width: 42%;
+}
+
+.skeleton-loader-card {
+  display: grid;
+  gap: 1rem;
+  width: min(360px, 100%);
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.skeleton-loader-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.skeleton-loader-avatar {
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.skeleton-loader-card-title {
+  display: grid;
+  flex: 1;
+  gap: 0.55rem;
+}
+
+.skeleton-loader-media {
+  height: 8rem;
+}
+
+.skeleton-loader-table {
+  display: grid;
+  gap: 0.5rem;
+  width: min(640px, 100%);
+}
+
+.skeleton-loader-table-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 0.8fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.skeleton-loader-table-row--header .skeleton-loader-block {
+  min-height: 0.7rem;
+  opacity: 0.72;
+}
+
+.skeleton-loader-dashboard {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+  width: min(520px, 100%);
+}
+
+.skeleton-loader-dashboard-card {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.skeleton-loader-metric {
+  height: 2rem;
+  width: 74%;
+}
+
+@keyframes skeleton-loader-shimmer {
+  0% {
+    background-position: 180% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+@media (max-width: 540px) {
+  .skeleton-loader-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .skeleton-loader-table-row {
+    grid-template-columns: 1.2fr 0.9fr;
+  }
+
+  .skeleton-loader-table-row .skeleton-loader-block:nth-child(3) {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-loader-block {
+    animation: none;
+  }
+}
