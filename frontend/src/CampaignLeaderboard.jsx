@@ -236,6 +236,30 @@ export default function CampaignLeaderboard({
             <p className="lb-subtitle">Participants ranked by reward points earned</p>
           </header>
 
+          {/* Transparent reward attribution (GrantFox / issue #885) */}
+          <aside className="lb-attribution" aria-label="Reward attribution">
+            <h2 className="lb-attribution-title">Reward attribution</h2>
+            <p className="lb-attribution-body">
+              Rankings reflect on-campaign reward points from merged contributions and claims.
+              GrantFox OSS eligibility is separate: only work accepted under an open GrantFox
+              campaign issue qualifies for GrantFox payouts. See{' '}
+              <a href="/docs/CONTRIBUTOR_REWARD_ATTRIBUTION.md">contributor reward attribution</a>{' '}
+              for the transparent scoring rules.
+            </p>
+            <ul className="lb-attribution-list">
+              <li>
+                <strong>Leaderboard score:</strong> campaign points API (
+                <code>/api/v1/campaigns/:id/leaderboard</code>)
+              </li>
+              <li>
+                <strong>GrantFox eligibility:</strong> merged PR linked to a GrantFox-labeled issue
+              </li>
+              <li>
+                <strong>Payout rail:</strong> campaign rewards contract + optional GrantFox USDC/XLM
+              </li>
+            </ul>
+          </aside>
+
           {/* Connected wallet rank banner */}
           {walletAddress && myRank && (
             <div className="lb-my-rank-banner" role="status">

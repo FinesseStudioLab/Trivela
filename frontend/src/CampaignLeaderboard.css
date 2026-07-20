@@ -403,3 +403,39 @@
     display: none;
   }
 }
+
+/* Reward attribution panel (#885) */
+.lb-attribution {
+  margin: 0 0 1.25rem;
+  padding: 1rem 1.15rem;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(30, 41, 59, 0.55);
+}
+.lb-attribution-title {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+.lb-attribution-body {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: #cbd5e1;
+}
+.lb-attribution-body a {
+  color: #38bdf8;
+}
+.lb-attribution-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.85rem;
+  color: #94a3b8;
+  line-height: 1.55;
+}
+.lb-attribution-list code {
+  font-size: 0.8em;
+}
