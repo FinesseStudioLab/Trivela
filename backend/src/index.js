@@ -84,7 +84,9 @@ import { createPathPaymentRoutes } from './routes/pathPayment.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
+import { createNotificationRoutes, createNotificationPreferencesRoutes } from './routes/notifications.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createPruningJob } from './jobs/pruningJob.js';
 
 const DEFAULT_PORT = 3001;
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
@@ -591,6 +593,8 @@ export async function createApp(options = {}) {
     30_000,
   );
 
+  const pruningJob = createPruningJob({ dal });
+
   const jobRunner = createJobRunner({
     handlers: {
       async rpc_health_poll() {
@@ -613,6 +617,9 @@ export async function createApp(options = {}) {
       async data_export({ date }) {
         await exportJob.run(date);
       },
+      async storage_pruning() {
+        await pruningJob();
+      },
     },
     logger: log,
     deadLetter: failedJobRepository,
@@ -634,6 +641,16 @@ export async function createApp(options = {}) {
     setInterval(
       () => jobRunner.enqueue('webhook_retry_failed_deliveries', null),
       webhookRetryIntervalMs,
+    ).unref?.();
+  }
+
+  // Daily storage pruning (#1029)
+  if (!options.disableJobs) {
+    const pruningIntervalMs = 24 * 60 * 60 * 1000; // 24 hours
+    jobRunner.enqueue('storage_pruning', null);
+    setInterval(
+      () => jobRunner.enqueue('storage_pruning', null),
+      pruningIntervalMs,
     ).unref?.();
   }
 
@@ -2228,6 +2245,14 @@ export async function createApp(options = {}) {
   // #543 — ZK proving inputs (public, no auth — secrets never leave the device)
   const zkInputsRouter = createZkInputsRoutes({ campaignRepository });
   app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
+
+  // #1027 — In-app notification center with read/unread state
+  const notificationRouter = createNotificationRoutes({ dal });
+  app.use(API_V1_PREFIX, rateLimiter, notificationRouter);
+
+  // #1028 — SMS/WhatsApp notification preferences
+  const notificationPreferencesRouter = createNotificationPreferencesRoutes({ dal });
+  app.use(API_V1_PREFIX, rateLimiter, notificationPreferencesRouter);
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
