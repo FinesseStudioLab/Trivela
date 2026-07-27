@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload Rust coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: rust-coverage
           path: /tmp/coverage.json
@@ -99,7 +99,7 @@ jobs:
           echo "Contract reference generated at docs/contract-reference/"
 
       - name: Upload contract reference as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: contract-reference-docs
           path: docs/contract-reference/

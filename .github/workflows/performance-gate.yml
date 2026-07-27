@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload profiling report
         # v3 is retired — GitHub fails the job before it runs.
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gas-profiling-report
           path: reports/gas-profiling.json
