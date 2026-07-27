@@ -46,7 +46,7 @@ jobs:
 
       - name: Cache cargo registry and target
         if: steps.pages_check.outputs.enabled == 'true'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
