@@ -21,6 +21,7 @@ const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const WebhookManagement = lazy(() => import('./pages/WebhookManagement'));
+const StatusPage = lazy(() => import('./pages/StatusPage'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -365,6 +366,7 @@ export default function App() {
           />
           <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
           <Route path="/u/:address" element={<PublicProfile />} />
+          <Route path="/status" element={<StatusPage />} />
           <Route
             path="/profile"
             element={

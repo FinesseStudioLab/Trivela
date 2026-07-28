@@ -10,14 +10,22 @@ import { checkSorobanRpcHealth } from '../sorobanRpc.js';
 
 const router = Router();
 
-// In-memory storage (in production, use database)
-const incidents = new Map();
-const maintenanceNotices = new Map();
-const subscribers = new Map();
+// Will be injected by the main server
+let statusRepository = null;
+let eventIndexer = null;
+let rpcPool = null;
 
-let incidentIdCounter = 1;
-let maintenanceIdCounter = 1;
-let subscriberIdCounter = 1;
+export function setStatusRepository(repo) {
+  statusRepository = repo;
+}
+
+export function setEventIndexer(indexer) {
+  eventIndexer = indexer;
+}
+
+export function setRpcPool(pool) {
+  rpcPool = pool;
+}
 
 const COMPONENTS = [
   { id: 'api', name: 'API', description: 'REST API endpoints' },
@@ -54,6 +62,10 @@ const subscriberSchema = z.object({
  */
 router.get('/', async (req, res) => {
   try {
+    if (!statusRepository) {
+      return res.status(503).json({ error: 'Status repository not initialized' });
+    }
+
     // Check health of each component
     const componentStatus = await Promise.all(
       COMPONENTS.map(async (component) => {
@@ -72,15 +84,32 @@ router.get('/', async (req, res) => {
         } else if (component.id === 'api') {
           // API is operational if this endpoint responds
           status = 'operational';
-        } else {
-          // Default to operational for other components
+        } else if (component.id === 'indexer') {
+          // Check indexer health
+          if (eventIndexer) {
+            const health = eventIndexer.getHealth?.() ?? { status: 'unavailable' };
+            status = health.status === 'ok' || health.status === 'idle' ? 'operational' : 'degraded';
+          } else {
+            status = 'operational';
+          }
+        } else if (component.id === 'contracts') {
+          // Check RPC pool health for contracts
+          if (rpcPool) {
+            const poolStatus = rpcPool.getStatus();
+            status = poolStatus.healthy > 0 ? 'operational' : 'outage';
+          } else {
+            status = 'operational';
+          }
+        } else if (component.id === 'database') {
+          // Database is operational if we can query
           status = 'operational';
         }
 
         // Check if component is affected by active incidents
-        const activeIncidents = Array.from(incidents.values()).filter(
-          (inc) => inc.status !== 'resolved' && inc.components.includes(component.id),
-        );
+        const activeIncidents = statusRepository.listIncidents({ status: 'investigating' })
+          .concat(statusRepository.listIncidents({ status: 'identified' }))
+          .concat(statusRepository.listIncidents({ status: 'monitoring' }))
+          .filter((inc) => inc.components.includes(component.id));
 
         if (activeIncidents.length > 0) {
           const maxImpact = activeIncidents.reduce((max, inc) => {
@@ -101,14 +130,37 @@ router.get('/', async (req, res) => {
     );
 
     // Get active incidents
-    const activeIncidents = Array.from(incidents.values())
-      .filter((inc) => inc.status !== 'resolved')
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const investigatingIncidents = statusRepository.listIncidents({ status: 'investigating' });
+    const identifiedIncidents = statusRepository.listIncidents({ status: 'identified' });
+    const monitoringIncidents = statusRepository.listIncidents({ status: 'monitoring' });
+    const activeIncidents = [...investigatingIncidents, ...identifiedIncidents, ...monitoringIncidents]
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .map((inc) => ({
+        id: inc.id,
+        title: inc.title,
+        description: inc.description,
+        components: inc.components,
+        status: inc.status,
+        impact: inc.impact,
+        createdAt: inc.created_at,
+        updatedAt: inc.updated_at,
+        updates: statusRepository.getIncidentUpdates(inc.id),
+      }));
 
     // Get scheduled maintenance
-    const scheduledMaintenance = Array.from(maintenanceNotices.values())
-      .filter((maint) => new Date(maint.scheduledEnd) > new Date())
-      .sort((a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart));
+    const allMaintenance = statusRepository.listMaintenance();
+    const scheduledMaintenance = allMaintenance
+      .filter((maint) => new Date(maint.scheduled_end) > new Date())
+      .sort((a, b) => new Date(a.scheduled_start) - new Date(b.scheduled_start))
+      .map((maint) => ({
+        id: maint.id,
+        title: maint.title,
+        description: maint.description,
+        components: maint.components,
+        scheduledStart: maint.scheduled_start,
+        scheduledEnd: maint.scheduled_end,
+        createdAt: maint.created_at,
+      }));
 
     // Calculate overall status
     const hasOutage = componentStatus.some((c) => c.status === 'outage');
@@ -133,14 +185,25 @@ router.get('/', async (req, res) => {
  * Get all incidents (including resolved)
  */
 router.get('/incidents', (req, res) => {
-  const { status } = req.query;
-  let incidentList = Array.from(incidents.values());
-
-  if (status) {
-    incidentList = incidentList.filter((inc) => inc.status === status);
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
   }
 
-  res.json(incidentList.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)));
+  const { status } = req.query;
+  const incidents = statusRepository.listIncidents({ status })
+    .map((inc) => ({
+      id: inc.id,
+      title: inc.title,
+      description: inc.description,
+      components: inc.components,
+      status: inc.status,
+      impact: inc.impact,
+      createdAt: inc.created_at,
+      updatedAt: inc.updated_at,
+      updates: statusRepository.getIncidentUpdates(inc.id),
+    }));
+
+  res.json(incidents);
 });
 
 /**
@@ -148,33 +211,47 @@ router.get('/incidents', (req, res) => {
  * Create a new incident (admin only)
  */
 router.post('/incidents', async (req, res) => {
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
   try {
     const data = incidentSchema.parse(req.body);
-    const incidentId = `inc_${incidentIdCounter++}`;
+    const incidentId = `inc_${Date.now()}`;
+    const now = new Date().toISOString();
 
-    const incident = {
+    statusRepository.createIncident({
       id: incidentId,
       title: data.title,
       description: data.description,
       components: data.components,
       status: data.status,
       impact: data.impact,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      updates: [
-        {
-          status: data.status,
-          message: data.description,
-          timestamp: new Date().toISOString(),
-        },
-      ],
-    };
+      createdAt: now,
+      updatedAt: now,
+    });
 
-    incidents.set(incidentId, incident);
+    statusRepository.createIncidentUpdate({
+      incidentId,
+      status: data.status,
+      message: data.description,
+      timestamp: now,
+    });
 
     log.info('Incident created', { incidentId, title: data.title, impact: data.impact });
 
-    res.status(201).json(incident);
+    const incident = statusRepository.getIncident(incidentId);
+    res.status(201).json({
+      id: incident.id,
+      title: incident.title,
+      description: incident.description,
+      components: incident.components,
+      status: incident.status,
+      impact: incident.impact,
+      createdAt: incident.created_at,
+      updatedAt: incident.updated_at,
+      updates: statusRepository.getIncidentUpdates(incidentId),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid request', details: error.errors });
@@ -189,7 +266,11 @@ router.post('/incidents', async (req, res) => {
  * Update an incident
  */
 router.put('/incidents/:id', async (req, res) => {
-  const incident = incidents.get(req.params.id);
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
+  const incident = statusRepository.getIncident(req.params.id);
   if (!incident) {
     return res.status(404).json({ error: 'Incident not found' });
   }
@@ -200,27 +281,40 @@ router.put('/incidents/:id', async (req, res) => {
     });
     const data = updateSchema.parse(req.body);
 
-    if (data.title) incident.title = data.title;
-    if (data.description) incident.description = data.description;
-    if (data.components) incident.components = data.components;
-    if (data.status) incident.status = data.status;
-    if (data.impact) incident.impact = data.impact;
-
-    incident.updatedAt = new Date().toISOString();
+    const now = new Date().toISOString();
+    statusRepository.updateIncident({
+      id: req.params.id,
+      title: data.title,
+      description: data.description,
+      components: data.components,
+      status: data.status,
+      impact: data.impact,
+      updatedAt: now,
+    });
 
     if (data.message || data.status) {
-      incident.updates.push({
+      statusRepository.createIncidentUpdate({
+        incidentId: req.params.id,
         status: data.status || incident.status,
         message: data.message || 'Status updated',
-        timestamp: new Date().toISOString(),
+        timestamp: now,
       });
     }
 
-    incidents.set(req.params.id, incident);
+    log.info('Incident updated', { incidentId: req.params.id, status: data.status || incident.status });
 
-    log.info('Incident updated', { incidentId: req.params.id, status: incident.status });
-
-    res.json(incident);
+    const updatedIncident = statusRepository.getIncident(req.params.id);
+    res.json({
+      id: updatedIncident.id,
+      title: updatedIncident.title,
+      description: updatedIncident.description,
+      components: updatedIncident.components,
+      status: updatedIncident.status,
+      impact: updatedIncident.impact,
+      createdAt: updatedIncident.created_at,
+      updatedAt: updatedIncident.updated_at,
+      updates: statusRepository.getIncidentUpdates(req.params.id),
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid request', details: error.errors });
@@ -235,12 +329,16 @@ router.put('/incidents/:id', async (req, res) => {
  * Delete an incident
  */
 router.delete('/incidents/:id', (req, res) => {
-  const incident = incidents.get(req.params.id);
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
+  const incident = statusRepository.getIncident(req.params.id);
   if (!incident) {
     return res.status(404).json({ error: 'Incident not found' });
   }
 
-  incidents.delete(req.params.id);
+  statusRepository.deleteIncident(req.params.id);
   log.info('Incident deleted', { incidentId: req.params.id });
 
   res.status(204).send();
@@ -251,9 +349,20 @@ router.delete('/incidents/:id', (req, res) => {
  * Get all maintenance notices
  */
 router.get('/maintenance', (req, res) => {
-  const maintenanceList = Array.from(maintenanceNotices.values()).sort(
-    (a, b) => new Date(a.scheduledStart) - new Date(b.scheduledStart),
-  );
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
+  const maintenanceList = statusRepository.listMaintenance()
+    .map((maint) => ({
+      id: maint.id,
+      title: maint.title,
+      description: maint.description,
+      components: maint.components,
+      scheduledStart: maint.scheduled_start,
+      scheduledEnd: maint.scheduled_end,
+      createdAt: maint.created_at,
+    }));
 
   res.json(maintenanceList);
 });
@@ -263,25 +372,37 @@ router.get('/maintenance', (req, res) => {
  * Create a maintenance notice
  */
 router.post('/maintenance', async (req, res) => {
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
   try {
     const data = maintenanceSchema.parse(req.body);
-    const maintenanceId = `mnt_${maintenanceIdCounter++}`;
+    const maintenanceId = `mnt_${Date.now()}`;
+    const now = new Date().toISOString();
 
-    const maintenance = {
+    statusRepository.createMaintenance({
       id: maintenanceId,
       title: data.title,
       description: data.description,
       components: data.components,
       scheduledStart: data.scheduledStart,
       scheduledEnd: data.scheduledEnd,
-      createdAt: new Date().toISOString(),
-    };
-
-    maintenanceNotices.set(maintenanceId, maintenance);
+      createdAt: now,
+    });
 
     log.info('Maintenance notice created', { maintenanceId, title: data.title });
 
-    res.status(201).json(maintenance);
+    const maintenance = statusRepository.getMaintenance(maintenanceId);
+    res.status(201).json({
+      id: maintenance.id,
+      title: maintenance.title,
+      description: maintenance.description,
+      components: maintenance.components,
+      scheduledStart: maintenance.scheduled_start,
+      scheduledEnd: maintenance.scheduled_end,
+      createdAt: maintenance.created_at,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ error: 'Invalid request', details: error.errors });
@@ -296,12 +417,16 @@ router.post('/maintenance', async (req, res) => {
  * Delete a maintenance notice
  */
 router.delete('/maintenance/:id', (req, res) => {
-  const maintenance = maintenanceNotices.get(req.params.id);
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
+  const maintenance = statusRepository.getMaintenance(req.params.id);
   if (!maintenance) {
     return res.status(404).json({ error: 'Maintenance notice not found' });
   }
 
-  maintenanceNotices.delete(req.params.id);
+  statusRepository.deleteMaintenance(req.params.id);
   log.info('Maintenance notice deleted', { maintenanceId: req.params.id });
 
   res.status(204).send();
@@ -312,21 +437,31 @@ router.delete('/maintenance/:id', (req, res) => {
  * Subscribe to status updates
  */
 router.post('/subscribe', async (req, res) => {
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
   try {
     const data = subscriberSchema.parse(req.body);
-    const subscriberId = `sub_${subscriberIdCounter++}`;
+    const subscriberId = `sub_${Date.now()}`;
+    const now = new Date().toISOString();
 
-    const subscriber = {
+    // Check if email already subscribed
+    const existing = statusRepository.getSubscriberByEmail(data.email);
+    if (existing) {
+      return res.status(409).json({ error: 'Email already subscribed', id: existing.id });
+    }
+
+    statusRepository.createSubscriber({
       id: subscriberId,
       email: data.email,
       components: data.components || COMPONENTS.map((c) => c.id),
-      createdAt: new Date().toISOString(),
-    };
-
-    subscribers.set(subscriberId, subscriber);
+      createdAt: now,
+    });
 
     log.info('Status subscription created', { subscriberId, email: data.email });
 
+    const subscriber = statusRepository.getSubscriber(subscriberId);
     res.status(201).json({
       id: subscriber.id,
       email: subscriber.email,
@@ -347,12 +482,16 @@ router.post('/subscribe', async (req, res) => {
  * Unsubscribe from status updates
  */
 router.delete('/subscribe/:id', (req, res) => {
-  const subscriber = subscribers.get(req.params.id);
+  if (!statusRepository) {
+    return res.status(503).json({ error: 'Status repository not initialized' });
+  }
+
+  const subscriber = statusRepository.getSubscriber(req.params.id);
   if (!subscriber) {
     return res.status(404).json({ error: 'Subscription not found' });
   }
 
-  subscribers.delete(req.params.id);
+  statusRepository.deleteSubscriber(req.params.id);
   log.info('Status subscription deleted', { subscriberId: req.params.id });
 
   res.status(204).send();
