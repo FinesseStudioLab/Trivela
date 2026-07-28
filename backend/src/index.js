@@ -102,7 +102,7 @@ import { createPruningJob } from './jobs/pruningJob.js';
 import { createModerationService } from './moderation/moderationService.js';
 import { createContentModerationMiddleware } from './middleware/contentModeration.js';
 import createFaucetRoutes from './routes/faucet.js';
-import createStatusRoutes from './routes/status.js';
+import createStatusRoutes, { setStatusRepository, setEventIndexer, setRpcPool } from './routes/status.js';
 import createWebhookRoutes from './routes/webhooks.js';
 
 const DEFAULT_PORT = 3001;
@@ -2738,6 +2738,9 @@ export async function createApp(options = {}) {
   app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes);
 
   // #818 — Public status page + incident communication
+  setStatusRepository(dal.status);
+  setEventIndexer(eventIndexer);
+  setRpcPool(rpcPool);
   app.use(`${API_V1_PREFIX}/status`, createStatusRoutes);
 
   registerApiRoutes(API_V1_PREFIX);
