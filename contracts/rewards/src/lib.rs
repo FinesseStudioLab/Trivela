@@ -1696,6 +1696,12 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&MULTISIG_CFG, &cfg);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
     // ── SEP-41 Token Interface (issue #530) ──────────────────────────────────
 
     /// Enable token mode (admin only). One-way: once enabled, cannot be disabled.
@@ -2042,6 +2048,12 @@ impl RewardsContract {
             .remove(&(GOV_PROP, proposal_id));
         env.events()
             .publish((GOV_CANCEL_EVENT, admin), proposal_id);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
     /// Check if token mode is enabled.
     pub fn is_token_mode(env: Env) -> bool {
         env.storage().instance().get(&TOKEN_MODE).unwrap_or(false)
@@ -2468,6 +2480,8 @@ impl RewardsContract {
     /// Return the current state of a governance proposal.
     pub fn get_param_proposal(env: Env, proposal_id: u64) -> Option<ParamProposal> {
         env.storage().instance().get(&(GOV_PROP, proposal_id))
+    }
+
     /// Returns the configured M-of-N multisig threshold (0 = disabled).
     pub fn multisig_threshold(env: Env) -> u32 {
         env.storage()

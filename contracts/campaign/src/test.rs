@@ -1541,11 +1541,33 @@ fn test_referral_lock_prevents_referrer_swap_on_re_register() {
     // referrer_b must NOT receive a credit; referrer_a still at 1.
     assert_eq!(client.referral_count(&referrer_a), 1);
     assert_eq!(client.referral_count(&referrer_b), 0);
+}
+
 // ── Referral loop detection + sybil guard (#743) ─────────────────────────────
 
 #[test]
 fn test_referral_loop_direct_cycle_rejected() {
     let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let (leaf, proof) = no_proof_args(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+
+    // Alice registers with Bob as referrer — Bob must be registered first.
+    client.register(&bob, &leaf, &proof, &None, &None);
+    client.register(&alice, &leaf, &proof, &Some(bob.clone()), &None);
+
+    // Bob tries to register with Alice as referrer → forms cycle Alice→Bob→Alice.
+    // Bob is already registered so the early-return path fires (Ok(false)), but
+    // we need to deregister Bob first to exercise the loop-detection branch.
+    client.deregister(&bob);
+    let result = client.try_register(&bob, &leaf, &proof, &Some(alice.clone()), &None);
+    assert_eq!(result, Ok(Err(Error::ReferralLoop)));
+}
+
 // ── Issue #740: participation barrier survives deregistration ─────────────────
 
 #[test]

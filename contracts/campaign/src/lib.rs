@@ -94,10 +94,9 @@ pub enum Error {
     NonceReused = 120,
     DuplicateSigner = 121,
     UnknownSigner = 122,
-    /// Referral would create a direct cycle (A→B where B already refers A).
-    ReferralLoop = 123,
-    /// A referral chain forms a cycle (A→B→…→A), which would enable infinite
-    /// recursive reward amplification. Walk bounded to 10 hops.
+    /// A referral would create a cycle — either a direct one (A→B where B
+    /// already refers A) or a longer chain (A→B→…→A), which would enable
+    /// infinite recursive reward amplification. Chain walk bounded to 10 hops.
     ReferralLoop = 123,
     /// Participant already has a locked referral record from a prior registration
     /// and cannot adopt a different referrer on re-registration (sybil guard).
@@ -1540,9 +1539,6 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
         return Ok(false);
     }
 
-    // On-chain referral validation (issue #455 / #743).
-    if let Some(ref referrer) = referrer {
-        if referrer == &participant {
     // On-chain referral validation (issues #455, #743).
     if let Some(ref referrer) = referrer {
         if *referrer == participant {
@@ -1594,6 +1590,8 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
                 PARTICIPANT_TTL_THRESHOLD,
                 PARTICIPANT_TTL_EXTEND_TO,
             );
+        }
+
         // Sybil guard (#743): if participant was ever registered before,
         // their referral record is locked and cannot be changed.
         let lock_key = (REFERRAL_LOCKED, participant.clone());
