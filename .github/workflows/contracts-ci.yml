@@ -163,7 +163,7 @@ jobs:
           cargo build --target wasm32v1-none --release -p trivela-rewards-contract -p trivela-campaign-contract
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: '20'
 
