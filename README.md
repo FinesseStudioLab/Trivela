@@ -337,7 +337,7 @@ docker compose --profile redis up --build
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing.
 
 ### Test Commands
 
