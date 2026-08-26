@@ -37,7 +37,7 @@ contributors.
 Both contracts are **deployed and live on Stellar Testnet**, built from the latest `main` and
 verified end-to-end (initialize → credit/balance, initialize → register/participant-count).
 
-### Contract Addresses
+### Contract Addresses.
 
 | Contract     | Contract ID (Testnet)                                      | Explorer                                                                                                            |
 | ------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
