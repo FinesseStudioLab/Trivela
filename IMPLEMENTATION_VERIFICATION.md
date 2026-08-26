@@ -29,7 +29,7 @@ in the current upstream codebase.
 
 ---
 
-### Issue #84: Add campaign cap (max participants) in campaign contract
+### Issue #84: Add campaign cap (max participants) in campaign contract.
 
 **Status**: ✅ IMPLEMENTED
 
