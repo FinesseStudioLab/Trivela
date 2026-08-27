@@ -32,7 +32,7 @@ contributors.
 
 ---
 
-## 🚀 Live Deployment
+## 🚀 Live Deployment.
 
 Both contracts are **deployed and live on Stellar Testnet**, built from the latest `main` and
 verified end-to-end (initialize → credit/balance, initialize → register/participant-count).
