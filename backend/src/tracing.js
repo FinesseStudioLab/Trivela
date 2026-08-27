@@ -142,6 +142,119 @@ export async function withSpan(name, attributes, fn) {
 }
 
 /**
+ * Propagate trace context across async boundaries (jobs, queues, workers).
+ * Extracts the current span context and returns a serializable object
+ * that can be passed through job queues, message brokers, etc.
+ * 
+ * Fixes: https://github.com/FinesseStudioLab/Trivela/issues/778
+ * 
+ * @returns {Object} Serializable trace context
+ */
+export function extractTraceContext() {
+  const span = trace.getSpan(otelContext.active());
+  if (!span) return null;
+  
+  const ctx = span.spanContext();
+  return {
+    traceId: ctx.traceId,
+    spanId: ctx.spanId,
+    traceFlags: ctx.traceFlags,
+  };
+}
+
+/**
+ * Resume a trace from serialized context. Use this to continue a trace
+ * across async job boundaries.
+ * 
+ * @param {Object} traceContext - Context from extractTraceContext()
+ * @param {string} spanName - Name for the new span
+ * @param {Object} attributes - Span attributes
+ * @param {Function} fn - Async function to run in the resumed trace
+ */
+export async function resumeTraceContext(traceContext, spanName, attributes, fn) {
+  if (!traceContext) {
+    return withSpan(spanName, attributes, fn);
+  }
+  
+  const tracer = trace.getTracer('trivela-backend');
+  
+  // Create a remote span context from the serialized data
+  const remoteContext = {
+    traceId: traceContext.traceId,
+    spanId: traceContext.spanId,
+    traceFlags: traceContext.traceFlags,
+    isRemote: true,
+  };
+  
+  // Create a new context with the remote span as parent
+  const ctx = trace.setSpanContext(otelContext.active(), remoteContext);
+  
+  return otelContext.with(ctx, () => {
+    return tracer.startActiveSpan(spanName, { attributes }, async (span) => {
+      try {
+        const result = await fn(span);
+        span.setStatus({ code: SpanStatusCode.OK });
+        return result;
+      } catch (err) {
+        span.recordException(err);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+        throw err;
+      } finally {
+        span.end();
+      }
+    });
+  });
+}
+
+/**
+ * Span database queries with attributes.
+ * 
+ * @param {string} operation - DB operation (e.g., 'SELECT', 'INSERT')
+ * @param {string} table - Table name
+ * @param {Object} extraAttrs - Additional attributes
+ * @param {Function} fn - Query function
+ */
+export async function spanDatabaseQuery(operation, table, extraAttrs, fn) {
+  return withSpan('db.query', {
+    'db.operation': operation,
+    'db.table': table,
+    'db.system': 'postgresql',
+    ...extraAttrs,
+  }, fn);
+}
+
+/**
+ * Span Stellar RPC calls with ledger/tx attributes.
+ * 
+ * @param {string} method - RPC method (e.g., 'getTransaction', 'simulateTransaction')
+ * @param {Object} extraAttrs - Additional attributes (ledger, txHash, etc.)
+ * @param {Function} fn - RPC call function
+ */
+export async function spanStellarRpc(method, extraAttrs, fn) {
+  return withSpan('stellar.rpc', {
+    'rpc.method': method,
+    'rpc.system': 'soroban',
+    ...extraAttrs,
+  }, fn);
+}
+
+/**
+ * Span async job execution with job metadata.
+ * 
+ * @param {string} jobType - Job type identifier
+ * @param {string} jobId - Job ID
+ * @param {Object} extraAttrs - Additional attributes
+ * @param {Function} fn - Job execution function
+ */
+export async function spanJobExecution(jobType, jobId, extraAttrs, fn) {
+  return withSpan('job.execute', {
+    'job.type': jobType,
+    'job.id': jobId,
+    ...extraAttrs,
+  }, fn);
+}
+
+/**
  * Express middleware that exposes the active span's `traceparent`
  * via a response header so a frontend instrumentation can stitch
  * its own spans into the same trace.
