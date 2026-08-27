@@ -1356,6 +1356,14 @@ impl RewardsContract {
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
     /// Returns the amount of asset tokens transferred.
+    /// Checks-effects-interactions (issue #850): every piece of state this
+    /// function touches — the user's point balance, `TOTAL_SUPPLY`, and
+    /// `REDEMPTION_RESERVE` — is written *before* the external SAC
+    /// `transfer` call at the end. If `asset_address` were a hostile
+    /// contract that reenters `redeem`/`fund_reserve`/`withdraw_reserve`
+    /// during that `transfer`, the reentrant call observes the
+    /// already-debited balance and reserve, so it cannot redeem the same
+    /// points twice or drain more than the reserve actually holds.
     pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_redeem_not_paused(&env)?;
@@ -1429,6 +1437,11 @@ impl RewardsContract {
 
     /// Withdraw asset tokens from redemption reserve (admin only).
     /// Used to reclaim unredeemed assets.
+    ///
+    /// Checks-effects-interactions (issue #850): `REDEMPTION_RESERVE` is
+    /// written before the external SAC `transfer`. A reentrant call during
+    /// that transfer sees the already-decremented reserve, so it can't
+    /// withdraw or redeem more than what's actually left.
     pub fn withdraw_reserve(
         env: Env,
         admin: Address,
