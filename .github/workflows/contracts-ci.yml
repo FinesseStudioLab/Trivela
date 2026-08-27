@@ -43,6 +43,14 @@ jobs:
       - name: Run contract tests
         run: cargo test --workspace
 
+      # High-N storage-exhaustion stress test (issue #835) — see
+      # docs/STORAGE_MODEL.md. Already covered by the `cargo test --workspace`
+      # step above; run again by name here so a failure/regression in this
+      # specific test class is called out on its own in CI logs instead of
+      # being buried among hundreds of other test names.
+      - name: Storage-exhaustion stress test
+        run: cargo test --package trivela-campaign-contract test_high_volume_registration_stress -- --nocapture
+
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
