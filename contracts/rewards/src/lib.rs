@@ -44,6 +44,8 @@ use soroban_sdk::{
     Bytes, BytesN, Env, Symbol, Vec,
 };
 
+pub mod groth16;
+
 #[cfg(test)]
 mod poseidon;
 #[cfg(test)]
