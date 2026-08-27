@@ -42,7 +42,7 @@ their organization scope.
 - **Permission-Based**: Requires `audit:read` permission
 - **API Key Authentication**: Integrated with existing auth middleware
 
-## Technical Details
+## Technical Details.
 
 ### Database Schema Changes
 
