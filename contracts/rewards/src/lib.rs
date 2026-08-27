@@ -2842,3 +2842,5 @@ mod kani_harnesses;
 
 #[cfg(test)]
 mod negative_tests;
+#[cfg(test)]
+mod reentrancy_tests;

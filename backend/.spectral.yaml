@@ -1,0 +1,72 @@
+# Spectral OpenAPI Linting Rules
+# https://stoplight.io/open-source/spectral
+
+extends: [[spectral:oas, all]]
+
+rules:
+  # Require operation IDs for all operations (needed for code generation)
+  operation-operationId: error
+  
+  # Require descriptions for all operations
+  operation-description: warn
+  
+  # Require tags for all operations (helps with SDK organization)
+  operation-tags: warn
+  
+  # Require examples in responses
+  oas3-valid-media-example: warn
+  
+  # Require parameter descriptions
+  oas3-parameter-description: warn
+  
+  # Enforce consistent parameter naming (camelCase)
+  oas3-parameter-name-invalid: warn
+  
+  # No $ref siblings (OpenAPI 3.0 limitation)
+  no-$ref-siblings: error
+  
+  # Require security definitions
+  operation-security-defined: error
+  
+  # Path parameters must be defined
+  path-params: error
+  
+  # Success responses must be defined
+  operation-success-response: error
+  
+  # Custom rules specific to Trivela API
+  
+  # All POST/PUT/PATCH operations should have request body
+  trivela-mutating-operations-request-body:
+    description: POST/PUT/PATCH operations should have a request body
+    given: $.paths[*][?(@property === 'post' || @property === 'put' || @property === 'patch')]
+    severity: warn
+    then:
+      field: requestBody
+      function: truthy
+  
+  # All error responses should reference Error schema
+  trivela-error-response-schema:
+    description: Error responses (4xx, 5xx) should use Error schema
+    given: $.paths[*][*].responses[?(@property >= 400)]
+    severity: warn
+    then:
+      field: content.application/json.schema.$ref
+      function: pattern
+      functionOptions:
+        match: "#/components/schemas/Error"
+  
+  # Operations returning lists should have pagination
+  trivela-list-operations-pagination:
+    description: GET operations returning arrays should document pagination
+    given: $.paths[*].get.responses.200.content.application/json.schema
+    severity: hint
+    then:
+      - field: properties.data
+        function: truthy
+      - field: properties.total
+        function: truthy
+      - field: properties.limit
+        function: truthy
+      - field: properties.offset
+        function: truthy
