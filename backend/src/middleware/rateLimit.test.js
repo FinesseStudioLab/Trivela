@@ -293,3 +293,127 @@ test('createRedisStore: throws when the multi() pipeline reports an error', asyn
   const store = createRedisStore(failingRedis);
   await assert.rejects(() => store.increment('k', 5000), /Redis rate limit increment failed/);
 });
+
+// ── Monthly quota (#759) ─────────────────────────────────────────────────────
+//
+// Separate from the windowed maxRequests/windowMs check above: caps total
+// volume over a calendar month regardless of burst pattern. A fake in-memory
+// usage store below stands in for sqliteApiKeyRepository's
+// getMonthlyUsage/incrementMonthlyUsage in these unit tests.
+
+function makeUsageStore(initial = {}) {
+  const usage = { ...initial };
+  return {
+    usage,
+    getMonthlyUsage: (req) => usage[req.headers['x-api-key']] ?? 0,
+    incrementMonthlyUsage: (req) => {
+      const key = req.headers['x-api-key'];
+      usage[key] = (usage[key] ?? 0) + 1;
+      return usage[key];
+    },
+  };
+}
+
+test('monthly quota: request passes and increments usage when under quota', async () => {
+  const store = makeUsageStore({ 'key-a': 5 });
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000, // high enough that the window check never fires here
+    resolveMonthlyQuota: () => 10,
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, true);
+  assert.equal(store.usage['key-a'], 6);
+  assert.equal(res.headersOut['X-Monthly-Quota-Limit'], '10');
+  assert.equal(res.headersOut['X-Monthly-Quota-Remaining'], '4');
+});
+
+test('monthly quota: request rejected with 429 once quota is reached, usage not incremented further', async () => {
+  const store = makeUsageStore({ 'key-a': 10 });
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: () => 10,
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, false);
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.body.code, 'MONTHLY_QUOTA_EXCEEDED');
+  assert.equal(res.body.quota, 10);
+  assert.equal(res.body.used, 10);
+  assert.ok(Number(res.headersOut['Retry-After']) > 0);
+  // Usage must not have incremented past the quota — a rejected request
+  // doesn't consume additional quota.
+  assert.equal(store.usage['key-a'], 10);
+});
+
+test('monthly quota: two keys with different quotas are enforced independently', async () => {
+  const store = makeUsageStore({ 'key-standard': 99, 'key-enterprise': 99 });
+  const quotas = { 'key-standard': 100, 'key-enterprise': null }; // enterprise = unlimited
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: (req) => quotas[req.headers['x-api-key']],
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+
+  const standard = makeReqRes({ apiKey: 'key-standard' });
+  let standardCalled = false;
+  await limiter(standard.req, standard.res, () => {
+    standardCalled = true;
+  });
+  assert.equal(standardCalled, true); // 99 -> 100, exactly at quota, still allowed
+  assert.equal(store.usage['key-standard'], 100);
+
+  // Next standard-tier request is now over quota.
+  const standardOver = makeReqRes({ apiKey: 'key-standard' });
+  let standardOverCalled = false;
+  await limiter(standardOver.req, standardOver.res, () => {
+    standardOverCalled = true;
+  });
+  assert.equal(standardOverCalled, false);
+  assert.equal(standardOver.res.statusCode, 429);
+
+  // Enterprise key (null quota = unlimited) is unaffected regardless of usage.
+  const enterprise = makeReqRes({ apiKey: 'key-enterprise' });
+  let enterpriseCalled = false;
+  await limiter(enterprise.req, enterprise.res, () => {
+    enterpriseCalled = true;
+  });
+  assert.equal(enterpriseCalled, true);
+  assert.equal(enterprise.res.headersOut['X-Monthly-Quota-Limit'], undefined);
+});
+
+test('monthly quota hooks are a no-op when not all three are provided', async () => {
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: () => 10, // getMonthlyUsage/incrementMonthlyUsage omitted
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, true);
+  assert.equal(res.headersOut['X-Monthly-Quota-Limit'], undefined);
+});
