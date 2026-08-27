@@ -2059,3 +2059,162 @@ fn test_execute_clawback_replay_rejected() {
     let replay = client.try_execute_clawback(&admin, &id);
     assert_eq!(replay, Err(Ok(Error::ClawbackNotFound)));
 }
+
+// ── Redemption reserve reconciliation (issue #834) ───────────────────────────
+
+fn setup_redemption(env: &Env) -> (RewardsContractClient<'_>, Address, Address, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let asset = sac.address();
+    soroban_sdk::token::StellarAssetClient::new(env, &asset).mint(&admin, &1_000_000);
+
+    (client, admin, asset, contract_id)
+}
+
+#[test]
+fn test_redeem_conserves_reserve() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, asset, _) = setup_redemption(&env);
+    let user = Address::generate(&env);
+
+    // 100 bps = 0.01 asset per point.
+    client.set_redemption_rate(&admin, &0, &asset, &100);
+    client.fund_reserve(&admin, &10_000);
+    client.credit(&admin, &user, &5_000);
+
+    let reserve_before = client.redemption_reserve();
+    let paid = client.redeem(&user, &1_000);
+    // 1000 points * 100 bps / 10000 = 10 asset units.
+    assert_eq!(paid, 10);
+
+    let reserve_after = client.redemption_reserve();
+    // Invariant: the redemption's payout equals the reserve delta exactly.
+    assert_eq!(reserve_before as i128 - reserve_after as i128, paid);
+    // Invariant: the mirrored counter matches the real SAC balance held by
+    // the contract, since nothing else has touched the token balance.
+    let token_client = soroban_sdk::token::Client::new(&env, &asset);
+    assert_eq!(
+        token_client.balance(&client.address) as u64,
+        reserve_after
+    );
+}
+
+#[test]
+fn test_redeem_rejects_when_desynced_above_actual_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, asset, contract_id) = setup_redemption(&env);
+    let user = Address::generate(&env);
+
+    client.set_redemption_rate(&admin, &0, &asset, &10_000); // 1:1
+    client.fund_reserve(&admin, &100);
+    client.credit(&admin, &user, &1_000);
+
+    // Simulate the exact desync issue #834 describes: the mirrored counter
+    // says more is available than the SAC token balance actually holds (an
+    // external transfer out, a bad reconciliation, etc.), without touching
+    // the real token balance.
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&REDEMPTION_RESERVE, &10_000u64);
+    });
+    assert_eq!(client.redemption_reserve(), 10_000);
+
+    // The real SAC balance is still only 100, so redeeming 500 points
+    // (worth 500 asset units at 1:1) must be rejected even though the
+    // mirrored counter claims to have 10,000 available.
+    let result = client.try_redeem(&user, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientReserve)));
+
+    // A redemption within the *actual* balance still succeeds.
+    let paid = client.redeem(&user, &100);
+    assert_eq!(paid, 100);
+}
+
+// ── Emergency timelock (issue #838) ──────────────────────────────────────────
+
+fn setup_timelock(env: &Env) -> (RewardsContractClient<'_>, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+    (client, admin)
+}
+
+#[test]
+fn test_timelock_defaults_and_configurable_delay() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    assert_eq!(client.timelock_delay(), DEFAULT_TIMELOCK_DELAY);
+    client.set_timelock_delay(&admin, &0, &500);
+    assert_eq!(client.timelock_delay(), 500);
+}
+
+#[test]
+fn test_timelock_early_execute_rejected() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+    client.set_timelock_delay(&admin, &0, &1_000);
+
+    let op_hash = BytesN::from_array(&env, &[7u8; 32]);
+    let eta = client.queue_timelock(&admin, &op_hash);
+    assert_eq!(eta, 1_000);
+
+    let result = client.try_execute_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimeLockActive)));
+}
+
+#[test]
+fn test_timelock_queue_then_execute() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+    client.set_timelock_delay(&admin, &0, &100);
+
+    let op_hash = BytesN::from_array(&env, &[9u8; 32]);
+    let eta = client.queue_timelock(&admin, &op_hash);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = eta;
+    });
+
+    client.execute_timelock(&admin, &op_hash);
+    assert_eq!(client.timelock_eta(&op_hash), None);
+
+    // Executed entries cannot be replayed.
+    let replay = client.try_execute_timelock(&admin, &op_hash);
+    assert_eq!(replay, Err(Ok(Error::TimelockNotFound)));
+}
+
+#[test]
+fn test_timelock_cancel() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    let op_hash = BytesN::from_array(&env, &[3u8; 32]);
+    client.queue_timelock(&admin, &op_hash);
+    assert!(client.timelock_eta(&op_hash).is_some());
+
+    client.cancel_timelock(&admin, &op_hash);
+    assert_eq!(client.timelock_eta(&op_hash), None);
+
+    let result = client.try_cancel_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimelockNotFound)));
+}
+
+#[test]
+fn test_timelock_double_queue_rejected() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    let op_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.queue_timelock(&admin, &op_hash);
+
+    let result = client.try_queue_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimelockAlreadyQueued)));
+}
