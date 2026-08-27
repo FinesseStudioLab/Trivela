@@ -147,6 +147,81 @@ fn test_claim_more_than_balance_errors() {
     assert_eq!(client.balance(&user), 0);
 }
 
+// ── Minimum claim amount (issue #321) ──────────────────────────────────────
+
+#[test]
+fn test_claim_below_minimum_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    client.set_min_claim(&admin, &10);
+
+    let result = client.try_claim(&user, &5);
+    assert_eq!(result, Err(Ok(Error::BelowMinClaim)));
+    assert_eq!(client.balance(&user), 100);
+}
+
+#[test]
+fn test_claim_exactly_at_minimum_succeeds() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    client.set_min_claim(&admin, &10);
+
+    let new_balance = client.claim(&user, &10);
+    assert_eq!(new_balance, 90);
+}
+
+#[test]
+fn test_admin_can_update_min_claim() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    assert_eq!(client.min_claim(), 0);
+
+    client.set_min_claim(&admin, &50);
+    assert_eq!(client.min_claim(), 50);
+
+    client.set_min_claim(&admin, &0);
+    assert_eq!(client.min_claim(), 0);
+}
+
+#[test]
+fn test_min_claim_zero_disables_check() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    // min_claim defaults to 0 (disabled) -- even a 1-point claim must succeed.
+    let new_balance = client.claim(&user, &1);
+    assert_eq!(new_balance, 99);
+}
+
 #[test]
 fn test_batch_credit() {
     let env = Env::default();
