@@ -1405,6 +1405,14 @@ impl RewardsContract {
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
     /// Returns the amount of asset tokens transferred.
+    /// Checks-effects-interactions (issue #850): every piece of state this
+    /// function touches — the user's point balance, `TOTAL_SUPPLY`, and
+    /// `REDEMPTION_RESERVE` — is written *before* the external SAC
+    /// `transfer` call at the end. If `asset_address` were a hostile
+    /// contract that reenters `redeem`/`fund_reserve`/`withdraw_reserve`
+    /// during that `transfer`, the reentrant call observes the
+    /// already-debited balance and reserve, so it cannot redeem the same
+    /// points twice or drain more than the reserve actually holds.
     pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_redeem_not_paused(&env)?;
@@ -1489,6 +1497,11 @@ impl RewardsContract {
 
     /// Withdraw asset tokens from redemption reserve (admin only).
     /// Used to reclaim unredeemed assets.
+    ///
+    /// Checks-effects-interactions (issue #850): `REDEMPTION_RESERVE` is
+    /// written before the external SAC `transfer`. A reentrant call during
+    /// that transfer sees the already-decremented reserve, so it can't
+    /// withdraw or redeem more than what's actually left.
     pub fn withdraw_reserve(
         env: Env,
         admin: Address,
@@ -1528,6 +1541,13 @@ impl RewardsContract {
 
     /// Fund redemption reserve (callable by anyone, typically admin).
     /// Transfers asset tokens from caller to contract reserve.
+    ///
+    /// Checks-effects-interactions (issue #850): the reserve balance is
+    /// written *before* the external SAC `transfer` call, matching `redeem`
+    /// and `withdraw_reserve`. If `asset_address` were ever a hostile
+    /// contract that reenters during `transfer`, the reentrant call would
+    /// see the reserve already incremented rather than a stale value it
+    /// could exploit a race on.
     pub fn fund_reserve(env: Env, from: Address, amount: u64) -> Result<(), Error> {
         from.require_auth();
 
@@ -1537,12 +1557,7 @@ impl RewardsContract {
             .get(&REDEMPTION_ASSET)
             .ok_or(Error::InvalidRedemptionRate)?;
 
-        // Transfer tokens from caller to contract
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
-        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
-
-        // Update reserve
+        // Effects: update reserve before the external call.
         let current_reserve: u64 = env
             .storage()
             .instance()
@@ -1552,6 +1567,11 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
+
+        // Interaction: transfer tokens from caller to contract.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
 
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
