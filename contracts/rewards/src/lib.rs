@@ -1481,6 +1481,13 @@ impl RewardsContract {
 
     /// Fund redemption reserve (callable by anyone, typically admin).
     /// Transfers asset tokens from caller to contract reserve.
+    ///
+    /// Checks-effects-interactions (issue #850): the reserve balance is
+    /// written *before* the external SAC `transfer` call, matching `redeem`
+    /// and `withdraw_reserve`. If `asset_address` were ever a hostile
+    /// contract that reenters during `transfer`, the reentrant call would
+    /// see the reserve already incremented rather than a stale value it
+    /// could exploit a race on.
     pub fn fund_reserve(env: Env, from: Address, amount: u64) -> Result<(), Error> {
         from.require_auth();
 
@@ -1490,12 +1497,7 @@ impl RewardsContract {
             .get(&REDEMPTION_ASSET)
             .ok_or(Error::InvalidRedemptionRate)?;
 
-        // Transfer tokens from caller to contract
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
-        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
-
-        // Update reserve
+        // Effects: update reserve before the external call.
         let current_reserve: u64 = env
             .storage()
             .instance()
@@ -1505,6 +1507,11 @@ impl RewardsContract {
         env.storage()
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
+
+        // Interaction: transfer tokens from caller to contract.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
 
         env.storage().instance().extend_ttl(50, 100);
         Ok(())
