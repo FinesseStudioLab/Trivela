@@ -132,6 +132,11 @@ pub enum Error {
     TimeLockActive = 44,
     /// The governance proposal has been cancelled or never existed.
     ProposalCancelled = 45,
+    // ── Emergency timelock errors (issue #838) ────────────────────────────────
+    /// No queued timelock entry exists for this operation hash.
+    TimelockNotFound = 46,
+    /// This operation hash already has a queued, unexpired timelock entry.
+    TimelockAlreadyQueued = 47,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -337,6 +342,21 @@ const GOV_PROPOSE_EVENT: Symbol = symbol_short!("govprp");
 const GOV_VOTE_EVENT: Symbol = symbol_short!("govvote");
 const GOV_EXECUTE_EVENT: Symbol = symbol_short!("govexec");
 const GOV_CANCEL_EVENT: Symbol = symbol_short!("govcanc");
+
+// ── Emergency timelock constants (issue #838) ────────────────────────────────
+/// Persistent map key prefix for queued timelock entries, keyed by
+/// `(TIMELOCK_ENTRY, op_hash)` -> `eta_ledger: u32`.
+const TIMELOCK_ENTRY: Symbol = symbol_short!("tlentry");
+/// Instance key for the admin-configurable minimum delay, in ledgers,
+/// between queuing and executing a timelocked op. Defaults to
+/// `DEFAULT_TIMELOCK_DELAY` if never configured.
+const TIMELOCK_DELAY: Symbol = symbol_short!("tldelay");
+const TIMELOCK_QUEUE_EVENT: Symbol = symbol_short!("tlqueue");
+const TIMELOCK_EXEC_EVENT: Symbol = symbol_short!("tlexec");
+const TIMELOCK_CANCEL_EVENT: Symbol = symbol_short!("tlcanc");
+/// Fallback delay (in ledgers, ~5s each) when no delay has been configured —
+/// roughly 24 hours.
+const DEFAULT_TIMELOCK_DELAY: u32 = 17_280;
 // ── SEP-41 Token Interface (issue #530) ─────────────────────────────────────
 // Optional token-backed mode where reward points are SEP-41-compliant tokens.
 // When token_mode is enabled, the contract exposes standard token functions.
@@ -1384,13 +1404,23 @@ impl RewardsContract {
         }
         let asset_amount = asset_amount_u128 as i128;
 
-        // Check reserve
+        // Check reserve. The mirrored `REDEMPTION_RESERVE` counter can drift
+        // from the SAC token's real balance (external transfers, rounding,
+        // a partial failure elsewhere), so the payout is bounded by
+        // whichever is smaller — the counter, or what the contract can
+        // actually pay out right now (issue #834). Both sides are compared
+        // in i128 so a reserve amount that happens to exceed u64 can't be
+        // silently truncated by an `as u64` cast.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
         let current_reserve: u64 = env
             .storage()
             .instance()
             .get(&REDEMPTION_RESERVE)
             .unwrap_or(0);
-        if (asset_amount as u64) > current_reserve {
+        let actual_balance = token_client.balance(&env.current_contract_address());
+        let available_reserve = (current_reserve as i128).min(actual_balance);
+        if asset_amount > available_reserve {
             return Err(Error::InsufficientReserve);
         }
 
@@ -1408,15 +1438,16 @@ impl RewardsContract {
             .instance()
             .set(&TOTAL_SUPPLY, &supply.saturating_sub(points_amount));
 
-        // Update reserve
-        let new_reserve = current_reserve.saturating_sub(asset_amount as u64);
+        // Update reserve. `asset_amount` was already bounded by
+        // `available_reserve` <= `current_reserve` above, so this
+        // subtraction cannot underflow — `saturating_sub` is kept only as a
+        // defensive floor, not to paper over the check.
+        let new_reserve = (current_reserve as i128).saturating_sub(asset_amount) as u64;
         env.storage()
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
 
         // Transfer asset tokens to user using SAC
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &user, &asset_amount);
 
         // Emit redeem event
@@ -2043,6 +2074,123 @@ impl RewardsContract {
         env.events()
             .publish((GOV_CANCEL_EVENT, admin), proposal_id);
         Ok(())
+    }
+
+    // ── Emergency timelock (issue #838) ───────────────────────────────────────
+    //
+    // A lighter-weight, admin-only time-lock alongside the quorum-based
+    // governance flow above (issue #735) — for sensitive admin actions that
+    // don't need multi-voter approval, just a mandatory delay so the
+    // community has a window to react before a single compromised or
+    // mistaken admin key can act (e.g. `upgrade`, `set_redemption_rate`,
+    // `withdraw_reserve`). Caller identifies the specific action being
+    // guarded by an opaque `op_hash` (e.g. a hash of the call's arguments);
+    // this contract only tracks *that a matching hash was queued and has
+    // matured* — same "propose here, dispatch the actual effect after this
+    // returns" pattern as `execute_privileged_op` above.
+    //
+    //   1. Admin calls `queue_timelock(op_hash)` — records `eta_ledger` = now
+    //      + the configured delay (`set_timelock_delay`, else
+    //      `DEFAULT_TIMELOCK_DELAY`).
+    //   2. Admin calls `execute_timelock(op_hash)` once the current ledger
+    //      reaches `eta_ledger` — reverts with `TimeLockActive` if called
+    //      early. Removes the entry so it cannot be replayed.
+    //   3. Admin may call `cancel_timelock(op_hash)` at any time before
+    //      execution to veto.
+
+    /// Configure the minimum delay (in ledgers) between queuing and executing
+    /// a timelocked op. Admin only, replay-safe via `nonce`.
+    pub fn set_timelock_delay(
+        env: Env,
+        admin: Address,
+        nonce: i128,
+        delay_ledgers: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&TIMELOCK_DELAY, &delay_ledgers);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Read-only: the currently configured timelock delay, in ledgers.
+    pub fn timelock_delay(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&TIMELOCK_DELAY)
+            .unwrap_or(DEFAULT_TIMELOCK_DELAY)
+    }
+
+    /// Queue a sensitive operation, identified by `op_hash`, for execution
+    /// after the configured delay. Admin only. Reverts with
+    /// `TimelockAlreadyQueued` if this exact `op_hash` already has a pending
+    /// entry — cancel it first to re-queue with different parameters.
+    /// Returns the ledger at which the op becomes executable.
+    pub fn queue_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<u32, Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(Error::TimelockAlreadyQueued);
+        }
+
+        let delay = Self::timelock_delay(env.clone());
+        let eta_ledger = env.ledger().sequence().saturating_add(delay);
+        env.storage().persistent().set(&key, &eta_ledger);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((TIMELOCK_QUEUE_EVENT, admin, op_hash), eta_ledger);
+        Ok(eta_ledger)
+    }
+
+    /// Mark a queued timelocked op as executed once its delay has elapsed,
+    /// clearing the entry. Admin only. The caller is responsible for
+    /// actually applying the guarded effect after this returns successfully
+    /// — mirrors `execute_privileged_op`. Reverts with `TimelockNotFound` if
+    /// no matching entry is queued, or `TimeLockActive` if called before
+    /// `eta_ledger`.
+    pub fn execute_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        let eta_ledger: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::TimelockNotFound)?;
+
+        if env.ledger().sequence() < eta_ledger {
+            return Err(Error::TimeLockActive);
+        }
+
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_EXEC_EVENT, admin, op_hash), eta_ledger);
+        Ok(())
+    }
+
+    /// Cancel a queued timelocked op before it executes. Admin only.
+    pub fn cancel_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if !env.storage().persistent().has(&key) {
+            return Err(Error::TimelockNotFound);
+        }
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_CANCEL_EVENT, admin), op_hash);
+        Ok(())
+    }
+
+    /// Read-only: the ledger at which a queued op becomes executable, or
+    /// `None` if no entry is queued for `op_hash`.
+    pub fn timelock_eta(env: Env, op_hash: BytesN<32>) -> Option<u32> {
+        env.storage().persistent().get(&(TIMELOCK_ENTRY, op_hash))
     }
 
     /// Check if token mode is enabled.
