@@ -463,7 +463,7 @@ npm run labels:sync -- --repo FinesseStudioLab/Trivela
 | **Taxonomy** | [`scripts/github-labels.json`](scripts/github-labels.json)             |
 | **Behavior** | Idempotent – re-running updates colors/descriptions instead of failing |
 
-### Create Contributor Issues
+### Create Contributor Issues.
 
 After the repo is pushed, create labels and open all 50 issues in GitHub in one go:
 
