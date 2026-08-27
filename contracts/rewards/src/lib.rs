@@ -44,6 +44,8 @@ use soroban_sdk::{
     Bytes, BytesN, Env, Symbol, Vec,
 };
 
+pub mod groth16;
+
 #[cfg(test)]
 mod poseidon;
 #[cfg(test)]
@@ -137,6 +139,8 @@ pub enum Error {
     TimelockNotFound = 46,
     /// This operation hash already has a queued, unexpired timelock entry.
     TimelockAlreadyQueued = 47,
+    /// The claim amount is below the configured minimum (issue #321).
+    BelowMinClaim = 46,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -256,6 +260,9 @@ const PAUSE_REDEEM_EVENT: Symbol = symbol_short!("psredeem");
 const MAX_CREDIT_EVENT: Symbol = symbol_short!("mxcredit");
 const CAMPAIGN_MULTIPLIER_EVENT: Symbol = symbol_short!("multset");
 const MAX_CREDIT_PER_CALL: Symbol = symbol_short!("mxcredit");
+/// Minimum claim amount (issue #321). 0 means no minimum.
+const MIN_CLAIM: Symbol = symbol_short!("min_clm");
+const MIN_CLAIM_EVENT: Symbol = symbol_short!("minclmst");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const CAMPAIGN_MULTIPLIER: Symbol = symbol_short!("mult");
@@ -663,6 +670,24 @@ impl RewardsContract {
             .unwrap_or(0)
     }
 
+    /// Set the minimum amount a single `claim()` call must move (admin only).
+    /// Prevents spam via many 1-point claim transactions on mainnet, where
+    /// each claim costs a fee (issue #321). Set to 0 to disable.
+    pub fn set_min_claim(env: Env, admin: Address, min_amount: u64) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&MIN_CLAIM, &min_amount);
+        env.events().publish((MIN_CLAIM_EVENT,), min_amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the minimum claim amount (0 means no minimum).
+    pub fn min_claim(env: Env) -> u64 {
+        env.storage().instance().get(&MIN_CLAIM).unwrap_or(0)
+    }
+
     /// Set campaign-specific reward multiplier in basis points (admin only).
     /// Example: 10_000 = 1.0x, 12_500 = 1.25x, 5_000 = 0.5x.
     pub fn set_campaign_multiplier(
@@ -814,6 +839,10 @@ impl RewardsContract {
     pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
         if amount == 0 {
             return Err(Error::ZeroAmount);
+        }
+        let min_claim: u64 = env.storage().instance().get(&MIN_CLAIM).unwrap_or(0);
+        if min_claim > 0 && amount < min_claim {
+            return Err(Error::BelowMinClaim);
         }
         user.require_auth();
         ensure_claim_not_paused(&env)?;
