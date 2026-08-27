@@ -68,6 +68,22 @@ export function createRateLimiter({
   // request, returns `{ maxRequests, windowMs }` to use instead of the static
   // defaults above, or a falsy value to fall back to them. Sync or async.
   resolveLimits = null,
+  // Optional monthly quota hooks (#759), independent of the windowed
+  // maxRequests/windowMs check above: the window check limits burst/sustained
+  // rate, this limits total volume over a calendar month regardless of how
+  // it's spread out. All three are required together or all omitted.
+  //   - resolveMonthlyQuota(req): number | null | undefined — the quota for
+  //     this request's key, or null/undefined for "no monthly quota".
+  //   - getMonthlyUsage(req): current count for the active period, without
+  //     incrementing it (used only to report `X-Monthly-Quota-Remaining`
+  //     when a request is rejected for being over quota).
+  //   - incrementMonthlyUsage(req): increments and returns the new count.
+  //     Only called for requests that pass the per-window check, so a
+  //     request rejected with 429 for burst-rate reasons doesn't also
+  //     consume quota.
+  resolveMonthlyQuota = null,
+  getMonthlyUsage = null,
+  incrementMonthlyUsage = null,
 } = {}) {
   const rateLimitStore = store || createMemoryStore();
 
@@ -104,6 +120,46 @@ export function createRateLimiter({
           windowMs: effectiveWindowMs,
           retryAfterSeconds,
         });
+      }
+
+      // Monthly quota (#759) — separate from the per-window check above.
+      // Only checked/incremented once a request has already passed the
+      // burst-rate check, so a request rejected above doesn't also spend
+      // quota.
+      if (resolveMonthlyQuota && getMonthlyUsage && incrementMonthlyUsage) {
+        const monthlyQuota = await resolveMonthlyQuota(req);
+        if (typeof monthlyQuota === 'number' && monthlyQuota > 0) {
+          const currentUsage = await getMonthlyUsage(req);
+          if (currentUsage >= monthlyQuota) {
+            res.setHeader('X-Monthly-Quota-Limit', String(monthlyQuota));
+            res.setHeader('X-Monthly-Quota-Remaining', '0');
+            // Best-effort seconds until the top of next UTC month — not a
+            // precise reset time, just enough for a client to back off
+            // sensibly rather than retry immediately.
+            const nowDate = new Date(now);
+            const nextMonth = Date.UTC(
+              nowDate.getUTCFullYear(),
+              nowDate.getUTCMonth() + 1,
+              1,
+            );
+            const retryAfterSeconds = Math.max(1, Math.ceil((nextMonth - now) / 1000));
+            res.setHeader('Retry-After', String(retryAfterSeconds));
+            return res.status(429).json({
+              error: 'Monthly quota exceeded',
+              code: 'MONTHLY_QUOTA_EXCEEDED',
+              quota: monthlyQuota,
+              used: currentUsage,
+              retryAfterSeconds,
+            });
+          }
+
+          const newUsage = await incrementMonthlyUsage(req);
+          res.setHeader('X-Monthly-Quota-Limit', String(monthlyQuota));
+          res.setHeader(
+            'X-Monthly-Quota-Remaining',
+            String(Math.max(monthlyQuota - newUsage, 0)),
+          );
+        }
       }
 
       return next();

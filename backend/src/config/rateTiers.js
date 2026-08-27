@@ -5,10 +5,14 @@
  * long-standing global default (60 req/min) so existing keys — which get
  * backfilled to `standard` by migration 035 — see no behavior change.
  */
+// `monthlyQuota` is a separate cap from `maxRequests`/`windowMs` (issue
+// #759): the latter limits burst/sustained rate (requests per minute), the
+// former limits total volume over a calendar month regardless of how it's
+// spread out. `null` means unlimited.
 export const RATE_TIERS = /** @type {const} */ ({
-  standard: { maxRequests: 60, windowMs: 60_000 },
-  pro: { maxRequests: 300, windowMs: 60_000 },
-  enterprise: { maxRequests: 1_000, windowMs: 60_000 },
+  standard: { maxRequests: 60, windowMs: 60_000, monthlyQuota: 100_000 },
+  pro: { maxRequests: 300, windowMs: 60_000, monthlyQuota: 1_000_000 },
+  enterprise: { maxRequests: 1_000, windowMs: 60_000, monthlyQuota: null },
 });
 
 export const DEFAULT_RATE_TIER = 'standard';
