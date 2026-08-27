@@ -70,7 +70,7 @@ VITE_CAMPAIGN_CONTRACT_ID=CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPB
 
 ## 📖 Overview.
 
-### What Trivela Does
+### What Trivela Does?
 
 | Component             | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
