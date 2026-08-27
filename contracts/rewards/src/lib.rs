@@ -140,7 +140,7 @@ pub enum Error {
     /// This operation hash already has a queued, unexpired timelock entry.
     TimelockAlreadyQueued = 47,
     /// The claim amount is below the configured minimum (issue #321).
-    BelowMinClaim = 46,
+    BelowMinClaim = 48,
 }
 
 /// Vesting schedule record stored per user per vest_id.
