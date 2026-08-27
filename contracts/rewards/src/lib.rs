@@ -140,7 +140,7 @@ pub enum Error {
     /// This operation hash already has a queued, unexpired timelock entry.
     TimelockAlreadyQueued = 47,
     /// The claim amount is below the configured minimum (issue #321).
-    BelowMinClaim = 46,
+    BelowMinClaim = 48,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -1368,7 +1368,7 @@ impl RewardsContract {
 
         env.storage().instance().set(&REDEMPTION_ASSET, &asset);
         env.storage().instance().set(&REDEMPTION_RATE, &rate_bps);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(())
     }
@@ -1490,7 +1490,7 @@ impl RewardsContract {
         // Emit redeem event
         env.events()
             .publish((REDEEM_EVENT, user), (points_amount, asset_amount));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(asset_amount)
     }
@@ -1535,7 +1535,7 @@ impl RewardsContract {
         let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &admin, &(amount as i128));
 
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1573,7 +1573,7 @@ impl RewardsContract {
         let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
 
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
