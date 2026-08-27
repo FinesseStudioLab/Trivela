@@ -28,7 +28,13 @@
  * auto-instrumentation patches miss the loaded modules.
  */
 
-import { trace, SpanStatusCode, context as otelContext } from '@opentelemetry/api';
+import {
+  trace,
+  SpanStatusCode,
+  SpanKind,
+  context as otelContext,
+  propagation,
+} from '@opentelemetry/api';
 
 let sdkInstance = null;
 
@@ -161,6 +167,64 @@ export function traceparentMiddleware() {
 
 /** Headers to expose so a browser fetch can read the traceparent. */
 export const TRACING_EXPOSED_HEADERS = ['traceparent'];
+
+/**
+ * Capture the currently active span's context as a W3C `traceparent`
+ * string, or `null` if there is no active span (issue #778).
+ *
+ * The transactional outbox pattern (`outboxService.js`) breaks OTel's
+ * automatic in-process context propagation: a row is written now, inside
+ * the HTTP request's trace, but delivered later by a completely separate
+ * poll loop tick with no ambient span. Persisting the traceparent string
+ * alongside the outbox row is what lets `linkedSpan()` below re-establish
+ * that parent/child relationship once the relay picks the row up.
+ */
+export function captureTraceparent() {
+  const span = trace.getSpan(otelContext.active());
+  if (!span) return null;
+  const ctx = span.spanContext();
+  const flags = ctx.traceFlags.toString(16).padStart(2, '0');
+  return `00-${ctx.traceId}-${ctx.spanId}-${flags}`;
+}
+
+/**
+ * Run `fn` inside a new span that is a *child* of the trace identified by
+ * `traceparent` (as produced by `captureTraceparent()`), even though this
+ * call is happening on a later event-loop tick / different logical
+ * "request" than the one that created it — the async-boundary case issue
+ * #778 asks for (outbox relay, background jobs).
+ *
+ * Falls back to a plain, unlinked `withSpan()` when `traceparent` is
+ * missing or malformed, so a job enqueued before this feature existed (no
+ * stored traceparent) still gets traced, just without a parent link.
+ */
+export async function linkedSpan(traceparent, name, attributes, fn) {
+  if (!traceparent) {
+    return withSpan(name, attributes, fn);
+  }
+
+  const parentContext = propagation.extract(otelContext.active(), { traceparent });
+  return otelContext.with(parentContext, () => {
+    const tracer = trace.getTracer('trivela-backend');
+    return tracer.startActiveSpan(
+      name,
+      { attributes, kind: SpanKind.CONSUMER },
+      async (span) => {
+        try {
+          const result = await fn(span);
+          span.setStatus({ code: SpanStatusCode.OK });
+          return result;
+        } catch (err) {
+          span.recordException(err);
+          span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+          throw err;
+        } finally {
+          span.end();
+        }
+      },
+    );
+  });
+}
 
 /** Graceful shutdown hook — flush exporter on SIGTERM. */
 export async function shutdownTracing() {
