@@ -14,7 +14,7 @@ contributors.
 
 ---
 
-## � Table of Contents
+## � Table of Contents.
 
 - [�🚀 Live Deployment](#live-deployment)
 - [📖 Overview](#overview)
