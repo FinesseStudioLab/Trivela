@@ -171,7 +171,7 @@ const REVOKE_INVITE_EVENT: Symbol = symbol_short!("invrevk");
 // ── co-admin multisig ────────────────────────────────────────────────────────
 const CO_ADMINS: Symbol = symbol_short!("coadmin");
 const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
-const OP_SET_MERKLE_ROOT: u32 = 1;
+pub const OP_SET_MERKLE_ROOT: u32 = 1;
 
 // ── On-chain referral tracking (issue #455) ──────────────────────────────────
 //
@@ -354,7 +354,7 @@ fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<()
 /// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
 /// `op` is a stable per-function discriminant used in place of the function
 /// name string (Symbol byte access is not available in `no_std`).
-fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
+pub fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
     let mut buf = [0u8; 44];
     buf[0..4].copy_from_slice(&op.to_be_bytes());
     buf[4..12].copy_from_slice(&nonce.to_be_bytes());
