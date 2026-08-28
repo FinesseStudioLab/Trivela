@@ -99,6 +99,10 @@ pub enum Error {
     /// Participant already has a locked referral record from a prior registration
     /// and cannot adopt a different referrer on re-registration (sybil guard).
     ReferralLocked = 124,
+    /// Address is not in the address allowlist when allowlist is enabled.
+    NotInAddressAllowlist = 125,
+    /// Address is in the address blocklist when blocklist is enabled.
+    InAddressBlocklist = 126,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -167,7 +171,7 @@ const REVOKE_INVITE_EVENT: Symbol = symbol_short!("invrevk");
 // ── co-admin multisig ────────────────────────────────────────────────────────
 const CO_ADMINS: Symbol = symbol_short!("coadmin");
 const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
-const OP_SET_MERKLE_ROOT: u32 = 1;
+pub const OP_SET_MERKLE_ROOT: u32 = 1;
 
 // ── On-chain referral tracking (issue #455) ──────────────────────────────────
 //
@@ -188,6 +192,17 @@ const REFERRED_EVENT: Symbol = symbol_short!("referred");
 const REFERRAL_LOCKED: Symbol = symbol_short!("reflck");
 /// Maximum referral chain depth checked for cycles (issue #743).
 const MAX_REFERRAL_DEPTH: u32 = 10;
+
+// ── Allowlist/Blocklist for compliance & anti-abuse ──────────────────────────
+// Per-campaign address restrictions for participation and crediting.
+const ALLOWLIST_ENABLED: Symbol = symbol_short!("allowen");
+const BLOCKLIST_ENABLED: Symbol = symbol_short!("blocken");
+const ALLOWLIST: Symbol = symbol_short!("allow");
+const BLOCKLIST: Symbol = symbol_short!("block");
+const SET_ALLOWLIST_EVENT: Symbol = symbol_short!("allowset");
+const SET_BLOCKLIST_EVENT: Symbol = symbol_short!("blockset");
+const SET_ALLOWLIST_ENABLED_EVENT: Symbol = symbol_short!("allowen");
+const SET_BLOCKLIST_ENABLED_EVENT: Symbol = symbol_short!("blocken");
 
 // ── Activity log ring buffer (issue #453) ────────────────────────────────────
 //
@@ -339,7 +354,7 @@ fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<()
 /// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
 /// `op` is a stable per-function discriminant used in place of the function
 /// name string (Symbol byte access is not available in `no_std`).
-fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
+pub fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
     let mut buf = [0u8; 44];
     buf[0..4].copy_from_slice(&op.to_be_bytes());
     buf[4..12].copy_from_slice(&nonce.to_be_bytes());
@@ -406,6 +421,90 @@ fn verify_multisig(
     registry.push_back(nonce);
     env.storage().instance().set(&NONCE_REGISTRY, &registry);
     Ok(())
+}
+
+/// Check if an address is allowed based on allowlist/blocklist settings.
+/// Returns `Ok(())` if allowed, `Err(Error)` if not allowed.
+fn check_address_restrictions(env: &Env, address: &Address) -> Result<(), Error> {
+    // Check blocklist first - if address is blocked, reject regardless of allowlist
+    let blocklist_enabled: bool = env
+        .storage()
+        .instance()
+        .get(&BLOCKLIST_ENABLED)
+        .unwrap_or(false);
+    if blocklist_enabled {
+        let blocklist_key = (BLOCKLIST, address.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&blocklist_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::InAddressBlocklist);
+        }
+    }
+
+    // Check allowlist - if enabled, address must be in allowlist
+    let allowlist_enabled: bool = env
+        .storage()
+        .instance()
+        .get(&ALLOWLIST_ENABLED)
+        .unwrap_or(false);
+    if allowlist_enabled {
+        let allowlist_key = (ALLOWLIST, address.clone());
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&allowlist_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::NotInAddressAllowlist);
+        }
+    }
+
+    Ok(())
+}
+
+/// Add addresses to allowlist (admin only).
+fn add_to_allowlist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (ALLOWLIST, address.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+    }
+}
+
+/// Remove addresses from allowlist (admin only).
+fn remove_from_allowlist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (ALLOWLIST, address.clone());
+        env.storage().persistent().remove(&key);
+    }
+}
+
+/// Add addresses to blocklist (admin only).
+fn add_to_blocklist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (BLOCKLIST, address.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+    }
+}
+
+/// Remove addresses from blocklist (admin only).
+fn remove_from_blocklist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (BLOCKLIST, address.clone());
+        env.storage().persistent().remove(&key);
+    }
 }
 
 #[contractimpl]
@@ -1308,6 +1407,151 @@ impl CampaignContract {
             .unwrap_or(false)
     }
 
+    // ── Allowlist/Blocklist for compliance & anti-abuse ──────────────────────
+
+    /// Enable or disable allowlist enforcement (admin only).
+    pub fn set_allowlist_enabled(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&ALLOWLIST_ENABLED, &enabled);
+        env.events()
+            .publish((SET_ALLOWLIST_ENABLED_EVENT,), enabled);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Enable or disable blocklist enforcement (admin only).
+    pub fn set_blocklist_enabled(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&BLOCKLIST_ENABLED, &enabled);
+        env.events()
+            .publish((SET_BLOCKLIST_ENABLED_EVENT,), enabled);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Add addresses to allowlist (admin only).
+    pub fn add_to_allowlist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        add_to_allowlist(&env, &addresses);
+        env.events()
+            .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove addresses from allowlist (admin only).
+    pub fn remove_from_allowlist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        remove_from_allowlist(&env, &addresses);
+        env.events()
+            .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Add addresses to blocklist (admin only).
+    pub fn add_to_blocklist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        add_to_blocklist(&env, &addresses);
+        env.events()
+            .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove addresses from blocklist (admin only).
+    pub fn remove_from_blocklist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        remove_from_blocklist(&env, &addresses);
+        env.events()
+            .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Check if an address is in the allowlist.
+    pub fn is_in_allowlist(env: Env, address: Address) -> bool {
+        let key = (ALLOWLIST, address);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+    }
+
+    /// Check if an address is in the blocklist.
+    pub fn is_in_blocklist(env: Env, address: Address) -> bool {
+        let key = (BLOCKLIST, address);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+    }
+
+    /// Check if allowlist enforcement is enabled.
+    pub fn is_allowlist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&ALLOWLIST_ENABLED)
+            .unwrap_or(false)
+    }
+
+    /// Check if blocklist enforcement is enabled.
+    pub fn is_blocklist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&BLOCKLIST_ENABLED)
+            .unwrap_or(false)
+    }
+
+    /// Check if an address is allowed based on allowlist/blocklist settings.
+    /// Returns `Ok(())` if allowed, `Err(Error)` if not allowed.
+    /// This function can be called by other contracts (e.g., rewards contract).
+    pub fn check_address_allowed(env: Env, address: Address) -> Result<(), Error> {
+        check_address_restrictions(&env, &address)
+    }
+
     // ── co-admin multisig (#454) ─────────────────────────────────────────
 
     /// Register a co-admin's ed25519 public key for multisig verification
@@ -1526,6 +1770,14 @@ impl CampaignContract {
 /// Expects auth and pre-condition checks (active, window, merkle) to have
 /// been performed by the caller.
 fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Result<bool, Error> {
+    // Check address restrictions (allowlist/blocklist)
+    check_address_restrictions(env, &participant)?;
+    
+    // Check referrer restrictions if provided
+    if let Some(ref referrer) = referrer {
+        check_address_restrictions(env, referrer)?;
+    }
+    
     // #280 — Participant records live in PERSISTENT storage.
     let key = (PARTICIPANT, participant.clone());
     if env

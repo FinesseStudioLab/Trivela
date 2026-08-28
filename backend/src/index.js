@@ -636,12 +636,44 @@ export async function createApp(options = {}) {
     return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER);
   }
 
+  // Monthly quota hooks (#759) — mirror resolveRateLimitForRequest's shape
+  // (independently re-reads/validates the key rather than relying on
+  // req.auth, for the same reason: this runs before auth middleware).
+  // Requests with no API key (env-configured keys, unauthenticated traffic)
+  // have no monthly quota, matching how they also skip per-key rate tiers.
+  function resolveMonthlyQuotaForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return null;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return null;
+    return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER).monthlyQuota;
+  }
+
+  function getMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.getMonthlyUsage(match.id);
+  }
+
+  function incrementMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.incrementMonthlyUsage(match.id);
+  }
+
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
     maxRequests: rateLimitMaxRequests,
     timeProvider: /** @type {any} */ (options.rateLimit)?.timeProvider,
     store: rateLimitStore,
     resolveLimits: resolveRateLimitForRequest,
+    resolveMonthlyQuota: resolveMonthlyQuotaForRequest,
+    getMonthlyUsage: getMonthlyUsageForRequest,
+    incrementMonthlyUsage: incrementMonthlyUsageForRequest,
   });
 
   app.use(requestId);
