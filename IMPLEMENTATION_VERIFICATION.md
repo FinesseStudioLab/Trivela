@@ -7,7 +7,7 @@ in the current upstream codebase.
 
 ## Issue Verification
 
-### Issue #81: Add events to rewards contract for credit and claim
+### Issue #81: Add events to rewards contract for credit and claim.
 
 **Status**: ✅ IMPLEMENTED
 
