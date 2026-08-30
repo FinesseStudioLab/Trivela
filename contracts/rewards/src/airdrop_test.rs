@@ -1,8 +1,8 @@
 //! Tests for the ZK Merkle airdrop feature (issue #845)
 
 use super::*;
-use soroban_sdk::testutils::Address;
-use soroban_sdk::{BytesN, Env};
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{Address, BytesN, Env};
 
 /// Helper to build a simple two-leaf Merkle tree and return (root, proof1, proof2)
 fn build_two_leaf_tree(
