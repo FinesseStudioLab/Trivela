@@ -220,3 +220,166 @@ button:disabled {
     min-height: 46px;
   }
 }
+
+/* Mobile-first responsive design (#867) */
+@media (max-width: 768px) {
+  :root {
+    font-size: 15px;
+  }
+
+  /* Stack layouts on mobile */
+  .layout-grid,
+  .grid,
+  [class*='flex-row'] {
+    flex-direction: column;
+  }
+
+  /* Ensure touch targets are large enough */
+  button,
+  a[role='button'],
+  input[type='button'],
+  input[type='submit'] {
+    min-height: 48px;
+    min-width: 48px;
+  }
+
+  /* Fullwidth forms on mobile */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+    width: 100%;
+  }
+
+  /* Reduce padding on mobile */
+  main,
+  section,
+  article {
+    padding: 12px;
+  }
+
+  /* Optimize table display for mobile */
+  table {
+    font-size: 0.85rem;
+  }
+
+  table thead {
+    display: none;
+  }
+
+  table tbody tr {
+    display: block;
+    border: 1px solid var(--border);
+    margin-bottom: 12px;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  table td {
+    display: grid;
+    grid-template-columns: 120px 1fr;
+    padding: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--text-muted);
+  }
+
+  /* Optimize navigation for mobile */
+  nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  nav ul {
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  /* Responsive text sizes */
+  h1 {
+    font-size: clamp(1.5rem, 4vw, 2rem);
+  }
+
+  h2 {
+    font-size: clamp(1.25rem, 3.5vw, 1.75rem);
+  }
+
+  h3 {
+    font-size: clamp(1.1rem, 3vw, 1.5rem);
+  }
+
+  /* Improve readability on mobile */
+  body {
+    line-height: 1.7;
+  }
+
+  /* Safe area support for notched devices */
+  body {
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+  }
+}
+
+/* Tablet and up */
+@media (min-width: 769px) and (max-width: 1024px) {
+  :root {
+    font-size: 16px;
+  }
+
+  main,
+  section,
+  article {
+    padding: 16px;
+  }
+
+  .layout-grid,
+  .grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Desktop */
+@media (min-width: 1025px) {
+  :root {
+    font-size: 16px;
+  }
+
+  main,
+  section,
+  article {
+    padding: 24px;
+  }
+
+  .layout-grid,
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* Landscape orientation mobile */
+@media (max-height: 600px) and (orientation: landscape) {
+  h1,
+  h2,
+  h3 {
+    margin: 0.5rem 0;
+  }
+
+  main,
+  section,
+  article {
+    padding: 8px 12px;
+  }
+}
+
+/* High DPI devices (2x pixel ratio and above) */
+@media (-webkit-min-device-pixel-ratio: 2),
+  (min-resolution: 192dpi) {
+  /* Thinner borders for crisp appearance */
+  * {
+    border-width: 0.5px;
+  }
+}
