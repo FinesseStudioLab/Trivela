@@ -52,6 +52,8 @@ mod merkle;
 mod poseidon_merkle_tests;
 #[cfg(test)]
 mod poseidon_vs_sha256_bench;
+#[cfg(test)]
+mod airdrop_test;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -132,6 +134,13 @@ pub enum Error {
     TimeLockActive = 44,
     /// The governance proposal has been cancelled or never existed.
     ProposalCancelled = 45,
+    // ── Airdrop errors (issue #845) ──────────────────────────────────────────────
+    /// Merkle airdrop root has not been set.
+    AirdropRootNotSet = 46,
+    /// The supplied merkle proof is invalid or does not match the root.
+    AirdropInvalidProof = 47,
+    /// The nullifier has already been used to claim from this airdrop.
+    AirdropNullifierUsed = 48,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -372,6 +381,14 @@ const CLAWBACK_PROPOSE_EVENT: Symbol = symbol_short!("clwbprop");
 const CLAWBACK_CANCEL_EVENT: Symbol = symbol_short!("clwbcanc");
 const CLAWBACK_EXECUTE_EVENT: Symbol = symbol_short!("clwbexec");
 
+// ── Merkle Airdrop (issue #845) ──────────────────────────────────────────────
+// ZK airdrop claims from a Merkle-committed allowlist of (secret, amount) pairs.
+// Users prove membership without revealing their position in the tree.
+// Nullifiers prevent double-claiming while maintaining privacy.
+const AIRDROP_ROOT: Symbol = symbol_short!("airdrop");
+const AIRDROP_NULLIFIERS: Symbol = symbol_short!("nulli");
+const AIRDROP_CLAIMED_EVENT: Symbol = symbol_short!("airreclm");
+
 /// Proposal record stored under `(CLAWBACK_PROPOSAL, id)`.
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -392,7 +409,11 @@ pub struct RewardsContract;
 fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
     admin.require_auth();
 
-    let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&ADMIN)
+        .ok_or(Error::Unauthorized)?;
     if &stored_admin != admin {
         return Err(Error::Unauthorized);
     }
@@ -403,7 +424,11 @@ fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: i128) -> Result<(), Error> {
     admin.require_auth();
 
-    let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&ADMIN)
+        .ok_or(Error::Unauthorized)?;
     if &stored_admin != admin {
         return Err(Error::Unauthorized);
     }
@@ -864,9 +889,12 @@ impl RewardsContract {
 
     // ── Admin rotation (issue #281) ──────────────────────────────────────────
 
-    /// Return the current admin address.
-    pub fn admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).unwrap()
+    /// Return the current admin address, or Unauthorized if contract not initialized.
+    pub fn admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&ADMIN)
+            .ok_or(Error::Unauthorized)
     }
 
     /// Return the pending admin address proposed by the current admin, if any.
@@ -2346,12 +2374,13 @@ impl RewardsContract {
         let mut checked = 0u32;
         let mut idx = cursor;
         while checked < len && pruned < max_entries {
-            let nonce = registry.get(idx).unwrap();
-            let key = (NONCE_USED, nonce);
-            if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
-                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
-                    env.storage().instance().remove(&key);
-                    pruned += 1;
+            if let Some(nonce) = registry.get(idx) {
+                let key = (NONCE_USED, nonce);
+                if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
+                    if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                        env.storage().instance().remove(&key);
+                        pruned += 1;
+                    }
                 }
             }
             idx = (idx + 1) % len;
@@ -2411,11 +2440,12 @@ impl RewardsContract {
             .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
-            let (addr, _) = co_admins.get(i).unwrap();
-            if addr == co_admin {
-                co_admins.set(i, (co_admin.clone(), pubkey.clone()));
-                found = true;
-                break;
+            if let Some((addr, _)) = co_admins.get(i) {
+                if addr == co_admin {
+                    co_admins.set(i, (co_admin.clone(), pubkey.clone()));
+                    found = true;
+                    break;
+                }
             }
         }
         if !found {
@@ -2534,7 +2564,11 @@ impl RewardsContract {
     /// Cancelled proposals can never be executed.
     pub fn cancel_clawback(env: Env, caller: Address, proposal_id: u32) -> Result<(), Error> {
         caller.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .ok_or(Error::Unauthorized)?;
         if caller != stored_admin {
             return Err(Error::ClawbackGuardianOnly);
         }
@@ -2608,6 +2642,101 @@ impl RewardsContract {
         env.events()
             .publish((CLAWBACK_EXECUTE_EVENT, proposal_id), (proposal.target, proposal.amount));
         Ok(())
+    }
+
+    /// Set the Merkle root for the airdrop allowlist (admin-only).
+    /// Must be called before users can claim from the airdrop.
+    pub fn set_airdrop_merkle_root(env: Env, admin: Address, root: BytesN<32>) -> Result<(), Error> {
+        admin.require_auth();
+
+        if admin != env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)? {
+            return Err(Error::Unauthorized);
+        }
+
+        env.storage().instance().set(&AIRDROP_ROOT, &root);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current Merkle root for the airdrop (if any).
+    pub fn get_airdrop_merkle_root(env: Env) -> Option<BytesN<32>> {
+        env.storage().instance().get(&AIRDROP_ROOT)
+    }
+
+    /// Claim airdrop rewards using a valid Merkle proof and nullifier (private).
+    /// Proof structure: MerkleProof { siblings: Vec<BytesN<32>>, leaf_index: u32 }
+    /// leaf_preimage: Poseidon(secret_seed, amount_encoded)
+    /// nullifier: Hash of (secret, caller address) to prevent double-claiming
+    pub fn claim_airdrop(
+        env: Env,
+        claimer: Address,
+        amount: u64,
+        leaf_preimage: BytesN<32>,
+        proof: crate::merkle::MerkleProof,
+        nullifier: BytesN<32>,
+    ) -> Result<u64, Error> {
+        claimer.require_auth();
+
+        // Check that airdrop root is configured
+        let root = env
+            .storage()
+            .instance()
+            .get(&AIRDROP_ROOT)
+            .ok_or(Error::AirdropRootNotSet)?;
+
+        // Verify nullifier hasn't been used
+        let nullifier_key = (AIRDROP_NULLIFIERS, nullifier.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::AirdropNullifierUsed);
+        }
+
+        // Verify Merkle proof
+        crate::merkle::verify(&env, &root, &leaf_preimage, &proof)
+            .map_err(|_| Error::AirdropInvalidProof)?;
+
+        // Mark nullifier as used
+        env.storage().persistent().set(&nullifier_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&nullifier_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Credit the claimer with the airdrop amount
+        let balance_key = (BALANCE, claimer.clone());
+        let current_balance: u64 = env
+            .storage()
+            .instance()
+            .get(&balance_key)
+            .unwrap_or(0);
+        let new_balance = current_balance
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Update total supply
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        let new_supply = supply.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&TOTAL_SUPPLY, &new_supply);
+
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((AIRDROP_CLAIMED_EVENT, claimer), amount);
+
+        Ok(new_balance)
+    }
+
+    /// Check if a nullifier has been used (claimed before).
+    pub fn is_airdrop_nullifier_used(env: Env, nullifier: BytesN<32>) -> bool {
+        let nullifier_key = (AIRDROP_NULLIFIERS, nullifier);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
     }
 }
 

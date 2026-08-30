@@ -1565,7 +1565,7 @@ fn test_referral_loop_direct_cycle_rejected() {
     // we need to deregister Bob first to exercise the loop-detection branch.
     client.deregister(&bob);
     let result = client.try_register(&bob, &leaf, &proof, &None, &Some(alice.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLoop)));
+    assert_eq!(result, Err(Ok(Error::ReferralLoop)));
 }
 
 #[test]
@@ -1588,7 +1588,7 @@ fn test_referral_loop_indirect_cycle_rejected() {
     // Alice tries to register with carol as referrer → alice→carol→bob→alice cycle.
     client.deregister(&alice);
     let result = client.try_register(&alice, &leaf, &proof, &None, &Some(carol.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLoop)));
+    assert_eq!(result, Err(Ok(Error::ReferralLoop)));
 }
 
 #[test]
@@ -1611,7 +1611,7 @@ fn test_referral_locked_prevents_referrer_switch_on_reregister() {
     // Alice deregisters and tries to re-register with carol as new referrer.
     client.deregister(&alice);
     let result = client.try_register(&alice, &leaf, &proof, &None, &Some(carol.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLocked)));
+    assert_eq!(result, Err(Ok(Error::ReferralLocked)));
 }
 
 #[test]
