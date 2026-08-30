@@ -108,7 +108,7 @@ export default function EmbedCampaign() {
       fontSize: '11px',
       fontWeight: 600,
       background: active ? '#22c55e' : '#64748b',
-      color: '#ffffff',
+      color: 'var(--text, #edf4ff)',
     }),
     title: {
       margin: 0,
@@ -119,12 +119,12 @@ export default function EmbedCampaign() {
     description: {
       margin: 0,
       fontSize: '13px',
-      color: isDark ? '#94a3b8' : '#64748b',
+      color: 'var(--color-muted)',
       flex: 1,
     },
     meta: {
       fontSize: '12px',
-      color: isDark ? '#64748b' : '#94a3b8',
+      color: 'var(--color-muted)',
       display: 'flex',
       gap: '12px',
     },
@@ -132,7 +132,7 @@ export default function EmbedCampaign() {
       display: 'inline-block',
       padding: '8px 16px',
       background: btnColor,
-      color: '#ffffff',
+      color: 'var(--text, #edf4ff)',
       borderRadius: '8px',
       fontSize: '13px',
       fontWeight: 600,
@@ -143,7 +143,7 @@ export default function EmbedCampaign() {
     powered: {
       textAlign: 'center',
       fontSize: '10px',
-      color: isDark ? '#475569' : '#94a3b8',
+      color: 'var(--color-muted)',
       marginTop: '4px',
     },
   };
@@ -151,7 +151,7 @@ export default function EmbedCampaign() {
   if (error) {
     return (
       <div style={styles.container}>
-        <p style={{ color: '#ef4444', margin: 0 }}>{error}</p>
+        <p style={{ color: 'var(--color-danger, #ff8e8e)', margin: 0 }}>{error}</p>
       </div>
     );
   }
@@ -159,7 +159,7 @@ export default function EmbedCampaign() {
   if (!campaign) {
     return (
       <div style={styles.container}>
-        <p style={{ color: isDark ? '#64748b' : '#94a3b8', margin: 0 }}>Loading&hellip;</p>
+        <p style={{ color: 'var(--color-muted)', margin: 0 }}>Loading&hellip;</p>
       </div>
     );
   }
@@ -184,7 +184,7 @@ export default function EmbedCampaign() {
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={styles.badge(isActive)}>{isActive ? 'Active' : 'Ended'}</span>
         {remaining !== null && remaining <= 10 && remaining > 0 && (
-          <span style={{ ...styles.badge(true), background: '#f59e0b' }}>
+          <span style={{ ...styles.badge(true), background: 'var(--color-warning, #f59e0b)' }}>
             {remaining} spots left
           </span>
         )}

@@ -42,10 +42,26 @@
   /* Surfaces used by floating elements */
   --ds-overlay-bg: var(--bg-card-solid, #121c29);
   --ds-overlay-border: var(--border-strong, rgba(150, 176, 214, 0.36));
+
+  /* Semantic colours */
+  --ds-color-success: var(--success, #33c37f);
+  --ds-color-success-soft: var(--success-soft, rgba(51, 195, 127, 0.16));
+  --ds-color-danger: var(--danger, #ff8e8e);
+  --ds-color-danger-soft: var(--danger-soft, rgba(255, 142, 142, 0.16));
+  --ds-color-warning: var(--warning, #f59e0b);
+  --ds-color-warning-soft: var(--warning-soft, rgba(245, 158, 11, 0.16));
+  --ds-color-muted: var(--text-muted, #94a3b8);
 }
 
 :root[data-theme='light'] {
   --ds-shadow-overlay: 0 12px 32px rgba(34, 52, 84, 0.18);
+  --ds-color-success: var(--success, #198c54);
+  --ds-color-success-soft: var(--success-soft, rgba(25, 140, 84, 0.12));
+  --ds-color-danger: var(--danger, #c83f3f);
+  --ds-color-danger-soft: var(--danger-soft, rgba(200, 63, 63, 0.12));
+  --ds-color-warning: var(--warning, #d97706);
+  --ds-color-warning-soft: var(--warning-soft, rgba(217, 119, 6, 0.12));
+  --ds-color-muted: var(--text-muted, #5b6d84);
 }
 
 @media (prefers-reduced-motion: reduce) {

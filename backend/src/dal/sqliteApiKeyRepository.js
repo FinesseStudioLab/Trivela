@@ -60,6 +60,20 @@ export function createSqliteApiKeyRepository({ db }) {
     UPDATE api_keys SET rate_tier = ? WHERE id = ?
   `);
 
+  // Monthly usage counters (#759). `month` is 'YYYY-MM' in UTC, matching
+  // currentMonthKey() below — an upsert so the first request of a new month
+  // starts a fresh row rather than requiring a separate "create the month
+  // bucket" step.
+  const incrementUsageStmt = db.prepare(`
+    INSERT INTO api_key_monthly_usage (api_key_id, month, request_count)
+    VALUES (?, ?, 1)
+    ON CONFLICT(api_key_id, month) DO UPDATE SET request_count = request_count + 1
+  `);
+
+  const getUsageStmt = db.prepare(`
+    SELECT request_count FROM api_key_monthly_usage WHERE api_key_id = ? AND month = ?
+  `);
+
   /**
    * @param {{ label?: string, expiresAt?: string | null, orgId?: string | null, scopes?: string[], rateTier?: string }} [opts]
    */
@@ -182,6 +196,37 @@ export function createSqliteApiKeyRepository({ db }) {
     return Boolean(row);
   }
 
+  /**
+   * 'YYYY-MM' in UTC — the current calendar-month usage bucket.
+   * @param {Date} [now]
+   */
+  function currentMonthKey(now = new Date()) {
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Increment this key's request count for the current UTC month and
+   * return the new total. Called once per accepted (non-rate-limited)
+   * request (#759).
+   * @param {string} id
+   * @param {Date} [now]
+   */
+  function incrementMonthlyUsage(id, now = new Date()) {
+    const month = currentMonthKey(now);
+    incrementUsageStmt.run(id, month);
+    return getUsageStmt.get(id, month)?.request_count ?? 0;
+  }
+
+  /**
+   * Current UTC-month usage count for a key, without incrementing it.
+   * @param {string} id
+   * @param {Date} [now]
+   */
+  function getMonthlyUsage(id, now = new Date()) {
+    const month = currentMonthKey(now);
+    return getUsageStmt.get(id, month)?.request_count ?? 0;
+  }
+
   return {
     create,
     list,
@@ -192,6 +237,8 @@ export function createSqliteApiKeyRepository({ db }) {
     rotate,
     hasActiveKeys,
     setRateTier,
+    incrementMonthlyUsage,
+    getMonthlyUsage,
   };
 }
 

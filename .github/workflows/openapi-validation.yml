@@ -1,0 +1,102 @@
+name: OpenAPI Spec Validation & Codegen
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'backend/openapi.yaml'
+      - 'backend/src/**/*.js'
+      - 'sdk/client/**'
+      - '.github/workflows/openapi-validation.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'backend/openapi.yaml'
+      - 'backend/src/index.js'
+  # Push trigger ensures spec stays in sync with route changes on main
+jobs:
+  validate-spec:
+    name: Validate OpenAPI spec completeness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      
+      - name: Install backend dependencies
+        run: npm install
+        working-directory: backend
+      
+      - name: Validate OpenAPI spec covers all routes
+        run: node backend/scripts/validate-openapi-coverage.js
+      
+      - name: Install Spectral CLI for spec linting
+        run: npm install -g @stoplight/spectral-cli
+      
+      - name: Lint OpenAPI spec with Spectral
+        run: |
+          if [ -f backend/.spectral.yaml ]; then
+            spectral lint backend/openapi.yaml --ruleset backend/.spectral.yaml
+          else
+            spectral lint backend/openapi.yaml
+          fi
+        continue-on-error: true
+
+  codegen-drift:
+    name: Check generated client is up to date
+    runs-on: ubuntu-latest
+    needs: validate-spec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      
+      - name: Install sdk/client dependencies
+        run: npm install
+        working-directory: sdk/client
+      
+      - name: Regenerate TypeScript client from openapi.yaml
+        run: npm run generate
+        working-directory: sdk/client
+      
+      - name: Check for drift in generated code
+        run: |
+          if ! git diff --exit-code sdk/client/src/; then
+            echo ""
+            echo "❌ ERROR: The generated TypeScript client in sdk/client/src/ is out of date."
+            echo ""
+            echo "To fix this:"
+            echo "  1. Run: cd sdk/client && npm run generate"
+            echo "  2. Commit the updated files"
+            echo ""
+            exit 1
+          fi
+      
+      - name: Verify generated client compiles
+        run: npm run build
+        working-directory: sdk/client
+      
+      - name: Run generated client tests
+        run: npm test
+        working-directory: sdk/client
+        continue-on-error: true
+
+  validate-examples:
+    name: Validate OpenAPI examples
+    runs-on: ubuntu-latest
+    needs: validate-spec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      
+      - name: Install openapi-examples-validator
+        run: npm install -g openapi-examples-validator
+      
+      - name: Validate examples in spec
+        run: openapi-examples-validator backend/openapi.yaml
+        continue-on-error: true

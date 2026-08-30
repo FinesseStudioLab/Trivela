@@ -277,16 +277,29 @@ export async function fetchCampaignOnChainState(contractId) {
     contractId: resolvedId,
   });
 
-  const [isActive, isWithinWindow, participantCount] = await Promise.all([
+  const [isActive, isWithinWindow, participantCount, maxCap, window] = await Promise.all([
     client.is_active().then((tx) => tx.simulate()),
     client.is_within_window().then((tx) => tx.simulate()),
     client.get_participant_count().then((tx) => tx.simulate()),
+    client.get_max_cap().then((tx) => tx.simulate()),
+    client.get_window().then((tx) => tx.simulate()),
   ]);
+
+  // get_window() returns (start, end) as ledger-timestamp (unix seconds).
+  // Defaults to (0, u64::MAX) on-chain when unset -- treat that as "no
+  // window configured" rather than a real, extremely-far-future end date.
+  const [windowStart, windowEnd] = window;
+  const hasWindow = !(windowStart === 0n && windowEnd === 18446744073709551615n);
 
   return {
     isActive,
     isWithinWindow,
     participantCount: Number(participantCount),
+    // get_max_cap() == 0 means unlimited, per the contract's own convention
+    // (issue #317).
+    maxCap: Number(maxCap),
+    windowStart: hasWindow ? Number(windowStart) : null,
+    windowEnd: hasWindow ? Number(windowEnd) : null,
   };
 }
 

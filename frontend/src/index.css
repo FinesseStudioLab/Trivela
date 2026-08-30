@@ -13,7 +13,11 @@
   --border: rgba(150, 176, 214, 0.2);
   --border-strong: rgba(150, 176, 214, 0.36);
   --success: #33c37f;
+  --success-soft: rgba(51, 195, 127, 0.16);
   --danger: #ff8e8e;
+  --danger-soft: rgba(255, 142, 142, 0.16);
+  --warning: #f59e0b;
+  --warning-soft: rgba(245, 158, 11, 0.16);
   --shadow-lg: 0 26px 60px rgba(0, 0, 0, 0.28);
   --font-heading: 'Outfit', system-ui, sans-serif;
   font-family:
@@ -41,7 +45,11 @@
   --border: rgba(21, 34, 53, 0.12);
   --border-strong: rgba(21, 34, 53, 0.22);
   --success: #198c54;
+  --success-soft: rgba(25, 140, 84, 0.12);
   --danger: #c83f3f;
+  --danger-soft: rgba(200, 63, 63, 0.12);
+  --warning: #d97706;
+  --warning-soft: rgba(217, 119, 6, 0.12);
   --shadow-lg: 0 24px 52px rgba(34, 52, 84, 0.14);
 }
 

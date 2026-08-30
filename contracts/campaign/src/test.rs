@@ -1733,3 +1733,40 @@ fn test_root_rotation_does_not_allow_double_registration() {
     let result = client.try_register(&participant, &leaf, &proof, &None, &None);
     assert_eq!(result, Err(Ok(Error::NullifierAlreadyUsed)));
 }
+
+// ── Storage-exhaustion stress test (issue #835) ──────────────────────────────
+//
+// Tiny-N unit tests can't catch the instance-storage-blowup class of bug —
+// see docs/STORAGE_MODEL.md for the storage budget this exercises. This
+// registers several thousand distinct participants (each writing its own
+// `(PARTICIPANT, addr)` persistent entry plus incrementing the shared
+// instance-storage participant counter) and asserts every single
+// registration still succeeds, so a regression that pushes any one entry —
+// or the instance as a whole — past Soroban's ledger-entry size cap fails
+// loudly here instead of surfacing on mainnet under real load.
+#[test]
+fn test_high_volume_registration_stress() {
+    const STRESS_PARTICIPANT_COUNT: u32 = 3_000;
+
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let (leaf, proof) = no_proof_args(&env);
+
+    for i in 0..STRESS_PARTICIPANT_COUNT {
+        let participant = Address::generate(&env);
+        let registered = client.register(&participant, &leaf, &proof, &None, &None);
+        assert!(registered, "registration {i} unexpectedly failed");
+        assert!(
+            client.is_participant(&participant),
+            "participant {i} not recorded after registration"
+        );
+    }
+
+    assert_eq!(
+        client.get_participant_count(),
+        STRESS_PARTICIPANT_COUNT as u64
+    );
+}

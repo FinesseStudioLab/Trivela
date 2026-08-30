@@ -549,7 +549,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -562,7 +562,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -575,7 +575,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -586,7 +586,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -599,7 +599,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -610,7 +610,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -623,7 +623,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -634,7 +634,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -647,7 +647,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -660,7 +660,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',

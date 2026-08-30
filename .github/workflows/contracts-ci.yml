@@ -40,8 +40,37 @@ jobs:
       - name: Lint contracts
         run: cargo clippy --workspace --all-targets -- -D warnings -A deprecated
 
+      # Issue #833: extend_ttl(50, 100) literals leaked into four redemption
+      # functions instead of the named TTL_THRESHOLD/TTL_EXTEND_TO constants
+      # (50/100 happen to be the #[cfg(test)] override values, so tests never
+      # caught it) -- on mainnet that under-extends the whole contract's
+      # instance TTL to ~8 minutes instead of the intended ~30 days. This
+      # grep guard fails the build on any future literal extend_ttl call so
+      # the same drift can't reappear silently.
+      - name: Guard against literal extend_ttl() TTL values
+        run: |
+          # Excludes comment lines (":  //") so explanatory doc comments that
+          # mention the old literal as historical context (see the comment
+          # blocks in contracts/rewards/src/lib.rs and contracts/campaign/src/lib.rs)
+          # don't trip the guard -- only actual code call sites do.
+          MATCHES=$(grep -rn --include='*.rs' -E 'extend_ttl\([0-9]' contracts/ | grep -vE ':\s*//' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "$MATCHES"
+            echo "::error::Found a literal extend_ttl(N, N) call in contract code. Use the named TTL_THRESHOLD/TTL_EXTEND_TO constants (see docs/TTL_STRATEGY.md) so mainnet builds get the correct values instead of silently falling back to whatever number was hand-typed."
+            exit 1
+          fi
+          echo "No literal extend_ttl() TTL values found."
+
       - name: Run contract tests
         run: cargo test --workspace
+
+      # High-N storage-exhaustion stress test (issue #835) — see
+      # docs/STORAGE_MODEL.md. Already covered by the `cargo test --workspace`
+      # step above; run again by name here so a failure/regression in this
+      # specific test class is called out on its own in CI logs instead of
+      # being buried among hundreds of other test names.
+      - name: Storage-exhaustion stress test
+        run: cargo test --package trivela-campaign-contract test_high_volume_registration_stress -- --nocapture
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov

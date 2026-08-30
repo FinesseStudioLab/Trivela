@@ -1,4 +1,4 @@
-# Trivela — Proposed Issues (Review Draft)
+# Trivela — Proposed Issues (Review Draft).
 
 > **Status:** DRAFT for review. Nothing has been filed on GitHub yet. Once approved, these will be
 > created on `FinesseStudioLab/Trivela` (authored as **joelpeace**), and the "Recommended Closures"

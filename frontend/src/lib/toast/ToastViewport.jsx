@@ -1,5 +1,7 @@
+import React from 'react';
 import { useToast } from './ToastProvider';
-import './Toast.css';
+import { Toast } from '../../components/ui';
+import './ToastViewport.css';
 
 export default function ToastViewport() {
   const { toasts, dismiss } = useToast();
@@ -9,21 +11,13 @@ export default function ToastViewport() {
   return (
     <div className="toast-viewport" aria-label="Notifications">
       {toasts.map((toast) => (
-        <div
+        <Toast
           key={toast.id}
-          className={`toast toast-${toast.type}`}
-          role={toast.type === 'error' ? 'alert' : 'status'}
-        >
-          <p className="toast-message">{toast.message}</p>
-          <button
-            type="button"
-            className="toast-dismiss"
-            aria-label="Dismiss notification"
-            onClick={() => dismiss(toast.id)}
-          >
-            ✕
-          </button>
-        </div>
+          id={toast.id}
+          type={toast.type}
+          message={toast.message}
+          onDismiss={() => dismiss(toast.id)}
+        />
       ))}
     </div>
   );

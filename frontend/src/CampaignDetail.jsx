@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { apiUrl, DEFAULT_OG_IMAGE } from './config';
 import Header from './components/Header';
@@ -8,6 +8,50 @@ import PageMeta from './components/PageMeta';
 import ErrorBoundary from './ErrorBoundary';
 import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
 import './CampaignDetail.css';
+
+/** Formats a duration in seconds as "2d 4h 15m" (issue #317 countdown). */
+function formatCountdown(totalSeconds) {
+  if (totalSeconds <= 0) return null;
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (days > 0 || hours > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(' ');
+}
+
+/**
+ * Live-ticking countdown/time-remaining string for a campaign window.
+ * `windowStart`/`windowEnd` are unix seconds, or null when no window is
+ * configured on-chain (get_window() defaults to (0, u64::MAX)).
+ */
+export function useCampaignCountdown(windowStart, windowEnd) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (windowStart == null || windowEnd == null) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [windowStart, windowEnd]);
+
+  return useMemo(() => {
+    if (windowStart == null || windowEnd == null) {
+      return { label: null, phase: 'unbounded' };
+    }
+    const nowSec = Math.floor(now / 1000);
+    if (nowSec < windowStart) {
+      const text = formatCountdown(windowStart - nowSec);
+      return { label: text ? `Starts in ${text}` : 'Starting now', phase: 'upcoming' };
+    }
+    if (nowSec <= windowEnd) {
+      const text = formatCountdown(windowEnd - nowSec);
+      return { label: text ? `Ends in ${text}` : 'Ending now', phase: 'active' };
+    }
+    return { label: 'Window closed', phase: 'ended' };
+  }, [now, windowStart, windowEnd]);
+}
 
 export default function CampaignDetail({
   theme,
@@ -30,6 +74,29 @@ export default function CampaignDetail({
     useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
 
   const [embedSnippetCopied, setEmbedSnippetCopied] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+  const countdown = useCampaignCountdown(onChainState?.windowStart, onChainState?.windowEnd);
+
+  const campaignUrl = `${window.location.origin}/campaign/${id}`;
+
+  const handleCopyShareLink = useCallback(() => {
+    navigator.clipboard.writeText(campaignUrl).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }, [campaignUrl]);
+
+  const shareText = campaign ? `Check out "${campaign.name}" on Trivela` : 'Check out this campaign on Trivela';
+  const shareLinks = {
+    twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(campaignUrl)}`,
+    telegram: `https://t.me/share/url?url=${encodeURIComponent(campaignUrl)}&text=${encodeURIComponent(shareText)}`,
+  };
+  const handleCopyDiscordMessage = useCallback(() => {
+    navigator.clipboard.writeText(`${shareText} — ${campaignUrl}`).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }, [shareText, campaignUrl]);
 
   const incomingRef = searchParams.get('ref');
   const isLoading = !campaign && !error;
@@ -156,7 +223,17 @@ export default function CampaignDetail({
           </nav>
 
           {isLoading ? (
-            <div className="detail-status">Loading campaign details...</div>
+            <div className="detail-skeleton" aria-busy="true" aria-label="Loading campaign details">
+              <div className="skeleton-line skeleton-title" />
+              <div className="skeleton-line skeleton-badge" />
+              <div className="skeleton-grid">
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+              </div>
+              <div className="skeleton-line skeleton-paragraph" />
+              <div className="skeleton-line skeleton-paragraph" />
+            </div>
           ) : error ? (
             <div className="detail-error" role="alert">
               <h2>Error</h2>
@@ -190,21 +267,89 @@ export default function CampaignDetail({
                       <h2>On-chain status</h2>
                       <div className="detail-grid">
                         <div className="detail-stat">
-                          <h3>Contract active</h3>
-                          <p className="stat-value">{onChainState.isActive ? 'Yes' : 'No'}</p>
-                        </div>
-                        <div className="detail-stat">
-                          <h3>Within window</h3>
-                          <p className="stat-value">{onChainState.isWithinWindow ? 'Yes' : 'No'}</p>
+                          <h3>Status</h3>
+                          <p className="stat-value">
+                            {onChainState.isActive
+                              ? onChainState.isWithinWindow
+                                ? 'Active'
+                                : 'Paused'
+                              : 'Inactive'}
+                          </p>
                         </div>
                         <div className="detail-stat">
                           <h3>Participants</h3>
-                          <p className="stat-value">{onChainState.participantCount}</p>
+                          <p className="stat-value">
+                            {onChainState.participantCount}
+                            {onChainState.maxCap > 0
+                              ? ` / ${onChainState.maxCap} spots`
+                              : ' registered'}
+                          </p>
+                        </div>
+                        <div className="detail-stat">
+                          <h3>{countdown.phase === 'upcoming' ? 'Starts' : 'Time window'}</h3>
+                          <p className="stat-value">{countdown.label ?? 'No time limit'}</p>
                         </div>
                       </div>
+
+                      {onChainState.maxCap > 0 ? (
+                        <div
+                          className="cap-progress-bar"
+                          role="progressbar"
+                          aria-valuenow={onChainState.participantCount}
+                          aria-valuemin={0}
+                          aria-valuemax={onChainState.maxCap}
+                          aria-label="Campaign fill rate"
+                        >
+                          <div
+                            className="cap-progress-fill"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (onChainState.participantCount / onChainState.maxCap) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </section>
                   </ErrorBoundary>
+                ) : campaign && !campaign.contractId ? (
+                  <section className="detail-section detail-no-contract">
+                    <h2>On-chain status</h2>
+                    <p className="detail-no-contract-note">
+                      Contract not linked — this campaign doesn&apos;t have an on-chain contract
+                      assigned yet, so live participant counts and status aren&apos;t available.
+                    </p>
+                  </section>
                 ) : null}
+
+                <section className="detail-section detail-share" aria-label="Share this campaign">
+                  <h2>Share</h2>
+                  <div className="detail-share-actions">
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyShareLink}>
+                      {shareCopied ? 'Copied!' : 'Copy link'}
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.twitter}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Twitter
+                    </a>
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyDiscordMessage}>
+                      Copy Discord message
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Telegram
+                    </a>
+                  </div>
+                </section>
 
                 <section className="detail-section">
                   <h2>Description</h2>

@@ -14,7 +14,7 @@ contributors.
 
 ---
 
-## � Table of Contents
+## � Table of Contents.
 
 - [�🚀 Live Deployment](#live-deployment)
 - [📖 Overview](#overview)
@@ -32,12 +32,12 @@ contributors.
 
 ---
 
-## 🚀 Live Deployment
+## 🚀 Live Deployment.
 
 Both contracts are **deployed and live on Stellar Testnet**, built from the latest `main` and
 verified end-to-end (initialize → credit/balance, initialize → register/participant-count).
 
-### Contract Addresses
+### Contract Addresses.
 
 | Contract     | Contract ID (Testnet)                                      | Explorer                                                                                                            |
 | ------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -68,9 +68,9 @@ VITE_CAMPAIGN_CONTRACT_ID=CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPB
 
 ---
 
-## 📖 Overview
+## 📖 Overview.
 
-### What Trivela Does
+### What Trivela Does?
 
 | Component             | Description                                                                |
 | --------------------- | -------------------------------------------------------------------------- |
@@ -79,6 +79,7 @@ VITE_CAMPAIGN_CONTRACT_ID=CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPB
 | **Campaign Contract** | Stores campaign active flag and participant registration                   |
 | **Backend API**       | REST API for campaign metadata, health checks, and integration             |
 | **Frontend**          | React app to list campaigns and connect wallets to interact with contracts |
+| **Embed widgets**     | Sandboxed iframe and script-tag embeds for partners to show campaigns on third-party sites |
 
 ### Use Cases
 
@@ -336,7 +337,7 @@ docker compose --profile redis up --build
 
 ---
 
-## 🧪 Testing
+## 🧪 Testing.
 
 ### Test Commands
 
@@ -462,7 +463,7 @@ npm run labels:sync -- --repo FinesseStudioLab/Trivela
 | **Taxonomy** | [`scripts/github-labels.json`](scripts/github-labels.json)             |
 | **Behavior** | Idempotent – re-running updates colors/descriptions instead of failing |
 
-### Create Contributor Issues
+### Create Contributor Issues.
 
 After the repo is pushed, create labels and open all 50 issues in GitHub in one go:
 

@@ -44,6 +44,8 @@ use soroban_sdk::{
     Bytes, BytesN, Env, Symbol, Vec,
 };
 
+pub mod groth16;
+
 #[cfg(test)]
 mod poseidon;
 #[cfg(test)]
@@ -153,6 +155,48 @@ pub struct VestingRecord {
     pub claimed: u64,
 }
 
+// ── Staking types ──────────────────────────────────────────────────────────
+
+/// Individual staking position for a user.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StakingPosition {
+    /// Amount of points staked
+    pub amount: u64,
+    /// Ledger when position was created (stake timestamp)
+    pub staked_at: u32,
+    /// Ledger when position unlocks (0 = no lock)
+    pub unlocks_at: u32,
+    /// Applied boost multiplier in basis points (e.g., 11000 = 1.1x)
+    pub boost_multiplier_bps: u32,
+    /// Amount already claimed from this position
+    pub claimed: u64,
+}
+
+/// Lock schedule configuration defining duration options and their boosts.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LockSchedule {
+    /// Lock duration in ledgers (e.g., 17280 = ~1 day at 5s/ledger)
+    pub duration_ledgers: u32,
+    /// Boost multiplier in basis points (e.g., 11000 = 1.1x)
+    pub boost_multiplier_bps: u32,
+}
+
+/// Boost curve configuration for calculating boost based on lock duration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct BoostCurve {
+    /// Base boost multiplier for minimum lock (basis points)
+    pub base_multiplier_bps: u32,
+    /// Maximum boost multiplier (basis points)
+    pub max_multiplier_bps: u32,
+    /// Ledger duration for maximum boost
+    pub max_duration_ledgers: u32,
+    /// Curve type (0 = linear, 1 = logarithmic, 2 = exponential)
+    pub curve_type: u8,
+}
+
 // ── Multi-sig types (issue #733) ─────────────────────────────────────────────
 
 /// Multi-sig configuration: M-of-N threshold over a signer set.
@@ -260,6 +304,9 @@ const PAUSE_REDEEM_EVENT: Symbol = symbol_short!("psredeem");
 const MAX_CREDIT_EVENT: Symbol = symbol_short!("mxcredit");
 const CAMPAIGN_MULTIPLIER_EVENT: Symbol = symbol_short!("multset");
 const MAX_CREDIT_PER_CALL: Symbol = symbol_short!("mxcredit");
+/// Minimum claim amount (issue #321). 0 means no minimum.
+const MIN_CLAIM: Symbol = symbol_short!("min_clm");
+const MIN_CLAIM_EVENT: Symbol = symbol_short!("minclmst");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const CAMPAIGN_MULTIPLIER: Symbol = symbol_short!("mult");
@@ -346,6 +393,46 @@ const GOV_PROPOSE_EVENT: Symbol = symbol_short!("govprp");
 const GOV_VOTE_EVENT: Symbol = symbol_short!("govvote");
 const GOV_EXECUTE_EVENT: Symbol = symbol_short!("govexec");
 const GOV_CANCEL_EVENT: Symbol = symbol_short!("govcanc");
+
+// ── Emergency timelock constants (issue #838) ────────────────────────────────
+/// Persistent map key prefix for queued timelock entries, keyed by
+/// `(TIMELOCK_ENTRY, op_hash)` -> `eta_ledger: u32`.
+const TIMELOCK_ENTRY: Symbol = symbol_short!("tlentry");
+/// Instance key for the admin-configurable minimum delay, in ledgers,
+/// between queuing and executing a timelocked op. Defaults to
+/// `DEFAULT_TIMELOCK_DELAY` if never configured.
+const TIMELOCK_DELAY: Symbol = symbol_short!("tldelay");
+const TIMELOCK_QUEUE_EVENT: Symbol = symbol_short!("tlqueue");
+const TIMELOCK_EXEC_EVENT: Symbol = symbol_short!("tlexec");
+const TIMELOCK_CANCEL_EVENT: Symbol = symbol_short!("tlcanc");
+/// Fallback delay (in ledgers, ~5s each) when no delay has been configured —
+/// roughly 24 hours.
+const DEFAULT_TIMELOCK_DELAY: u32 = 17_280;
+// ── Staking constants ──────────────────────────────────────────────────────
+/// Individual staking position key: (STAKE, user, stake_id) -> StakingPosition
+const STAKE: Symbol = symbol_short!("stake");
+/// Staking position counter key: (STAKE_CTR, user) -> u64
+const STAKE_CTR: Symbol = symbol_short!("stakectr");
+/// Staking position IDs key: (STAKE_IDS, user) -> Vec<u64>
+const STAKE_IDS: Symbol = symbol_short!("stakeids");
+/// Active lock schedules key: LOCK_SCHEDULES -> Vec<LockSchedule>
+const LOCK_SCHEDULES: Symbol = symbol_short!("locksched");
+/// Boost curve configuration key: BOOST_CURVE -> BoostCurve
+const BOOST_CURVE: Symbol = symbol_short!("boostcrv");
+/// Minimum stake amount key: MIN_STAKE -> u64
+const MIN_STAKE: Symbol = symbol_short!("minstake");
+/// Staking paused flag key: PAUSE_STAKE -> bool
+const PAUSE_STAKE: Symbol = symbol_short!("psstake");
+/// Stake event: topics (STAKE_EVENT, user), data (stake_id: u64, amount: u64, unlocks_at: u32, boost_multiplier_bps: u32)
+const STAKE_EVENT: Symbol = symbol_short!("stake");
+/// Unstake event: topics (UNSTAKE_EVENT, user), data (stake_id: u64, amount: u64, claimed: u64)
+const UNSTAKE_EVENT: Symbol = symbol_short!("unstake");
+/// Boost update event: topics (BOOST_UPDATE_EVENT, user), data (stake_id: u64, new_boost_bps: u32)
+const BOOST_UPDATE_EVENT: Symbol = symbol_short!("boostupd");
+/// Lock schedule update event: topics (LOCK_SCHEDULE_EVENT,), data ()
+const LOCK_SCHEDULE_EVENT: Symbol = symbol_short!("locksched");
+/// Boost curve update event: topics (BOOST_CURVE_EVENT,), data ()
+const BOOST_CURVE_EVENT: Symbol = symbol_short!("boostcrve");
 // ── SEP-41 Token Interface (issue #530) ─────────────────────────────────────
 // Optional token-backed mode where reward points are SEP-41-compliant tokens.
 // When token_mode is enabled, the contract exposes standard token functions.
@@ -477,6 +564,15 @@ fn ensure_redeem_not_paused(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+fn ensure_stake_not_paused(env: &Env) -> Result<(), Error> {
+    ensure_not_paused(env)?;
+    let paused: bool = env.storage().instance().get(&PAUSE_STAKE).unwrap_or(false);
+    if paused {
+        return Err(Error::ContractPaused);
+    }
+    Ok(())
+}
+
 /// Check caller's rate limit and increment their count for the current window.
 /// `n_calls` is how many calls to count (1 for credit, N for batch_credit).
 fn check_and_increment_rate(env: &Env, caller: &Address, n_calls: u32) -> Result<(), Error> {
@@ -509,6 +605,162 @@ fn compute_unlocked(now: u32, record: &VestingRecord) -> u64 {
     let total = record.total as u128;
     let unlocked = total * elapsed / duration;
     (unlocked.min(record.total as u128)) as u64
+}
+
+/// Calculate boost multiplier for a given lock duration using configured boost curve.
+/// Returns boost multiplier in basis points (e.g., 11000 = 1.1x).
+fn calculate_boost_multiplier(env: &Env, duration_ledgers: u32) -> Result<u32, Error> {
+    let curve: Option<BoostCurve> = env.storage().instance().get(&BOOST_CURVE);
+    
+    // If no boost curve configured, return 1.0x (10000 bps)
+    let curve = match curve {
+        Some(c) => c,
+        None => return Ok(10_000), // Default 1.0x multiplier
+    };
+
+    // Validate curve configuration
+    if curve.base_multiplier_bps == 0 || curve.max_multiplier_bps == 0 {
+        return Err(Error::InvalidBoostCurve);
+    }
+    if curve.max_duration_ledgers == 0 {
+        return Err(Error::InvalidBoostCurve);
+    }
+    if curve.base_multiplier_bps > curve.max_multiplier_bps {
+        return Err(Error::InvalidBoostCurve);
+    }
+
+    // Cap duration at maximum
+    let duration = duration_ledgers.min(curve.max_duration_ledgers);
+    
+    match curve.curve_type {
+        // Linear interpolation: boost = base + (max - base) * (duration / max_duration)
+        0 => {
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            let boost_increase = (max - base) * duration_ratio / BPS_DENOMINATOR;
+            let result = base + boost_increase;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            Ok(result as u32)
+        }
+        // Logarithmic: boost = base + (max - base) * log2(1 + duration/max_duration) / log2(2)
+        1 => {
+            // Simplified logarithmic scaling for no_std environment
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            
+            // Approximate log2(1 + x) using fixed-point math
+            // For small x: log2(1 + x) ≈ x * 28963 / 2^16 (Pade approximation)
+            let log_approx = duration_ratio.saturating_mul(28963) / 65536;
+            let boost_increase = (max - base) * log_approx / BPS_DENOMINATOR;
+            let result = base + boost_increase;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            Ok(result as u32)
+        }
+        // Exponential: boost = base * (max/base)^(duration/max_duration)
+        2 => {
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            
+            // Calculate growth rate (r = (max/base) - 1)
+            let growth_rate_bps = max.saturating_mul(BPS_DENOMINATOR)
+                .checked_div(base)
+                .ok_or(Error::Overflow)?
+                .saturating_sub(BPS_DENOMINATOR);
+            
+            // Use binomial approximation for small exponents: (1 + r)^x ≈ 1 + r*x + r²*x*(x-1)/2
+            // Convert to fixed-point arithmetic
+            let x = duration_ratio; // x in basis points (0 to 10,000)
+            
+            // First term: 1 + r*x
+            let term1 = BPS_DENOMINATOR + (growth_rate_bps * x) / BPS_DENOMINATOR;
+            
+            // Second term: r²*x*(x-1)/2 (more accurate for larger x)
+            let x_minus_one = if x > 0 { x - 1 } else { 0 };
+            let r_squared = (growth_rate_bps * growth_rate_bps) / BPS_DENOMINATOR;
+            let term2_numerator = r_squared * x * x_minus_one;
+            let term2 = term2_numerator / (2 * BPS_DENOMINATOR * BPS_DENOMINATOR);
+            
+            let boost_factor = term1 + term2;
+            let result = (base * boost_factor) / BPS_DENOMINATOR;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            
+            // Ensure result is within bounds
+            let clamped_result = result.min(max as u128).max(base as u128);
+            Ok(clamped_result as u32)
+        }
+        // Step function: boost increases in discrete steps at specific duration thresholds
+        3 => {
+            // For step functions, we need predefined schedules
+            // Fall back to linear if no schedules defined
+            let schedules: Option<Vec<LockSchedule>> = env.storage().instance().get(&LOCK_SCHEDULES);
+            match schedules {
+                Some(schedules) => {
+                    // Find the highest boost for durations <= requested duration
+                    let mut best_boost = curve.base_multiplier_bps;
+                    for schedule in schedules.iter() {
+                        if schedule.duration_ledgers <= duration_ledgers {
+                            if schedule.boost_multiplier_bps > best_boost {
+                                best_boost = schedule.boost_multiplier_bps;
+                            }
+                        }
+                    }
+                    Ok(best_boost)
+                }
+                None => {
+                    // No schedules defined, fall back to linear
+                    let base = curve.base_multiplier_bps as u128;
+                    let max = curve.max_multiplier_bps as u128;
+                    let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+                    let boost_increase = (max - base) * duration_ratio / BPS_DENOMINATOR;
+                    let result = base + boost_increase;
+                    
+                    if result > u32::MAX as u128 {
+                        return Err(Error::Overflow);
+                    }
+                    Ok(result as u32)
+                }
+            }
+        }
+        _ => Err(Error::InvalidBoostCurve),
+    }
+}
+
+/// Get boost multiplier for a specific lock schedule.
+/// Returns boost multiplier in basis points or default 1.0x if schedule not found.
+fn get_lock_schedule_boost(env: &Env, duration_ledgers: u32) -> Result<u32, Error> {
+    let schedules: Option<Vec<LockSchedule>> = env.storage().instance().get(&LOCK_SCHEDULES);
+    
+    match schedules {
+        Some(schedules) => {
+            // Find matching schedule
+            for schedule in schedules.iter() {
+                if schedule.duration_ledgers == duration_ledgers {
+                    if schedule.boost_multiplier_bps == 0 {
+                        return Err(Error::ZeroBoostMultiplier);
+                    }
+                    return Ok(schedule.boost_multiplier_bps);
+                }
+            }
+            // No matching schedule, use boost curve
+            calculate_boost_multiplier(env, duration_ledgers)
+        }
+        None => {
+            // No schedules configured, use boost curve
+            calculate_boost_multiplier(env, duration_ledgers)
+        }
+    }
 }
 
 /// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
@@ -668,6 +920,24 @@ impl RewardsContract {
             .unwrap_or(0)
     }
 
+    /// Set the minimum amount a single `claim()` call must move (admin only).
+    /// Prevents spam via many 1-point claim transactions on mainnet, where
+    /// each claim costs a fee (issue #321). Set to 0 to disable.
+    pub fn set_min_claim(env: Env, admin: Address, min_amount: u64) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&MIN_CLAIM, &min_amount);
+        env.events().publish((MIN_CLAIM_EVENT,), min_amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the minimum claim amount (0 means no minimum).
+    pub fn min_claim(env: Env) -> u64 {
+        env.storage().instance().get(&MIN_CLAIM).unwrap_or(0)
+    }
+
     /// Set campaign-specific reward multiplier in basis points (admin only).
     /// Example: 10_000 = 1.0x, 12_500 = 1.25x, 5_000 = 0.5x.
     pub fn set_campaign_multiplier(
@@ -819,6 +1089,10 @@ impl RewardsContract {
     pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
         if amount == 0 {
             return Err(Error::ZeroAmount);
+        }
+        let min_claim: u64 = env.storage().instance().get(&MIN_CLAIM).unwrap_or(0);
+        if min_claim > 0 && amount < min_claim {
+            return Err(Error::BelowMinClaim);
         }
         user.require_auth();
         ensure_claim_not_paused(&env)?;
@@ -1042,6 +1316,102 @@ impl RewardsContract {
 
     pub fn is_paused_redeem(env: Env) -> bool {
         env.storage().instance().get(&PAUSE_REDEEM).unwrap_or(false)
+    }
+
+    /// Pause or unpause the `stake` / `unstake` operations independently.
+    pub fn set_paused_stake(env: Env, admin: Address, paused: bool) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&PAUSE_STAKE, &paused);
+        env.events().publish((PAUSE_CREDIT_EVENT,), paused); // Reuse existing pause event type
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn is_paused_stake(env: Env) -> bool {
+        env.storage().instance().get(&PAUSE_STAKE).unwrap_or(false)
+    }
+
+    /// Set minimum stake amount (admin only).
+    pub fn set_min_stake(env: Env, admin: Address, min_amount: u64) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&MIN_STAKE, &min_amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn min_stake(env: Env) -> u64 {
+        env.storage().instance().get(&MIN_STAKE).unwrap_or(0)
+    }
+
+    /// Set lock schedules (admin only).
+    pub fn set_lock_schedules(
+        env: Env,
+        admin: Address,
+        schedules: Vec<LockSchedule>,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        // Validate schedules
+        for schedule in schedules.iter() {
+            if schedule.duration_ledgers == 0 {
+                return Err(Error::InvalidLockSchedule);
+            }
+            if schedule.boost_multiplier_bps == 0 {
+                return Err(Error::ZeroBoostMultiplier);
+            }
+        }
+
+        env.storage().instance().set(&LOCK_SCHEDULES, &schedules);
+        env.events().publish((LOCK_SCHEDULE_EVENT,), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn lock_schedules(env: Env) -> Vec<LockSchedule> {
+        env.storage()
+            .instance()
+            .get(&LOCK_SCHEDULES)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Set boost curve configuration (admin only).
+    pub fn set_boost_curve(
+        env: Env,
+        admin: Address,
+        curve: BoostCurve,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        // Validate curve
+        if curve.base_multiplier_bps == 0 || curve.max_multiplier_bps == 0 {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.max_duration_ledgers == 0 {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.base_multiplier_bps > curve.max_multiplier_bps {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.curve_type > 3 { // Only support 0, 1, 2, 3
+            return Err(Error::InvalidBoostCurve);
+        }
+
+        env.storage().instance().set(&BOOST_CURVE, &curve);
+        env.events().publish((BOOST_CURVE_EVENT,), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn boost_curve(env: Env) -> Option<BoostCurve> {
+        env.storage().instance().get(&BOOST_CURVE)
     }
 
     /// Configure tiered reward distribution for a campaign (admin only).
@@ -1329,6 +1699,296 @@ impl RewardsContract {
         total
     }
 
+    // ── Staking functions ────────────────────────────────────────────────────
+
+    /// Stake points for a lock duration to earn boosted rewards.
+    /// Returns the new stake_id for this position.
+    pub fn stake(
+        env: Env,
+        user: Address,
+        amount: u64,
+        duration_ledgers: u32,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        user.require_auth();
+        ensure_stake_not_paused(&env)?;
+
+        // Check minimum stake amount
+        let min_stake: u64 = env.storage().instance().get(&MIN_STAKE).unwrap_or(0);
+        if min_stake > 0 && amount < min_stake {
+            return Err(Error::BelowMinClaim); // Reusing BelowMinClaim for consistency
+        }
+
+        // Check user balance
+        let balance_key = (BALANCE, user.clone());
+        let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        if amount > current_balance {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Calculate boost multiplier
+        let boost_multiplier_bps = get_lock_schedule_boost(&env, duration_ledgers)?;
+        if boost_multiplier_bps == 0 {
+            return Err(Error::ZeroBoostMultiplier);
+        }
+
+        // Calculate unlock time
+        let now = env.ledger().sequence();
+        let unlocks_at = now.checked_add(duration_ledgers).ok_or(Error::Overflow)?;
+
+        // Create staking position
+        let stake_ctr_key = (STAKE_CTR, user.clone());
+        let stake_id: u64 = env.storage().instance().get(&stake_ctr_key).unwrap_or(0);
+        let next_stake_id = stake_id + 1;
+
+        let position = StakingPosition {
+            amount,
+            staked_at: now,
+            unlocks_at,
+            boost_multiplier_bps,
+            claimed: 0,
+        };
+
+        // Store position
+        env.storage()
+            .instance()
+            .set(&(STAKE, user.clone(), stake_id), &position);
+        env.storage().instance().set(&stake_ctr_key, &next_stake_id);
+
+        // Add to position IDs list
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        ids.push_back(stake_id);
+        env.storage().instance().set(&stake_ids_key, &ids);
+
+        // Deduct from user balance
+        let new_balance = current_balance.checked_sub(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Emit event
+        env.events().publish(
+            (STAKE_EVENT, user),
+            (stake_id, amount, unlocks_at, boost_multiplier_bps),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(stake_id)
+    }
+
+    /// Unstake a position and claim boosted rewards.
+    /// Returns the total amount claimed (principal + boosted rewards).
+    pub fn unstake(env: Env, user: Address, stake_id: u64) -> Result<u64, Error> {
+        user.require_auth();
+        ensure_stake_not_paused(&env)?;
+
+        let key = (STAKE, user.clone(), stake_id);
+        let position: StakingPosition = env
+            .storage()
+            .instance()
+            .get(&key)
+            .ok_or(Error::StakingNotFound)?;
+
+        // Check if position is unlocked
+        let now = env.ledger().sequence();
+        if now < position.unlocks_at {
+            return Err(Error::PositionLocked);
+        }
+
+        // Calculate boosted rewards
+        let boosted_amount = calculate_boosted_amount(position.amount, position.boost_multiplier_bps)?;
+        let total_to_claim = boosted_amount;
+
+        // Check if already claimed
+        let remaining = position.amount.saturating_sub(position.claimed);
+        if remaining == 0 {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Calculate actual claimable amount (capped by remaining)
+        let to_claim = total_to_claim.min(remaining);
+
+        // Update position
+        let mut updated_position = position.clone();
+        updated_position.claimed = updated_position.claimed.checked_add(to_claim).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&key, &updated_position);
+
+        // Add to user balance
+        let balance_key = (BALANCE, user.clone());
+        let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current_balance.checked_add(to_claim).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Emit event
+        env.events().publish(
+            (UNSTAKE_EVENT, user),
+            (stake_id, to_claim, updated_position.claimed),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(to_claim)
+    }
+
+    /// Calculate boosted amount based on principal and boost multiplier.
+    fn calculate_boosted_amount(principal: u64, boost_multiplier_bps: u32) -> Result<u64, Error> {
+        let principal_u128 = principal as u128;
+        let boost_u128 = boost_multiplier_bps as u128;
+        let boosted = principal_u128
+            .checked_mul(boost_u128)
+            .ok_or(Error::Overflow)?
+            .checked_div(BPS_DENOMINATOR)
+            .ok_or(Error::Overflow)?;
+        
+        if boosted > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        Ok(boosted as u64)
+    }
+
+    /// Get staking position details.
+    pub fn get_staking_position(env: Env, user: Address, stake_id: u64) -> Option<StakingPosition> {
+        let key = (STAKE, user, stake_id);
+        env.storage().instance().get(&key)
+    }
+
+    /// Get total staked amount for a user across all positions.
+    pub fn total_staked(env: Env, user: Address) -> u64 {
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut total = 0u64;
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                total = total.saturating_add(position.amount);
+            }
+        }
+        total
+    }
+
+    /// Get total boosted rewards available for a user across all unlocked positions.
+    pub fn available_boosted_rewards(env: Env, user: Address) -> u64 {
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let now = env.ledger().sequence();
+        let mut total_available = 0u64;
+        
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                // Check if position is unlocked
+                if now >= position.unlocks_at {
+                    let boosted_amount = calculate_boosted_amount(position.amount, position.boost_multiplier_bps)
+                        .unwrap_or(0);
+                    let available = boosted_amount.saturating_sub(position.claimed);
+                    total_available = total_available.saturating_add(available);
+                }
+            }
+        }
+        total_available
+    }
+
+    /// Get list of all stake IDs for a user.
+    pub fn get_stake_ids(env: Env, user: Address) -> Vec<u64> {
+        let stake_ids_key = (STAKE_IDS, user);
+        env.storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Clean up fully claimed staking positions to save storage.
+    /// Returns the number of positions cleaned up.
+    pub fn cleanup_claimed_positions(env: Env, user: Address, max_cleanup: u32) -> Result<u32, Error> {
+        user.require_auth();
+        
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        
+        let mut cleaned = 0;
+        let mut remaining_ids = Vec::new(&env);
+        
+        for stake_id in ids.iter() {
+            if cleaned >= max_cleanup {
+                remaining_ids.push_back(stake_id);
+                continue;
+            }
+            
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                // Check if position is fully claimed
+                if position.claimed >= position.amount {
+                    // Remove the position from storage
+                    env.storage().instance().remove(&key);
+                    cleaned += 1;
+                } else {
+                    remaining_ids.push_back(stake_id);
+                }
+            } else {
+                // Position doesn't exist, skip it
+                remaining_ids.push_back(stake_id);
+            }
+        }
+        
+        // Update the IDs list if any positions were removed
+        if cleaned > 0 {
+            env.storage().instance().set(&stake_ids_key, &remaining_ids);
+            env.storage()
+                .instance()
+                .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        }
+        
+        Ok(cleaned)
+    }
+
+    /// Extend TTL for all of a user's staking positions.
+    /// Useful for long-term staking to prevent premature expiration.
+    pub fn extend_staking_ttl(env: Env, user: Address) -> Result<(), Error> {
+        user.require_auth();
+        
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            // Just accessing the position extends its TTL
+            let _ = env.storage().instance().get::<_, StakingPosition>(&key);
+        }
+        
+        // Also extend the IDs list TTL
+        let _ = env.storage().instance().get::<_, Vec<u64>>(&stake_ids_key);
+        
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(())
+    }
+
     /// Set redemption rate for points-to-asset conversion (admin only).
     /// rate_bps: how many units of asset per 10,000 points (basis points).
     /// Example: rate_bps = 100 means 100/10,000 = 0.01 asset per point.
@@ -1347,7 +2007,7 @@ impl RewardsContract {
 
         env.storage().instance().set(&REDEMPTION_ASSET, &asset);
         env.storage().instance().set(&REDEMPTION_RATE, &rate_bps);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(())
     }
@@ -1384,6 +2044,14 @@ impl RewardsContract {
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
     /// Returns the amount of asset tokens transferred.
+    /// Checks-effects-interactions (issue #850): every piece of state this
+    /// function touches — the user's point balance, `TOTAL_SUPPLY`, and
+    /// `REDEMPTION_RESERVE` — is written *before* the external SAC
+    /// `transfer` call at the end. If `asset_address` were a hostile
+    /// contract that reenters `redeem`/`fund_reserve`/`withdraw_reserve`
+    /// during that `transfer`, the reentrant call observes the
+    /// already-debited balance and reserve, so it cannot redeem the same
+    /// points twice or drain more than the reserve actually holds.
     pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_redeem_not_paused(&env)?;
@@ -1412,13 +2080,23 @@ impl RewardsContract {
         }
         let asset_amount = asset_amount_u128 as i128;
 
-        // Check reserve
+        // Check reserve. The mirrored `REDEMPTION_RESERVE` counter can drift
+        // from the SAC token's real balance (external transfers, rounding,
+        // a partial failure elsewhere), so the payout is bounded by
+        // whichever is smaller — the counter, or what the contract can
+        // actually pay out right now (issue #834). Both sides are compared
+        // in i128 so a reserve amount that happens to exceed u64 can't be
+        // silently truncated by an `as u64` cast.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
         let current_reserve: u64 = env
             .storage()
             .instance()
             .get(&REDEMPTION_RESERVE)
             .unwrap_or(0);
-        if (asset_amount as u64) > current_reserve {
+        let actual_balance = token_client.balance(&env.current_contract_address());
+        let available_reserve = (current_reserve as i128).min(actual_balance);
+        if asset_amount > available_reserve {
             return Err(Error::InsufficientReserve);
         }
 
@@ -1436,27 +2114,33 @@ impl RewardsContract {
             .instance()
             .set(&TOTAL_SUPPLY, &supply.saturating_sub(points_amount));
 
-        // Update reserve
-        let new_reserve = current_reserve.saturating_sub(asset_amount as u64);
+        // Update reserve. `asset_amount` was already bounded by
+        // `available_reserve` <= `current_reserve` above, so this
+        // subtraction cannot underflow — `saturating_sub` is kept only as a
+        // defensive floor, not to paper over the check.
+        let new_reserve = (current_reserve as i128).saturating_sub(asset_amount) as u64;
         env.storage()
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
 
         // Transfer asset tokens to user using SAC
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &user, &asset_amount);
 
         // Emit redeem event
         env.events()
             .publish((REDEEM_EVENT, user), (points_amount, asset_amount));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(asset_amount)
     }
 
     /// Withdraw asset tokens from redemption reserve (admin only).
     /// Used to reclaim unredeemed assets.
+    ///
+    /// Checks-effects-interactions (issue #850): `REDEMPTION_RESERVE` is
+    /// written before the external SAC `transfer`. A reentrant call during
+    /// that transfer sees the already-decremented reserve, so it can't
+    /// withdraw or redeem more than what's actually left.
     pub fn withdraw_reserve(
         env: Env,
         admin: Address,
@@ -1490,12 +2174,19 @@ impl RewardsContract {
         let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &admin, &(amount as i128));
 
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Fund redemption reserve (callable by anyone, typically admin).
     /// Transfers asset tokens from caller to contract reserve.
+    ///
+    /// Checks-effects-interactions (issue #850): the reserve balance is
+    /// written *before* the external SAC `transfer` call, matching `redeem`
+    /// and `withdraw_reserve`. If `asset_address` were ever a hostile
+    /// contract that reenters during `transfer`, the reentrant call would
+    /// see the reserve already incremented rather than a stale value it
+    /// could exploit a race on.
     pub fn fund_reserve(env: Env, from: Address, amount: u64) -> Result<(), Error> {
         from.require_auth();
 
@@ -1505,12 +2196,7 @@ impl RewardsContract {
             .get(&REDEMPTION_ASSET)
             .ok_or(Error::InvalidRedemptionRate)?;
 
-        // Transfer tokens from caller to contract
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
-        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
-
-        // Update reserve
+        // Effects: update reserve before the external call.
         let current_reserve: u64 = env
             .storage()
             .instance()
@@ -1521,7 +2207,12 @@ impl RewardsContract {
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
 
-        env.storage().instance().extend_ttl(50, 100);
+        // Interaction: transfer tokens from caller to contract.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
+
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -2071,6 +2762,123 @@ impl RewardsContract {
         env.events()
             .publish((GOV_CANCEL_EVENT, admin), proposal_id);
         Ok(())
+    }
+
+    // ── Emergency timelock (issue #838) ───────────────────────────────────────
+    //
+    // A lighter-weight, admin-only time-lock alongside the quorum-based
+    // governance flow above (issue #735) — for sensitive admin actions that
+    // don't need multi-voter approval, just a mandatory delay so the
+    // community has a window to react before a single compromised or
+    // mistaken admin key can act (e.g. `upgrade`, `set_redemption_rate`,
+    // `withdraw_reserve`). Caller identifies the specific action being
+    // guarded by an opaque `op_hash` (e.g. a hash of the call's arguments);
+    // this contract only tracks *that a matching hash was queued and has
+    // matured* — same "propose here, dispatch the actual effect after this
+    // returns" pattern as `execute_privileged_op` above.
+    //
+    //   1. Admin calls `queue_timelock(op_hash)` — records `eta_ledger` = now
+    //      + the configured delay (`set_timelock_delay`, else
+    //      `DEFAULT_TIMELOCK_DELAY`).
+    //   2. Admin calls `execute_timelock(op_hash)` once the current ledger
+    //      reaches `eta_ledger` — reverts with `TimeLockActive` if called
+    //      early. Removes the entry so it cannot be replayed.
+    //   3. Admin may call `cancel_timelock(op_hash)` at any time before
+    //      execution to veto.
+
+    /// Configure the minimum delay (in ledgers) between queuing and executing
+    /// a timelocked op. Admin only, replay-safe via `nonce`.
+    pub fn set_timelock_delay(
+        env: Env,
+        admin: Address,
+        nonce: i128,
+        delay_ledgers: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&TIMELOCK_DELAY, &delay_ledgers);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Read-only: the currently configured timelock delay, in ledgers.
+    pub fn timelock_delay(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&TIMELOCK_DELAY)
+            .unwrap_or(DEFAULT_TIMELOCK_DELAY)
+    }
+
+    /// Queue a sensitive operation, identified by `op_hash`, for execution
+    /// after the configured delay. Admin only. Reverts with
+    /// `TimelockAlreadyQueued` if this exact `op_hash` already has a pending
+    /// entry — cancel it first to re-queue with different parameters.
+    /// Returns the ledger at which the op becomes executable.
+    pub fn queue_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<u32, Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(Error::TimelockAlreadyQueued);
+        }
+
+        let delay = Self::timelock_delay(env.clone());
+        let eta_ledger = env.ledger().sequence().saturating_add(delay);
+        env.storage().persistent().set(&key, &eta_ledger);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((TIMELOCK_QUEUE_EVENT, admin, op_hash), eta_ledger);
+        Ok(eta_ledger)
+    }
+
+    /// Mark a queued timelocked op as executed once its delay has elapsed,
+    /// clearing the entry. Admin only. The caller is responsible for
+    /// actually applying the guarded effect after this returns successfully
+    /// — mirrors `execute_privileged_op`. Reverts with `TimelockNotFound` if
+    /// no matching entry is queued, or `TimeLockActive` if called before
+    /// `eta_ledger`.
+    pub fn execute_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        let eta_ledger: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::TimelockNotFound)?;
+
+        if env.ledger().sequence() < eta_ledger {
+            return Err(Error::TimeLockActive);
+        }
+
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_EXEC_EVENT, admin, op_hash), eta_ledger);
+        Ok(())
+    }
+
+    /// Cancel a queued timelocked op before it executes. Admin only.
+    pub fn cancel_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if !env.storage().persistent().has(&key) {
+            return Err(Error::TimelockNotFound);
+        }
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_CANCEL_EVENT, admin), op_hash);
+        Ok(())
+    }
+
+    /// Read-only: the ledger at which a queued op becomes executable, or
+    /// `None` if no entry is queued for `op_hash`.
+    pub fn timelock_eta(env: Env, op_hash: BytesN<32>) -> Option<u32> {
+        env.storage().persistent().get(&(TIMELOCK_ENTRY, op_hash))
     }
 
     /// Check if token mode is enabled.
@@ -2774,3 +3582,5 @@ mod kani_harnesses;
 
 #[cfg(test)]
 mod negative_tests;
+#[cfg(test)]
+mod reentrancy_tests;
