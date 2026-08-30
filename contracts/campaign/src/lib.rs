@@ -339,7 +339,7 @@ fn log_activity(env: &Env, kind: ActivityKind, actor: Address, amount: Option<u6
 
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<(), Error> {
     admin.require_auth();
-    let stored: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
     if &stored != admin {
         return Err(Error::Unauthorized);
     }
@@ -540,7 +540,7 @@ impl CampaignContract {
     /// serves as an idempotent migration hook for upgrade workflows.
     pub fn migrate(env: Env, admin: Address, target_version: u32) -> Result<u32, Error> {
         admin.require_auth();
-        let stored: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored != admin {
             return Err(Error::Unauthorized);
         }
@@ -1220,13 +1220,19 @@ impl CampaignContract {
             if cursor >= len {
                 cursor = 0;
             }
-            let addr = registry.get(cursor).unwrap();
+            let addr = if let Some(a) = registry.get(cursor) {
+                a
+            } else {
+                cursor = 0;
+                continue;
+            };
             let key = (PARTICIPANT, addr);
             if !env.storage().persistent().has(&key) {
                 let last_idx = len - 1;
                 if cursor != last_idx {
-                    let last = registry.get(last_idx).unwrap();
-                    registry.set(cursor, last);
+                    if let Some(last) = registry.get(last_idx) {
+                        registry.set(cursor, last);
+                    }
                 }
                 registry.pop_back();
                 len -= 1;
@@ -1275,12 +1281,13 @@ impl CampaignContract {
         let mut checked = 0u32;
         let mut idx = cursor;
         while checked < len && pruned < max_entries {
-            let nonce = registry.get(idx).unwrap();
-            let key = (NONCE_USED, nonce);
-            if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
-                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
-                    env.storage().instance().remove(&key);
-                    pruned += 1;
+            if let Some(nonce) = registry.get(idx) {
+                let key = (NONCE_USED, nonce);
+                if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
+                    if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                        env.storage().instance().remove(&key);
+                        pruned += 1;
+                    }
                 }
             }
             idx = (idx + 1) % len;
@@ -1571,11 +1578,12 @@ impl CampaignContract {
             .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
-            let (addr, _) = co_admins.get(i).unwrap();
-            if addr == co_admin {
-                co_admins.set(i, (co_admin.clone(), pubkey.clone()));
-                found = true;
-                break;
+            if let Some((addr, _)) = co_admins.get(i) {
+                if addr == co_admin {
+                    co_admins.set(i, (co_admin.clone(), pubkey.clone()));
+                    found = true;
+                    break;
+                }
             }
         }
         if !found {
@@ -1650,7 +1658,7 @@ impl CampaignContract {
 
     /// Return the current admin address.
     pub fn admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).unwrap()
+        env.storage().instance().get(&ADMIN).unwrap_or_else(|| panic!("Admin not initialized"))
     }
 
     /// Return the pending admin address proposed by the current admin, if any.
@@ -1666,7 +1674,7 @@ impl CampaignContract {
         new_admin: Address,
     ) -> Result<(), Error> {
         current_admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
         }
@@ -1704,7 +1712,7 @@ impl CampaignContract {
     /// Cancel an in-flight admin transfer (current admin only).
     pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
         current_admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
         }

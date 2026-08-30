@@ -1163,16 +1163,16 @@ fn setup_admin_rotation() -> (Env, RewardsContractClient<'static>, Address, Addr
 #[test]
 fn test_propose_and_accept_admin_happy_path() {
     let (_env, client, admin, new_admin) = setup_admin_rotation();
-    assert_eq!(client.admin(), admin);
+    assert_eq!(client.admin().ok(), Some(admin.clone()));
     assert_eq!(client.pending_admin(), None);
 
     client.propose_admin(&admin, &new_admin);
     assert_eq!(client.pending_admin(), Some(new_admin.clone()));
     // Admin doesn't change until accepted.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(client.admin().ok(), Some(admin.clone()));
 
     client.accept_admin(&new_admin);
-    assert_eq!(client.admin(), new_admin);
+    assert_eq!(client.admin().ok(), Some(new_admin.clone()));
     assert_eq!(client.pending_admin(), None);
 }
 
@@ -1181,7 +1181,7 @@ fn test_propose_admin_without_accept_keeps_old_admin() {
     let (_env, client, admin, new_admin) = setup_admin_rotation();
     client.propose_admin(&admin, &new_admin);
     // pending_admin set but admin slot unchanged.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(client.admin().ok(), Some(admin.clone()));
     assert_eq!(client.pending_admin(), Some(new_admin));
 }
 
@@ -1201,7 +1201,7 @@ fn test_only_pending_can_accept() {
     let result = client.try_accept_admin(&third_party);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
     // Admin slot still untouched.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(client.admin().ok(), Some(admin.clone()));
 }
 
 #[test]
@@ -1234,7 +1234,7 @@ fn test_propose_overwrites_previous_proposal() {
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
     // The later proposal still works.
     client.accept_admin(&later_admin);
-    assert_eq!(client.admin(), later_admin);
+    assert_eq!(client.admin().ok(), Some(later_admin.clone()));
 }
 
 // ── Referral rewards (issue #656 / #603) ─────────────────────────────────────
