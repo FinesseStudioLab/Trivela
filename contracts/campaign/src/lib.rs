@@ -147,6 +147,24 @@ const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 const PRUNED_EVENT: Symbol = symbol_short!("pruned");
 
+// ── Issue #902: Scheduled campaign activation ─────────────────────────────────
+// Ledger-based activation window support for automated campaign lifecycle
+const START_LEDGER: Symbol = symbol_short!("strtldg");
+const END_LEDGER: Symbol = symbol_short!("endldg");
+const SCHEDULE_MODE: Symbol = symbol_short!("scdmode");
+const SET_LEDGER_WINDOW_EVENT: Symbol = symbol_short!("ldg_win");
+const SET_SCHEDULE_MODE_EVENT: Symbol = symbol_short!("scdmode");
+
+/// Campaign activation schedule mode
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum ScheduleMode {
+    /// Uses env.ledger().timestamp() - existing behavior
+    Timestamp = 0,
+    /// Uses env.ledger().sequence() - new ledger-based scheduling
+    Ledger = 1,
+}
+
 // ── pruning ──────────────────────────────────────────────────────────────────
 // Participant records live in PERSISTENT storage (#280) with their own TTL,
 // so the network itself reclaims rent for truly-expired entries; this index
@@ -1771,6 +1789,98 @@ impl CampaignContract {
             .instance()
             .get(&ACTIVITY_LOG_SIZE)
             .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #902: Scheduled / Automated Campaign Activation
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Set ledger-based activation window (admin only).
+    /// Both bounds are inclusive: registration succeeds when `start_ledger <= current <= end_ledger`.
+    pub fn set_ledger_window(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        start_ledger: u32,
+        end_ledger: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+
+        if start_ledger > end_ledger {
+            return Err(Error::InvalidWindow);
+        }
+
+        env.storage().instance().set(&START_LEDGER, &start_ledger);
+        env.storage().instance().set(&END_LEDGER, &end_ledger);
+
+        env.events()
+            .publish((SET_LEDGER_WINDOW_EVENT,), (start_ledger, end_ledger));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get the configured ledger-based activation window.
+    /// Returns `(start_ledger, end_ledger)`. Defaults to `(0, u32::MAX)` when not set.
+    pub fn get_ledger_window(env: Env) -> (u32, u32) {
+        let start: u32 = env.storage().instance().get(&START_LEDGER).unwrap_or(0);
+        let end: u32 = env.storage().instance().get(&END_LEDGER).unwrap_or(u32::MAX);
+        (start, end)
+    }
+
+    /// Check if current ledger sequence is within the configured window.
+    pub fn is_within_ledger_window(env: Env) -> bool {
+        let now = env.ledger().sequence();
+        let start: u32 = env.storage().instance().get(&START_LEDGER).unwrap_or(0);
+        let end: u32 = env.storage().instance().get(&END_LEDGER).unwrap_or(u32::MAX);
+        now >= start && now <= end
+    }
+
+    /// Set the schedule mode for this campaign (admin only).
+    /// Controls whether activation windows use timestamps or ledger sequences.
+    pub fn set_schedule_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: ScheduleMode,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+
+        env.storage().instance().set(&SCHEDULE_MODE, &mode);
+
+        env.events()
+            .publish((SET_SCHEDULE_MODE_EVENT,), mode as u32);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get the current schedule mode.
+    /// Defaults to `ScheduleMode::Timestamp` (existing behavior) when not set.
+    pub fn get_schedule_mode(env: Env) -> ScheduleMode {
+        env.storage()
+            .instance()
+            .get(&SCHEDULE_MODE)
+            .unwrap_or(ScheduleMode::Timestamp)
+    }
+
+    /// Universal window check that respects the configured schedule mode.
+    /// Returns `true` if within the active window according to the current mode.
+    pub fn is_within_active_window(env: Env) -> bool {
+        let mode: ScheduleMode = env
+            .storage()
+            .instance()
+            .get(&SCHEDULE_MODE)
+            .unwrap_or(ScheduleMode::Timestamp);
+
+        match mode {
+            ScheduleMode::Timestamp => Self::is_within_window(env),
+            ScheduleMode::Ledger => Self::is_within_ledger_window(env),
+        }
     }
 }
 
