@@ -1,0 +1,16 @@
+{
+  "id": 2,
+  "slug": "new-campaign",
+  "name": "New Campaign",
+  "description": "Newly created campaign",
+  "rewardPerAction": 200,
+  "referralBonusPoints": 100,
+  "active": true,
+  "featured": false,
+  "imageUrl": null,
+  "tags": ["new"],
+  "createdAt": "2024-01-02T00:00:00.000Z",
+  "updatedAt": "2024-01-02T00:00:00.000Z",
+  "campaignContractId": null,
+  "rewardsContractId": null
+}

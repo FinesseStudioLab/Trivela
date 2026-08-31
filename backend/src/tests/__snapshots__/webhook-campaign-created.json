@@ -1,0 +1,10 @@
+{
+  "event": "campaign.created",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "data": {
+    "id": 1,
+    "slug": "new-campaign",
+    "name": "New Campaign",
+    "active": true
+  }
+}

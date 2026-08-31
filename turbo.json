@@ -1,0 +1,26 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "ui": "stream",
+  "remoteCache": {
+    "enabled": true
+  },
+  "globalDependencies": [".env", "tsconfig.json", "jsconfig.json"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", "build/**"]
+    },
+    "test": {
+      "dependsOn": [],
+      "outputs": ["coverage/**"]
+    },
+    "lint": {
+      "dependsOn": [],
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    }
+  }
+}

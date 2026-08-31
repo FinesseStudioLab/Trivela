@@ -1,0 +1,139 @@
+/* Tabs — design-system styles. Themed entirely through CSS custom properties,
+   so the component flips with [data-theme='light'] without any JS. */
+
+.ds-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ds-space-4, 1rem);
+  min-width: 0;
+}
+
+.ds-tabs--vertical {
+  flex-direction: row;
+  align-items: flex-start;
+}
+
+.ds-tabs__list {
+  display: flex;
+  gap: var(--ds-space-1, 0.25rem);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.ds-tabs--horizontal > .ds-tabs__list {
+  border-bottom: 1px solid var(--border, rgba(150, 176, 214, 0.2));
+}
+
+.ds-tabs--vertical > .ds-tabs__list {
+  flex-direction: column;
+  overflow-x: visible;
+  border-right: 1px solid var(--border, rgba(150, 176, 214, 0.2));
+  padding-right: var(--ds-space-2, 0.5rem);
+  flex: 0 0 auto;
+}
+
+.ds-tabs__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 0.5rem);
+  padding: var(--ds-space-2, 0.5rem) var(--ds-space-3, 0.75rem);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted, #a1b1c7);
+  font: inherit;
+  font-size: var(--ds-font-size-md, 0.9375rem);
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    color var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    background var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    border-color var(--ds-duration-fast, 120ms) var(--ds-easing, ease);
+}
+
+.ds-tabs[data-size='sm'] .ds-tabs__tab {
+  padding: var(--ds-space-1, 0.25rem) var(--ds-space-2, 0.5rem);
+  font-size: var(--ds-font-size-sm, 0.8125rem);
+}
+
+.ds-tabs__tab:hover:not(:disabled) {
+  color: var(--text, #edf4ff);
+}
+
+.ds-tabs__tab:disabled,
+.ds-tabs__tab[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ds-tabs__tab.is-selected {
+  color: var(--accent, #4c8dff);
+}
+
+/* Focus ring is driven by :focus-visible so mouse users never see it. */
+.ds-tabs__tab:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff);
+  outline-offset: -2px;
+  border-radius: var(--ds-radius-sm, 6px);
+}
+
+/* — underline variant (default) — */
+.ds-tabs--underline .ds-tabs__tab {
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.ds-tabs--underline .ds-tabs__tab.is-selected {
+  border-bottom-color: var(--accent, #4c8dff);
+}
+
+.ds-tabs--vertical.ds-tabs--underline .ds-tabs__tab {
+  border-bottom: none;
+  margin-bottom: 0;
+  border-right: 2px solid transparent;
+  margin-right: -1px;
+}
+
+.ds-tabs--vertical.ds-tabs--underline .ds-tabs__tab.is-selected {
+  border-right-color: var(--accent, #4c8dff);
+}
+
+/* — pill variant — */
+.ds-tabs--pill > .ds-tabs__list {
+  border: none;
+  gap: var(--ds-space-2, 0.5rem);
+}
+
+.ds-tabs--pill .ds-tabs__tab {
+  border-radius: var(--ds-radius-pill, 999px);
+  border-color: var(--border, rgba(150, 176, 214, 0.2));
+}
+
+.ds-tabs--pill .ds-tabs__tab.is-selected {
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+  border-color: var(--accent, #4c8dff);
+}
+
+.ds-tabs__badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.35em;
+  padding: 0 0.4em;
+  border-radius: var(--ds-radius-pill, 999px);
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+  color: var(--accent, #4c8dff);
+  font-size: 0.75em;
+  font-variant-numeric: tabular-nums;
+}
+
+.ds-tabs__panel {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ds-tabs__panel:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff);
+  outline-offset: 4px;
+  border-radius: var(--ds-radius-md, 10px);
+}

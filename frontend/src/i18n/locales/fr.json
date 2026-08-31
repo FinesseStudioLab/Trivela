@@ -1,0 +1,96 @@
+{
+  "nav": {
+    "explore": "Explorer",
+    "about": "À propos",
+    "history": "Historique des transactions",
+    "profile": "Profil",
+    "admin": "Administration",
+    "newCampaign": "Nouvelle campagne"
+  },
+  "wallet": {
+    "connect": "Connecter le portefeuille",
+    "disconnect": "Déconnecter",
+    "balance": "Solde",
+    "points": "Points",
+    "loading": "Chargement…",
+    "unavailable": "Indisponible",
+    "error": "Erreur de portefeuille"
+  },
+  "landing": {
+    "searchPlaceholder": "Rechercher des campagnes…",
+    "featuredTitle": "Campagnes en vedette",
+    "noCampaigns": "Aucune campagne trouvée",
+    "noCampaignsDesc": "Aucune campagne ne correspond à la recherche ou aux filtres actuels. Essayez de les effacer ou d'élargir votre recherche.",
+    "noCampaignsYet": "Pas encore de campagnes",
+    "loadMore": "Charger plus",
+    "loading": "Chargement des campagnes…"
+  },
+  "campaign": {
+    "register": "S'inscrire",
+    "claim": "Réclamer les récompenses",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "ended": "Terminée"
+    },
+    "leaderboard": "Classement",
+    "analytics": "Analytiques",
+    "reward": "Récompense",
+    "participants": "Participants",
+    "endsAt": "Se termine",
+    "startsAt": "Commence"
+  },
+  "filters": {
+    "sort": "Trier",
+    "filter": "Filtrer",
+    "activeOnly": "Actives seulement",
+    "newest": "Plus récentes",
+    "oldest": "Plus anciennes",
+    "nameAsc": "Nom A–Z",
+    "nameDesc": "Nom Z–A",
+    "highestReward": "Récompense la plus élevée",
+    "clear": "Effacer les filtres"
+  },
+  "errors": {
+    "generic": "Une erreur s'est produite. Veuillez réessayer.",
+    "networkError": "Erreur réseau. Vérifiez votre connexion.",
+    "notFound": "Introuvable."
+  },
+  "common": {
+    "loading": "Chargement…",
+    "close": "Fermer",
+    "cancel": "Annuler",
+    "confirm": "Confirmer",
+    "save": "Enregistrer",
+    "back": "Retour"
+  },
+  "shortcuts": {
+    "title": "Raccourcis clavier",
+    "focusSearch": "Mettre le focus sur la barre de recherche",
+    "newCampaign": "Nouvelle campagne",
+    "goHome": "Aller à l'accueil",
+    "goProfile": "Aller au profil",
+    "goAdmin": "Aller au tableau de bord admin",
+    "closeModal": "Fermer les modales ouvertes",
+    "openHelp": "Ouvrir ce menu d'aide"
+  },
+  "about": {
+    "title": "À propos de Trivela",
+    "campaignApi": "API de campagne",
+    "campaignContract": "Contrat de campagne",
+    "rewardsContract": "Contrat de récompenses",
+    "campaignPages": "Pages de campagne",
+    "campaignsEndpoint": "Point de terminaison des campagnes"
+  },
+  "profile": {
+    "title": "Mon profil",
+    "transactions": "Transactions",
+    "noHistory": "Aucun historique de transaction pour l'instant."
+  },
+  "admin": {
+    "title": "Tableau de bord administrateur",
+    "campaigns": "Campagnes",
+    "createCampaign": "Créer une campagne",
+    "webhooks": "Webhooks"
+  }
+}

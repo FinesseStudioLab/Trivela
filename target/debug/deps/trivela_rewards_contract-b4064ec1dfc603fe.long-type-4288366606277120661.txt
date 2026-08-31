@@ -1,1 +1,0 @@
-(soroban_sdk::Symbol, soroban_sdk::Symbol)

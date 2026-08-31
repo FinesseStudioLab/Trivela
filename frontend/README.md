@@ -11,6 +11,41 @@ npm run dev
 
 Open `http://localhost:5173`. The dev server proxies `/api`, `/api/v1`, and `/health` to the backend on port `3001`.
 
+## E2E tests
+
+End-to-end tests live in `frontend/e2e/` and are powered by [Playwright](https://playwright.dev).
+
+**Run locally:**
+
+```bash
+# From the repo root — build first so vite preview has a dist/ to serve
+npm run build --workspace=frontend
+
+# Then run the tests (Playwright starts vite preview automatically)
+npm run test --workspace=frontend
+```
+
+Or from inside the `frontend/` directory:
+
+```bash
+npm run build
+npm run test
+```
+
+**First-time setup** — install the Chromium browser binary once:
+
+```bash
+npx playwright install chromium
+```
+
+**Tests cover:**
+
+- Page loads with the correct title and hero heading
+- Campaigns section renders either a campaign list or an empty state after loading
+- Clicking a campaign card navigates to the detail page (runs only when campaigns are present)
+
+The Playwright config is at `frontend/playwright.config.js`. Tests run in Chromium only to keep CI fast.
+
 ## Storybook
 
 Run Storybook from the frontend workspace:
@@ -27,21 +62,141 @@ npm run build-storybook
 
 ## Environment variables
 
-Create a `.env.local` file in `frontend/` when you need to point the app at non-default services.
+Use `frontend/.env.example` as a starting point. Create a `.env.local` file in `frontend/` when you need to point the app at non-default services.
+
+The frontend validates env values at startup/build time and will fail with a clear error if they are invalid.
 
 ```bash
 VITE_API_URL=http://localhost:3001
+VITE_STELLAR_NETWORK=testnet
 VITE_SOROBAN_RPC_URL=https://soroban-testnet.stellar.org
+VITE_HORIZON_URL=https://horizon-testnet.stellar.org
 VITE_REWARDS_CONTRACT_ID=CC...
 VITE_CAMPAIGN_CONTRACT_ID=CC...
 VITE_STELLAR_NETWORK_PASSPHRASE="Test SDF Network ; September 2015"
 ```
 
 - `VITE_API_URL`: Base URL used for frontend `fetch` calls. Leave empty to use the local Vite proxy.
-- `VITE_SOROBAN_RPC_URL`: Soroban RPC endpoint used by frontend contract helpers. Defaults to Stellar testnet RPC.
+- `VITE_STELLAR_NETWORK`: Explicit named preset (`testnet` or `mainnet`).
+- `VITE_SOROBAN_RPC_URL`: Optional override for the selected network's Soroban RPC endpoint.
+- `VITE_HORIZON_URL`: Optional override for the selected network's Horizon endpoint.
 - `VITE_REWARDS_CONTRACT_ID`: Optional rewards contract ID for frontend Soroban calls.
 - `VITE_CAMPAIGN_CONTRACT_ID`: Optional campaign contract ID for frontend Soroban calls.
-- `VITE_STELLAR_NETWORK_PASSPHRASE`: Stellar network passphrase. Defaults to testnet.
+- `VITE_STELLAR_NETWORK_PASSPHRASE`: Optional override for the selected network's passphrase.
+- `VITE_POLL_INTERVAL_MS`: Campaign detail polling interval in milliseconds (default `30000`).
+- `VITE_SITE_URL`: Canonical origin for Open Graph and canonical URLs (defaults to `window.location.origin`).
+
+## Campaign detail polling
+
+The campaign detail page polls `GET /api/v1/campaigns/:id` and on-chain `is_active` / `is_within_window` reads on a configurable interval. Polling pauses while the browser tab is hidden (Page Visibility API) and exposes a manual **Refresh** control.
+
+## Campaign analytics
+
+Operators can open `/admin/campaigns/:id/analytics` for charts and exportable stats backed by `GET /api/v1/campaigns/:id/stats`. Links are available from the admin campaigns page.
+
+## Progressive Web App (PWA)
+
+The frontend uses `vite-plugin-pwa` with:
+
+- Web manifest icons in `public/icons/` (`192x192`, `512x512`)
+- Cache-first Workbox strategy for static assets
+- Network-first strategy for `/api/v1/*` requests
+- Offline and update banners via `PwaStatus`
+
+Build and preview as usual (`npm run build`, `npm run preview`). After deploying, run Lighthouse PWA audits against the production URL.
+
+## SEO and social sharing
+
+Route-level meta tags are managed with `react-helmet-async` (`PageMeta` component). Campaign pages set dynamic `og:title`, `og:description`, `og:url`, and `og:image`. Global defaults are applied from `App.jsx`. `public/robots.txt` allows indexing.
+
+Validate share cards with [opengraph.xyz](https://www.opengraph.xyz/) or the [Twitter Card Validator](https://cards-dev.twitter.com/validator).
+
+## Embeddable widgets
+
+Partners can embed Trivela campaign widgets on third-party sites using either an iframe or a script tag.
+
+### iframe embed
+
+```html
+<iframe
+  src="https://trivela.app/embed/v1/card/CAMPAIGN_ID?theme=dark&color=%233b82f6&partner=acme"
+  sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+  loading="lazy"
+  style="border:none;width:100%;height:320px"
+  title="Trivela campaign widget"
+></iframe>
+```
+
+### Script tag embed
+
+```html
+<script
+  src="https://trivela.app/embed.js"
+  data-campaign="CAMPAIGN_ID"
+  data-partner="acme"
+  data-theme="dark"
+  data-color="#3b82f6"
+  data-org="MyDAO"
+  data-size="md"
+></script>
+```
+
+### Programmatic usage
+
+After the script loads, you can also mount widgets manually:
+
+```js
+const widget = new TrivelaWidget({
+  campaign: 'CAMPAIGN_ID',
+  partner: 'acme',
+  theme: 'dark',
+  size: 'md',
+  org: 'MyDAO',
+  color: '#3b82f6',
+});
+
+widget.on('trivela:ready', (e) => console.log('loaded', e))
+       .on('trivela:register_click', (e) => console.log('register clicked', e))
+       .on('trivela:claim', (e) => console.log('reward claimed', e))
+       .mount(document.getElementById('my-container'));
+```
+
+### Query parameters
+
+| Param | Description | Default |
+|-------|-------------|---------|
+| `theme` | `dark` or `light` | `dark` |
+| `color` | Custom accent color (hex) | widget default |
+| `partner` | Partner/referrer ID (alphanumeric, max 64 chars) | — |
+| `org` | Partner display name (max 48 chars) | — |
+| `size` | iframe height: `sm` (260px), `md` (320px), `lg` (380px) | `md` |
+
+### Security
+
+- Widgets are served with `Content-Security-Policy: frame-ancestors *`
+- iframe `sandbox` restricts to `allow-scripts allow-same-origin allow-popups allow-forms`
+- postMessage events are validated: only messages from the Trivela origin are forwarded
+- Partner IDs are validated (alphanumeric + `_-`) before being placed in the URL
+- No credentials, API keys, or wallet secrets are ever exposed in the snippet
+
+## Unit tests
+
+```bash
+npm run test:unit --workspace=frontend
+```
+
+## Linting and formatting
+
+The frontend uses ESLint and Prettier.
+
+```bash
+npm run lint --workspace=frontend
+npm run format:check --workspace=frontend
+npm run format --workspace=frontend
+```
+
+The repository's frontend CI workflow runs linting and formatting checks when the matching scripts
+are present.
 
 ## API routing
 
@@ -54,6 +209,7 @@ The frontend reads these values from [src/config.js](/Users/CMI-James/od/Trivela
 - API requests are built with `apiUrl(...)`.
 - Soroban RPC access goes through `createSorobanServer()`.
 - Rewards and campaign contract IDs are exposed through `getRewardsContract()` and `getCampaignContract()`.
+- On startup, the frontend fetches `/api/v1/config` and prefers the backend-resolved network config when that endpoint is available.
 
 ## Stellar integration
 

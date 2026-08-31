@@ -1,0 +1,96 @@
+{
+  "nav": {
+    "explore": "Explore",
+    "about": "About",
+    "history": "Transaction History",
+    "profile": "Profile",
+    "admin": "Admin",
+    "newCampaign": "New Campaign"
+  },
+  "wallet": {
+    "connect": "Connect Wallet",
+    "disconnect": "Disconnect",
+    "balance": "Balance",
+    "points": "Points",
+    "loading": "Loading…",
+    "unavailable": "Unavailable",
+    "error": "Wallet error"
+  },
+  "landing": {
+    "searchPlaceholder": "Search campaigns…",
+    "featuredTitle": "Featured Campaigns",
+    "noCampaigns": "No campaigns found",
+    "noCampaignsDesc": "No campaigns match the current search or filters. Try clearing them or broadening your search.",
+    "noCampaignsYet": "No campaigns yet",
+    "loadMore": "Load more",
+    "loading": "Loading campaigns…"
+  },
+  "campaign": {
+    "register": "Register",
+    "claim": "Claim Rewards",
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive",
+      "ended": "Ended"
+    },
+    "leaderboard": "Leaderboard",
+    "analytics": "Analytics",
+    "reward": "Reward",
+    "participants": "Participants",
+    "endsAt": "Ends",
+    "startsAt": "Starts"
+  },
+  "filters": {
+    "sort": "Sort",
+    "filter": "Filter",
+    "activeOnly": "Active only",
+    "newest": "Newest",
+    "oldest": "Oldest",
+    "nameAsc": "Name A–Z",
+    "nameDesc": "Name Z–A",
+    "highestReward": "Highest reward",
+    "clear": "Clear filters"
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "networkError": "Network error. Check your connection.",
+    "notFound": "Not found."
+  },
+  "common": {
+    "loading": "Loading…",
+    "close": "Close",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "save": "Save",
+    "back": "Back"
+  },
+  "shortcuts": {
+    "title": "Keyboard Shortcuts",
+    "focusSearch": "Focus search bar",
+    "newCampaign": "New campaign",
+    "goHome": "Go home",
+    "goProfile": "Go to profile",
+    "goAdmin": "Go to admin dashboard",
+    "closeModal": "Close open modals",
+    "openHelp": "Open this help menu"
+  },
+  "about": {
+    "title": "About Trivela",
+    "campaignApi": "Campaign API",
+    "campaignContract": "Campaign contract",
+    "rewardsContract": "Rewards contract",
+    "campaignPages": "Campaign pages",
+    "campaignsEndpoint": "Campaigns endpoint"
+  },
+  "profile": {
+    "title": "My Profile",
+    "transactions": "Transactions",
+    "noHistory": "No transaction history yet."
+  },
+  "admin": {
+    "title": "Admin Dashboard",
+    "campaigns": "Campaigns",
+    "createCampaign": "Create Campaign",
+    "webhooks": "Webhooks"
+  }
+}

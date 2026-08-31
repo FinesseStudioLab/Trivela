@@ -1,0 +1,10 @@
+{
+  "totalCampaigns": 10,
+  "activeCampaigns": 7,
+  "totalParticipants": 1500,
+  "totalPointsAwarded": 150000,
+  "dateRange": {
+    "start": "2024-01-01",
+    "end": "2024-12-31"
+  }
+}

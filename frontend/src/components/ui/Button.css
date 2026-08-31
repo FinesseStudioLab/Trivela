@@ -1,0 +1,132 @@
+/* Button — design-system styles. Themed entirely through CSS custom properties,
+   so the component flips with [data-theme='light'] without any JS. */
+
+.ds-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ds-space-2, 0.5rem);
+  padding: var(--ds-space-2, 0.5rem) var(--ds-space-4, 1rem);
+  border: 1px solid transparent;
+  border-radius: var(--ds-radius-md, 10px);
+  font: inherit;
+  font-size: var(--ds-font-size-md, 0.9375rem);
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  text-decoration: none;
+  position: relative;
+  transition:
+    color var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    background var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    border-color var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    opacity var(--ds-duration-fast, 120ms) var(--ds-easing, ease);
+}
+
+/* — sizes — */
+.ds-btn[data-size='sm'] {
+  padding: var(--ds-space-1, 0.25rem) var(--ds-space-3, 0.75rem);
+  font-size: var(--ds-font-size-sm, 0.8125rem);
+  border-radius: var(--ds-radius-sm, 6px);
+}
+
+.ds-btn[data-size='lg'] {
+  padding: var(--ds-space-3, 0.75rem) var(--ds-space-5, 1.5rem);
+  font-size: 1.0625rem;
+  border-radius: var(--ds-radius-lg, 14px);
+}
+
+/* — primary variant — */
+.ds-btn--primary {
+  background: var(--accent, #4c8dff);
+  color: #fff;
+  border-color: var(--accent, #4c8dff);
+}
+
+.ds-btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover, #3a7ae8);
+  border-color: var(--accent-hover, #3a7ae8);
+}
+
+/* — secondary variant — */
+.ds-btn--secondary {
+  background: transparent;
+  color: var(--accent, #4c8dff);
+  border-color: var(--accent, #4c8dff);
+}
+
+.ds-btn--secondary:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+}
+
+/* — danger variant — */
+.ds-btn--danger {
+  background: var(--danger, #e05252);
+  color: #fff;
+  border-color: var(--danger, #e05252);
+}
+
+.ds-btn--danger:hover:not(:disabled) {
+  background: var(--danger-hover, #c94444);
+  border-color: var(--danger-hover, #c94444);
+}
+
+/* — ghost variant — */
+.ds-btn--ghost {
+  background: transparent;
+  color: var(--text-muted, #a1b1c7);
+  border-color: transparent;
+}
+
+.ds-btn--ghost:hover:not(:disabled) {
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+  color: var(--text, #edf4ff);
+}
+
+/* — disabled state — */
+.ds-btn:disabled,
+.ds-btn[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* — loading state — */
+.ds-btn--loading {
+  cursor: wait;
+  pointer-events: none;
+}
+
+.ds-btn__spinner {
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: ds-btn-spin 0.6s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes ds-btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-btn__spinner {
+    animation-duration: 0ms;
+  }
+}
+
+/* — focus ring — */
+.ds-btn:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff);
+  outline-offset: 2px;
+}
+
+/* — full width — */
+.ds-btn--full {
+  width: 100%;
+}

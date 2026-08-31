@@ -44,4 +44,3 @@ test('paginateItems falls back to safe defaults for invalid input', () => {
   assert.equal(result.pagination.limit, 10);
   assert.equal(result.pagination.offset, 0);
 });
-

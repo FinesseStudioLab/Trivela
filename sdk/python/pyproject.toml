@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "trivela"
+version = "0.1.0"
+description = "Official Python SDK for the Trivela REST API"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-mock>=3.12",
+    "responses>=0.25",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["trivela"]

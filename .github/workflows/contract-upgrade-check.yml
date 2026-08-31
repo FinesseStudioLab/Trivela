@@ -1,0 +1,181 @@
+name: Contract Upgrade Safety Check
+
+# Issue #1024 — Simulate upgrade in CI and assert storage layout stays
+# compatible or a migration function exists.
+#
+# Soroban contracts use #[contracttype] to encode enums/structs into XDR for
+# persistent storage. Renaming or removing a variant silently breaks all
+# existing storage reads on-chain (upgrade brick). This workflow catches that
+# before it reaches mainnet.
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/**'
+
+jobs:
+  upgrade-compatibility:
+    name: Storage layout compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          path: pr
+          fetch-depth: 0
+
+      - name: Checkout base branch (main)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.base_ref }}
+          path: base
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Extract and diff storage layouts
+        id: layout-check
+        run: |
+          python3 - <<'PYEOF'
+          import re, sys, os, json
+          from pathlib import Path
+
+          # Matches  #[contracttype]  (optional whitespace/comments in between)
+          # followed by pub enum Foo { Variant1, Variant2(T), ... }
+          CONTRACTTYPE_ENUM_RE = re.compile(
+              r'#\[contracttype\]\s*(?:#\[.*?\]\s*)*'
+              r'pub\s+enum\s+(\w+)\s*\{([^}]*)\}',
+              re.DOTALL,
+          )
+          VARIANT_RE = re.compile(r'^\s*(\w+)', re.MULTILINE)
+
+          def extract_layout(root: Path) -> dict[str, list[str]]:
+              """Return {EnumName: [Variant, ...]} for all #[contracttype] enums."""
+              layout = {}
+              for rs_file in root.glob('contracts/**/src/*.rs'):
+                  text = rs_file.read_text()
+                  for m in CONTRACTTYPE_ENUM_RE.finditer(text):
+                      name = m.group(1)
+                      body = m.group(2)
+                      variants = VARIANT_RE.findall(body)
+                      # Deduplicate while preserving order
+                      seen = set()
+                      deduped = []
+                      for v in variants:
+                          if v not in seen:
+                              seen.add(v)
+                              deduped.append(v)
+                      layout[name] = deduped
+              return layout
+
+          def find_migration_fns(root: Path) -> set[str]:
+              """Return set of lowercase type names that have a migrate_* function."""
+              fns = set()
+              for rs_file in root.glob('contracts/**/src/*.rs'):
+                  text = rs_file.read_text()
+                  for m in re.finditer(r'fn\s+(migrate_\w+)', text):
+                      fns.add(m.group(1).lower())
+              return fns
+
+          base_root = Path('base')
+          pr_root   = Path('pr')
+
+          base_layout = extract_layout(base_root)
+          pr_layout   = extract_layout(pr_root)
+          migrate_fns = find_migration_fns(pr_root)
+
+          errors   = []
+          warnings = []
+
+          for type_name, base_variants in base_layout.items():
+              pr_variants = pr_layout.get(type_name)
+              if pr_variants is None:
+                  # Entire type removed — only safe if a migrate_ function covers it
+                  key = f'migrate_{type_name.lower()}'
+                  if key not in migrate_fns:
+                      errors.append(
+                          f"❌  {type_name}: removed entirely — add a migration function "
+                          f"'{key}' or keep the type to preserve on-chain data."
+                      )
+                  continue
+
+              removed = [v for v in base_variants if v not in pr_variants]
+              if removed:
+                  key = f'migrate_{type_name.lower()}'
+                  if key in migrate_fns:
+                      warnings.append(
+                          f"⚠️  {type_name}: variants removed {removed} but migration "
+                          f"function found — verify it handles all existing ledger entries."
+                      )
+                  else:
+                      errors.append(
+                          f"❌  {type_name}: variants removed or renamed {removed} — "
+                          f"existing storage will be unreadable. Add a migration function "
+                          f"'{key}' or restore the removed variants."
+                      )
+
+              added = [v for v in pr_variants if v not in base_variants]
+              if added:
+                  warnings.append(
+                      f"ℹ️  {type_name}: new variants added {added} — "
+                      f"ensure they have sensible defaults for existing ledger entries."
+                  )
+
+          summary_lines = ["## Contract Storage Layout Check\n"]
+          if not errors and not warnings:
+              summary_lines.append("✅ No storage layout changes detected.")
+          else:
+              for w in warnings:
+                  summary_lines.append(w)
+              for e in errors:
+                  summary_lines.append(e)
+
+          summary = "\n".join(summary_lines)
+          print(summary)
+
+          # Write to GitHub Step Summary
+          ghs = os.environ.get("GITHUB_STEP_SUMMARY")
+          if ghs:
+              with open(ghs, "a") as f:
+                  f.write(summary + "\n")
+
+          if errors:
+              print("\nStorage layout incompatibilities detected. See details above.", file=sys.stderr)
+              sys.exit(1)
+
+          PYEOF
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            pr/target
+          key: ${{ runner.os }}-cargo-upgrade-${{ hashFiles('pr/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-upgrade-
+
+      - name: Dry-run build of upgraded contracts
+        working-directory: pr
+        run: |
+          echo "Simulating upgrade: building all workspace contracts..."
+          cargo build --target wasm32v1-none --release \
+            -p trivela-rewards-contract \
+            -p trivela-campaign-contract
+          echo "Dry-run upgrade build successful."
+
+      - name: Verify upgrade contract tests still pass
+        working-directory: pr
+        run: |
+          echo "Running contract tests post-upgrade..."
+          cargo test --workspace

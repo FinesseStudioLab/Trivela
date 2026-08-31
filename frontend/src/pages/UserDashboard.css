@@ -1,0 +1,90 @@
+.dashboard-summary {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.summary-card {
+  flex: 1;
+  min-width: 200px;
+  background: var(--color-surface, #1e293b);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 8px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.summary-label {
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #94a3b8);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.summary-value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--color-text, #f1f5f9);
+}
+
+.summary-wallet {
+  font-family: monospace;
+  font-size: 1rem;
+  word-break: break-all;
+}
+
+.vesting-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.vesting-item {
+  background: var(--color-surface, #1e293b);
+  border: 1px solid var(--color-border, #334155);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.vesting-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.vesting-label {
+  font-weight: 600;
+  color: var(--color-text, #f1f5f9);
+}
+
+.vesting-total {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #22c55e;
+}
+
+.vesting-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.875rem;
+  color: var(--color-text-secondary, #94a3b8);
+}
+
+.vesting-meta a {
+  color: var(--color-primary, #3b82f6);
+  text-decoration: none;
+}
+
+.vesting-meta a:hover {
+  text-decoration: underline;
+}
+
+.dashboard-empty-text {
+  color: var(--color-text-secondary, #94a3b8);
+  margin-top: 1rem;
+}

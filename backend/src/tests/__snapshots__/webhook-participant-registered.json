@@ -1,0 +1,9 @@
+{
+  "event": "participant.registered",
+  "timestamp": "2024-01-01T00:00:00.000Z",
+  "data": {
+    "campaignId": 1,
+    "participantAddress": "GXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
+    "registeredAt": "2024-01-01T00:00:00.000Z"
+  }
+}

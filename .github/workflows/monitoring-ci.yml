@@ -1,0 +1,114 @@
+name: Monitoring Config Validation
+
+# Issue: Version dashboards and alert routing in-repo so observability is
+# reproducible.
+#
+# monitoring/ (Prometheus scrape/rule config, Alertmanager routing, Grafana
+# dashboards + provisioning) is config-as-code, but nothing previously
+# validated it on a PR. A typo'd alert expression, a broken Alertmanager
+# route, or invalid dashboard JSON would only be caught by someone reading
+# the diff. This workflow makes that config reviewable the same way code is:
+# it fails the PR if the config wouldn't actually load.
+
+on:
+  pull_request:
+    paths:
+      - 'monitoring/**'
+      - '.github/workflows/monitoring-ci.yml'
+
+jobs:
+  validate-monitoring-config:
+    name: Validate Prometheus / Alertmanager / Grafana config
+    runs-on: ubuntu-latest
+
+    env:
+      PROMETHEUS_VERSION: '2.55.1'
+      ALERTMANAGER_VERSION: '0.27.0'
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install promtool
+        run: |
+          curl -fsSL "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-amd64.tar.gz" -o prometheus.tar.gz
+          tar -xzf prometheus.tar.gz "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool"
+          sudo install -m 0755 "prometheus-${PROMETHEUS_VERSION}.linux-amd64/promtool" /usr/local/bin/promtool
+          rm -rf prometheus.tar.gz "prometheus-${PROMETHEUS_VERSION}.linux-amd64"
+          promtool --version
+
+      - name: Install amtool
+        run: |
+          curl -fsSL "https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/alertmanager-${ALERTMANAGER_VERSION}.linux-amd64.tar.gz" -o alertmanager.tar.gz
+          tar -xzf alertmanager.tar.gz "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool"
+          sudo install -m 0755 "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64/amtool" /usr/local/bin/amtool
+          rm -rf alertmanager.tar.gz "alertmanager-${ALERTMANAGER_VERSION}.linux-amd64"
+          amtool --version
+
+      - name: Check Prometheus main config (scrape + rule-file references)
+        working-directory: monitoring
+        run: promtool check config prometheus.yml
+
+      - name: Check alerting rules syntax
+        working-directory: monitoring
+        run: promtool check rules alerting/alerting_rules.yml
+
+      - name: Run alerting rules unit tests
+        working-directory: monitoring
+        run: promtool test rules alerting/alerting_rules_test.yml
+
+      - name: Check Alertmanager routing config
+        env:
+          # amtool doesn't expand ${VAR} references itself — envsubst renders
+          # a throwaway copy with placeholder values so `check-config` can
+          # fully parse the receivers; the real values are only needed at
+          # runtime, not for structural validation.
+          SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/placeholder'
+          PAGERDUTY_SERVICE_KEY: 'placeholder'
+        working-directory: monitoring
+        run: |
+          envsubst < alertmanager.yml > alertmanager.rendered.yml
+          amtool check-config alertmanager.rendered.yml
+
+      - name: Validate Grafana dashboard JSON
+        run: |
+          shopt -s nullglob
+          fail=0
+          for f in monitoring/dashboards/*.json; do
+            echo "Checking $f"
+            if ! jq empty "$f" 2>/tmp/jq-err.txt; then
+              echo "::error file=$f::Invalid JSON — $(cat /tmp/jq-err.txt)"
+              fail=1
+            fi
+            # Every provisioned dashboard must declare a stable uid, or Grafana
+            # will assign a random one on each reprovision and break saved links.
+            uid=$(jq -r '.uid // empty' "$f")
+            if [ -z "$uid" ]; then
+              echo "::error file=$f::Dashboard is missing a stable top-level \"uid\""
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Validate Grafana provisioning files
+        run: |
+          fail=0
+          for f in monitoring/grafana/provisioning/dashboards/*.yml monitoring/grafana/provisioning/datasources/*.yml; do
+            echo "Checking $f"
+            if ! python3 -c "import yaml,sys; yaml.safe_load(open(sys.argv[1]))" "$f"; then
+              echo "::error file=$f::Invalid YAML"
+              fail=1
+            fi
+          done
+          exit $fail
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Monitoring Config Validation" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Prometheus config + rule file references: checked via \`promtool check config\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Alerting rule syntax: checked via \`promtool check rules\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Alerting rule behavior: verified via \`promtool test rules\` (alerting_rules_test.yml)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Alertmanager routing config: checked via \`amtool check-config\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Dashboard JSON: validated for well-formedness and a stable \`uid\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Grafana provisioning YAML: validated for well-formedness" >> "$GITHUB_STEP_SUMMARY"

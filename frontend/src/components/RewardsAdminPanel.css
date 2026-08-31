@@ -1,0 +1,236 @@
+.rewards-admin-panel {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.rewards-admin-panel .admin-header {
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.rewards-admin-panel .admin-header h3 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.rewards-admin-panel .admin-subtitle {
+  margin: 0 0 1rem 0;
+  color: var(--text-muted);
+  font-size: 0.95rem;
+}
+
+.rewards-admin-panel .admin-contract-info {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-subtle);
+}
+
+.rewards-admin-panel .admin-contract-info code {
+  background: var(--bg-code);
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+}
+
+.rewards-admin-panel .admin-warning {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-warning);
+  border: 1px solid var(--border-warning);
+  border-radius: 6px;
+  color: var(--text-warning);
+}
+
+.rewards-admin-panel .admin-error {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-error);
+  border: 1px solid var(--border-error);
+  border-radius: 6px;
+  color: var(--text-error);
+}
+
+.rewards-admin-panel .admin-success {
+  margin-bottom: 1.5rem;
+  padding: 1rem;
+  background: var(--bg-success);
+  border: 1px solid var(--border-success);
+  border-radius: 6px;
+  color: var(--text-success);
+}
+
+.rewards-admin-panel .admin-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.rewards-admin-panel .admin-section {
+  padding: 1.5rem;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+}
+
+.rewards-admin-panel .admin-section h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.rewards-admin-panel .section-description {
+  margin: 0 0 1rem 0;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+}
+
+.rewards-admin-panel .admin-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.rewards-admin-panel .status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.rewards-admin-panel .status-item label {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.rewards-admin-panel .status-item span {
+  font-size: 0.95rem;
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.rewards-admin-panel .admin-field-group {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.rewards-admin-panel .admin-field {
+  margin-bottom: 1rem;
+}
+
+.rewards-admin-panel .admin-field label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.rewards-admin-panel .admin-input {
+  width: 100%;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-input);
+  color: var(--text);
+  font-size: 0.875rem;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.rewards-admin-panel .admin-input:focus {
+  outline: none;
+  border-color: var(--border-focus);
+  box-shadow: 0 0 0 3px var(--shadow-focus);
+}
+
+.rewards-admin-panel .admin-input:disabled {
+  background: var(--bg-disabled);
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+
+.rewards-admin-panel .admin-field small {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.rewards-admin-panel .admin-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.rewards-admin-panel .admin-checkbox-label input[type='checkbox'] {
+  width: auto;
+  margin: 0;
+}
+
+.rewards-admin-panel .admin-checkbox-label input[type='checkbox']:disabled {
+  cursor: not-allowed;
+}
+
+.rewards-admin-panel .admin-checkbox-label span {
+  color: var(--text);
+}
+
+.rewards-admin-panel .admin-button-group {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.rewards-admin-panel .btn-danger {
+  background: var(--bg-error);
+  color: var(--text-error);
+  border-color: var(--border-error);
+}
+
+.rewards-admin-panel .btn-danger:hover:not(:disabled) {
+  background: var(--bg-error-hover, #dc2626);
+  border-color: var(--border-error-hover, #b91c1c);
+}
+
+@media (max-width: 768px) {
+  .rewards-admin-panel {
+    padding: 1rem;
+    margin: 0 1rem;
+  }
+
+  .rewards-admin-panel .admin-status-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .rewards-admin-panel .admin-field-group {
+    grid-template-columns: 1fr;
+  }
+
+  .rewards-admin-panel .admin-section {
+    padding: 1rem;
+  }
+
+  .rewards-admin-panel .admin-button-group {
+    flex-direction: column;
+  }
+}

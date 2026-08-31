@@ -1,0 +1,20 @@
+# Code Owners for Trivela
+# These owners will be automatically requested for review.
+
+# Default — project leads
+*                       @joelpeace
+
+# Smart contracts
+/contracts/             @joelpeace
+/soroban/               @joelpeace
+
+# Backend API
+/backend/               @joelpeace
+
+# Frontend
+/frontend/              @joelpeace
+/sdk/                   @joelpeace
+
+# CI/CD & infrastructure
+/.github/               @joelpeace
+/monitoring/            @joelpeace

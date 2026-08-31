@@ -1,0 +1,5 @@
+{
+  "error": "Too many requests",
+  "statusCode": 429,
+  "retryAfter": 60
+}

@@ -1,0 +1,32 @@
+.pwa-banner {
+  position: fixed;
+  left: 50%;
+  bottom: 1rem;
+  transform: translateX(-50%);
+  z-index: 1000;
+  max-width: min(640px, calc(100vw - 2rem));
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-card-solid);
+  color: var(--text);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  font-size: 0.9rem;
+}
+
+.pwa-banner-offline {
+  border-color: var(--danger);
+}
+
+.pwa-banner-update {
+  border-color: var(--accent);
+}
+
+.pwa-update-btn {
+  margin-left: auto;
+  white-space: nowrap;
+}

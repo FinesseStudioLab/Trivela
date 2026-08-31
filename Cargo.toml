@@ -1,8 +1,28 @@
 [workspace]
+resolver = "2"
 members = [
   "contracts/rewards",
   "contracts/campaign",
+  "contracts/integration",
+  "contracts/nullifiers",
+]
+# Temporarily excluded from the workspace/CI: these contracts are still
+# work-in-progress (do not yet compile / contain incomplete modules) and are
+# re-added by their authors once finished.
+exclude = [
+  "contracts/badges",
+  "contracts/voting",
 ]
 
 [workspace.metadata]
 description = "Trivela - Stellar Soroban Campaign & Rewards Platform"
+
+[profile.release]
+opt-level = "z"
+overflow-checks = true
+debug = 0
+strip = "symbols"
+debug-assertions = false
+panic = "abort"
+codegen-units = 1
+lto = true

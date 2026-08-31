@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc bc9f12a86b9b069fd2c36e79808a90dfe6a091cb16ba54585a1830d504c1ed26 # shrinks to max_calls = 1, window_ledgers = 1, num_attempts = 1
+cc 68723d8ee0a8aa41bba340f23c81b1df79df166faedb4a48e6a0d6da46535476 # shrinks to limit = 1, amount = 1
+cc 664cbd07d63da78650704f4f0e1c6af8675a396f5d423abe99d6ad1591a01d37 # shrinks to base_amount = 1, multiplier_bps = 1, campaign_id = 1
+cc 1aff00bf354188fdbd0f518dee49668d4c6e4a871192706527dfad2788355502 # shrinks to ops = [CreditForCampaign(1, 1)]

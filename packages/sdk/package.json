@@ -1,0 +1,38 @@
+{
+  "name": "@trivela/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Trivela campaign and rewards platform",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest",
+    "prepublish": "npm run build"
+  },
+  "keywords": [
+    "trivela",
+    "campaigns",
+    "rewards",
+    "stellar",
+    "soroban"
+  ],
+  "author": "Trivela Team",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "js-stellar-sdk": "^12.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^0.34.0",
+    "@types/node": "^20.0.0"
+  }
+}

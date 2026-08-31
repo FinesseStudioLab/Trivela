@@ -1,0 +1,89 @@
+name: Performance Gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  load-test:
+    name: Load Test with k6
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Start application
+        run: |
+          npm run build
+          npm start &
+          sleep 10
+        env:
+          NODE_ENV: test
+
+      - name: Run k6 load tests
+        uses: grafana/k6-action@v0.3.0
+        with:
+          filename: tests/load/api-load-test.js
+        env:
+          K6_CLOUD_PROJECT_ID: ${{ secrets.K6_CLOUD_PROJECT_ID }}
+
+      - name: Check thresholds
+        run: |
+          echo "Load test completed. Checking thresholds..."
+          # k6 will exit with non-zero code if thresholds fail
+
+  gas-profiling:
+    name: Contract Gas Profiling
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
+
+      - name: Install Stellar CLI
+        run: |
+          cargo install --locked stellar-cli
+
+      - name: Build contracts
+        run: |
+          cd contracts
+          stellar contract build
+
+      - name: Run gas profiling
+        run: |
+          ./scripts/profile-gas.sh
+
+      - name: Check for regressions
+        run: |
+          node scripts/check-gas-regression.js
+
+      - name: Upload profiling report
+        # v3 is retired — GitHub fails the job before it runs.
+        uses: actions/upload-artifact@v4
+        with:
+          name: gas-profiling-report
+          path: reports/gas-profiling.json
+          if-no-files-found: ignore

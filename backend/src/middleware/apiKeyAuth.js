@@ -1,24 +1,158 @@
 /**
  * Optional API key authentication middleware.
  *
- * If the provided API key is empty, the middleware is a no-op to keep local
- * development convenient.
+ * If no keys are configured (env or database), the middleware is a no-op to
+ * keep local development convenient.
  */
 
+function parseApiKeys(value) {
+  if (!value) {
+    return [];
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((key) => String(key).trim()).filter(Boolean);
+  }
+
+  return String(value)
+    .split(',')
+    .map((key) => key.trim())
+    .filter(Boolean);
+}
+
+function normalizeApiKeys(value) {
+  const keys = parseApiKeys(value);
+  return [...new Set(keys)];
+}
+
+function readProvidedKey(req) {
+  const headerKey = req.headers['x-api-key'];
+  if (typeof headerKey === 'string' && headerKey.trim()) {
+    return headerKey.trim();
+  }
+
+  const authorization = req.headers.authorization;
+  if (typeof authorization === 'string' && authorization.trim()) {
+    const match = authorization.match(/^\s*Bearer\s+(.+)\s*$/i);
+    if (match?.[1]) {
+      return match[1].trim();
+    }
+  }
+
+  const queryKey = req.query?.api_key;
+  if (typeof queryKey === 'string' && queryKey.trim()) {
+    return queryKey.trim();
+  }
+
+  return '';
+}
+
+/**
+ * @param {{
+ *   apiKeys?: string | string[],
+ *   apiKeyRepository?: {
+ *     validate: (rawKey: string) => { id: string, label: string, orgId?: string | null, scopes?: string[], rateTier?: string } | null,
+ *     touchLastUsed: (id: string) => void,
+ *     hasActiveKeys?: () => boolean,
+ *   } | null,
+ *   orgMemberRepository?: {
+ *     getByApiKeyId: (apiKeyId: string) => { orgId: string, role: string } | null,
+ *   } | null,
+ * }} [options]
+ */
 export default function createApiKeyAuth({
-  apiKey = process.env.TRIVELA_API_KEY || '',
+  apiKeys = process.env.TRIVELA_API_KEYS || process.env.TRIVELA_API_KEY || '',
+  apiKeyRepository = null,
+  orgMemberRepository = null,
 } = {}) {
+  const allowedKeys = normalizeApiKeys(apiKeys);
+  const allowedKeySet = new Set(allowedKeys);
+
   return function requireApiKey(req, res, next) {
-    if (!apiKey) {
+    const authRequired = allowedKeySet.size > 0 || Boolean(apiKeyRepository?.hasActiveKeys?.());
+
+    if (!authRequired) {
+      // No keys configured — the deployment has opted out of auth entirely.
+      // Say so explicitly rather than leaving req.auth unset: the downstream
+      // scope (#611) and role guards reject a request with no auth object at
+      // all, so an implicit pass here turned every write into a 403.
+      req.auth = {
+        type: 'unauthenticated',
+        source: 'unconfigured',
+        orgRole: 'owner',
+      };
       return next();
     }
 
-    const provided = req.headers['x-api-key'] || req.query.api_key;
+    const provided = readProvidedKey(req);
 
-    if (provided === apiKey) {
+    if (provided && allowedKeySet.has(provided)) {
+      // Env-sourced keys are treated as org owners for backward compatibility.
+      req.auth = {
+        type: 'apiKey',
+        apiKey: String(provided),
+        source: 'env',
+        orgRole: 'owner',
+      };
       return next();
     }
 
-    return res.status(401).json({ error: 'Unauthorized – valid API key required.' });
+    if (provided && apiKeyRepository) {
+      const match = apiKeyRepository.validate(provided);
+      if (match) {
+        apiKeyRepository.touchLastUsed(match.id);
+
+        // Resolve org membership so RBAC middleware can check roles.
+        const membership = orgMemberRepository?.getByApiKeyId(match.id) ?? null;
+        req.auth = {
+          type: 'apiKey',
+          apiKey: String(provided),
+          source: 'database',
+          apiKeyId: match.id,
+          label: match.label,
+          orgId: match.orgId ?? membership?.orgId ?? null,
+          orgRole: membership?.role ?? null,
+          scopes: match.scopes ?? null,
+          rateTier: match.rateTier ?? null,
+        };
+        return next();
+      }
+    }
+
+    return res
+      .status(401)
+      .json({ error: 'Unauthorized – valid API key required.', code: 'UNAUTHORIZED' });
   };
 }
+
+/**
+ * @param {{ masterKey?: string }} [options]
+ */
+export function createMasterKeyAuth({ masterKey = process.env.TRIVELA_MASTER_KEY || '' } = {}) {
+  const normalizedMasterKey = String(masterKey).trim();
+
+  return function requireMasterKey(req, res, next) {
+    if (!normalizedMasterKey) {
+      return res.status(503).json({
+        error: 'Master API key management is not configured',
+        code: 'MASTER_KEY_NOT_CONFIGURED',
+      });
+    }
+
+    const provided = readProvidedKey(req);
+    if (provided && provided === normalizedMasterKey) {
+      req.auth = {
+        type: 'masterKey',
+        apiKey: provided,
+      };
+      return next();
+    }
+
+    return res.status(401).json({
+      error: 'Unauthorized – master API key required.',
+      code: 'UNAUTHORIZED',
+    });
+  };
+}
+
+export { readProvidedKey };

@@ -1,0 +1,96 @@
+{
+  "nav": {
+    "explore": "Explorar",
+    "about": "Sobre",
+    "history": "Histórico de transações",
+    "profile": "Perfil",
+    "admin": "Administração",
+    "newCampaign": "Nova campanha"
+  },
+  "wallet": {
+    "connect": "Conectar carteira",
+    "disconnect": "Desconectar",
+    "balance": "Saldo",
+    "points": "Pontos",
+    "loading": "Carregando…",
+    "unavailable": "Indisponível",
+    "error": "Erro na carteira"
+  },
+  "landing": {
+    "searchPlaceholder": "Buscar campanhas…",
+    "featuredTitle": "Campanhas em destaque",
+    "noCampaigns": "Nenhuma campanha encontrada",
+    "noCampaignsDesc": "Nenhuma campanha corresponde à pesquisa ou aos filtros atuais. Tente limpar ou ampliar sua busca.",
+    "noCampaignsYet": "Ainda não há campanhas",
+    "loadMore": "Carregar mais",
+    "loading": "Carregando campanhas…"
+  },
+  "campaign": {
+    "register": "Registrar",
+    "claim": "Resgatar recompensas",
+    "status": {
+      "active": "Ativa",
+      "inactive": "Inativa",
+      "ended": "Encerrada"
+    },
+    "leaderboard": "Placar",
+    "analytics": "Análises",
+    "reward": "Recompensa",
+    "participants": "Participantes",
+    "endsAt": "Termina",
+    "startsAt": "Começa"
+  },
+  "filters": {
+    "sort": "Ordenar",
+    "filter": "Filtrar",
+    "activeOnly": "Somente ativas",
+    "newest": "Mais recentes",
+    "oldest": "Mais antigas",
+    "nameAsc": "Nome A–Z",
+    "nameDesc": "Nome Z–A",
+    "highestReward": "Maior recompensa",
+    "clear": "Limpar filtros"
+  },
+  "errors": {
+    "generic": "Algo deu errado. Por favor, tente novamente.",
+    "networkError": "Erro de rede. Verifique sua conexão.",
+    "notFound": "Não encontrado."
+  },
+  "common": {
+    "loading": "Carregando…",
+    "close": "Fechar",
+    "cancel": "Cancelar",
+    "confirm": "Confirmar",
+    "save": "Salvar",
+    "back": "Voltar"
+  },
+  "shortcuts": {
+    "title": "Atalhos de teclado",
+    "focusSearch": "Focar na barra de pesquisa",
+    "newCampaign": "Nova campanha",
+    "goHome": "Ir para o início",
+    "goProfile": "Ir para o perfil",
+    "goAdmin": "Ir para o painel de administração",
+    "closeModal": "Fechar modais abertos",
+    "openHelp": "Abrir este menu de ajuda"
+  },
+  "about": {
+    "title": "Sobre o Trivela",
+    "campaignApi": "API de campanha",
+    "campaignContract": "Contrato de campanha",
+    "rewardsContract": "Contrato de recompensas",
+    "campaignPages": "Páginas de campanha",
+    "campaignsEndpoint": "Endpoint de campanhas"
+  },
+  "profile": {
+    "title": "Meu perfil",
+    "transactions": "Transações",
+    "noHistory": "Ainda não há histórico de transações."
+  },
+  "admin": {
+    "title": "Painel de administração",
+    "campaigns": "Campanhas",
+    "createCampaign": "Criar campanha",
+    "webhooks": "Webhooks"
+  }
+}

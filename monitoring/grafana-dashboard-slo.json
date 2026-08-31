@@ -1,0 +1,272 @@
+{
+  "dashboard": {
+    "title": "Trivela SLO & Error Budget Dashboard",
+    "tags": ["slo", "error-budget", "reliability"],
+    "timezone": "utc",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Error Budget Remaining (All SLOs)",
+        "type": "gauge",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:error_budget:remaining",
+            "legendFormat": "Campaign Read",
+            "refId": "A"
+          },
+          {
+            "expr": "slo:redeem:error_budget:remaining",
+            "legendFormat": "Redeem",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "unit": "percentunit",
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                { "value": 0, "color": "red" },
+                { "value": 0.2, "color": "orange" },
+                { "value": 0.5, "color": "yellow" },
+                { "value": 0.8, "color": "green" }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Current SLI vs Objective",
+        "type": "stat",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:availability:ratio_rate30d * 100",
+            "legendFormat": "Campaign Read Availability",
+            "refId": "A"
+          },
+          {
+            "expr": "99.9",
+            "legendFormat": "Target",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "decimals": 3
+          }
+        }
+      },
+      {
+        "id": 3,
+        "title": "Error Budget Burn Rate (1h window)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 8 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:error_budget:burn_rate_1h",
+            "legendFormat": "Campaign Read",
+            "refId": "A"
+          },
+          {
+            "expr": "slo:redeem:error_budget:burn_rate_1h",
+            "legendFormat": "Redeem",
+            "refId": "B"
+          },
+          {
+            "expr": "14.4",
+            "legendFormat": "Fast Burn Threshold (14.4x)",
+            "refId": "C"
+          },
+          {
+            "expr": "6",
+            "legendFormat": "Medium Burn Threshold (6x)",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "short",
+            "custom": {
+              "lineWidth": 2,
+              "fillOpacity": 10
+            }
+          },
+          "overrides": [
+            {
+              "matcher": { "id": "byName", "options": "Fast Burn Threshold" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } },
+                { "id": "custom.lineStyle", "value": { "dash": [10, 10] } }
+              ]
+            },
+            {
+              "matcher": { "id": "byName", "options": "Medium Burn Threshold" },
+              "properties": [
+                { "id": "color", "value": { "mode": "fixed", "fixedColor": "orange" } },
+                { "id": "custom.lineStyle", "value": { "dash": [5, 5] } }
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "id": 4,
+        "title": "Campaign Read: Availability (30d)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:availability:ratio_rate30d * 100",
+            "legendFormat": "Current Availability",
+            "refId": "A"
+          },
+          {
+            "expr": "99.9",
+            "legendFormat": "SLO Target (99.9%)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 99,
+            "max": 100,
+            "decimals": 3
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Campaign Read: P95 Latency",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:latency:p95_1h",
+            "legendFormat": "P95 Latency",
+            "refId": "A"
+          },
+          {
+            "expr": "500",
+            "legendFormat": "SLO Target (500ms)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "ms"
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "Redeem: Availability (30d)",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "targets": [
+          {
+            "expr": "slo:redeem:availability:ratio_rate30d * 100",
+            "legendFormat": "Current Availability",
+            "refId": "A"
+          },
+          {
+            "expr": "99.0",
+            "legendFormat": "SLO Target (99.0%)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 98,
+            "max": 100,
+            "decimals": 2
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Webhook Delivery Success Rate",
+        "type": "timeseries",
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "targets": [
+          {
+            "expr": "slo:webhook:delivery:ratio_rate1h * 100",
+            "legendFormat": "Current Success Rate",
+            "refId": "A"
+          },
+          {
+            "expr": "95.0",
+            "legendFormat": "SLO Target (95%)",
+            "refId": "B"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percent",
+            "min": 90,
+            "max": 100
+          }
+        }
+      },
+      {
+        "id": 8,
+        "title": "SLO Compliance Summary",
+        "type": "table",
+        "gridPos": { "h": 10, "w": 24, "x": 0, "y": 32 },
+        "targets": [
+          {
+            "expr": "slo:campaign_read:availability:ratio_rate30d",
+            "format": "table",
+            "instant": true,
+            "refId": "A"
+          },
+          {
+            "expr": "slo:redeem:availability:ratio_rate30d",
+            "format": "table",
+            "instant": true,
+            "refId": "B"
+          },
+          {
+            "expr": "slo:campaign_read:error_budget:remaining",
+            "format": "table",
+            "instant": true,
+            "refId": "C"
+          },
+          {
+            "expr": "slo:redeem:error_budget:remaining",
+            "format": "table",
+            "instant": true,
+            "refId": "D"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge"
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {},
+              "indexByName": {},
+              "renameByName": {
+                "Value": "Current SLI"
+              }
+            }
+          }
+        ]
+      }
+    ],
+    "refresh": "30s",
+    "time": {
+      "from": "now-7d",
+      "to": "now"
+    }
+  }
+}

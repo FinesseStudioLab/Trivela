@@ -1,0 +1,8 @@
+{
+  "id": "key_abc123",
+  "name": "Production API Key",
+  "prefix": "sk_live_",
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "expiresAt": null,
+  "scopes": ["campaigns:read", "campaigns:write"]
+}

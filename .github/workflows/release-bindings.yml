@@ -1,0 +1,158 @@
+name: Release — publish contract TypeScript bindings
+
+# Triggered automatically when a release tag (vX.Y.Z) is pushed.
+# Publishes @trivela/contract-bindings to the GitHub npm registry so
+# downstream consumers can import fully-typed Soroban client classes.
+#
+# The published package contains:
+#   src/rewards.ts   — generated TypeScript bindings for the rewards contract
+#   src/campaign.ts  — generated TypeScript bindings for the campaign contract
+#   metadata.json    — ABI hashes, WASM SHA-256, contract IDs, release tag
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish-bindings:
+    name: Build WASM → generate bindings → publish to GitHub Packages
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust (stable + wasm32 target)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+
+      - name: Build Soroban WASM artifacts
+        run: |
+          cargo build --target wasm32-unknown-unknown --release \
+            -p trivela-rewards-contract \
+            -p trivela-campaign-contract
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@trivela'
+
+      - name: Install dependencies (root workspace)
+        run: npm ci
+
+      - name: Install Stellar CLI
+        run: |
+          curl -fsSL https://github.com/stellar/stellar-cli/raw/main/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+
+      - name: Generate TypeScript bindings
+        run: npm run contracts:build-bindings
+
+      - name: Compute WASM SHA-256 hashes
+        id: wasm_hashes
+        run: |
+          REWARDS_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trivela_rewards_contract.wasm | awk '{print $1}')
+          CAMPAIGN_HASH=$(sha256sum target/wasm32-unknown-unknown/release/trivela_campaign_contract.wasm | awk '{print $1}')
+          echo "rewards_hash=${REWARDS_HASH}" >> $GITHUB_OUTPUT
+          echo "campaign_hash=${CAMPAIGN_HASH}" >> $GITHUB_OUTPUT
+
+      - name: Write metadata.json
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          REWARDS_HASH: ${{ steps.wasm_hashes.outputs.rewards_hash }}
+          CAMPAIGN_HASH: ${{ steps.wasm_hashes.outputs.campaign_hash }}
+        run: |
+          node --input-type=module <<'EOF'
+          import { writeFileSync } from 'node:fs';
+
+          const metadata = {
+            version: process.env.RELEASE_TAG,
+            generatedAt: new Date().toISOString(),
+            contracts: {
+              rewards: {
+                wasmSha256: process.env.REWARDS_HASH,
+                contractId: process.env.REWARDS_CONTRACT_ID || null,
+              },
+              campaign: {
+                wasmSha256: process.env.CAMPAIGN_HASH,
+                contractId: process.env.CAMPAIGN_CONTRACT_ID || null,
+              },
+            },
+          };
+
+          writeFileSync('frontend/src/contracts/metadata.json', JSON.stringify(metadata, null, 2));
+          console.log('metadata.json written:', metadata);
+          EOF
+
+      - name: Scaffold @trivela/contract-bindings package
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          mkdir -p dist-bindings/src
+          cp frontend/src/contracts/rewards.ts dist-bindings/src/rewards.ts
+          cp frontend/src/contracts/campaign.ts dist-bindings/src/campaign.ts
+          cp frontend/src/contracts/metadata.json dist-bindings/metadata.json
+
+          node --input-type=module <<'EOF'
+          import { writeFileSync } from 'node:fs';
+
+          const version = process.env.RELEASE_TAG.replace(/^v/, '');
+
+          const pkg = {
+            name: '@trivela/contract-bindings',
+            version,
+            description: 'Auto-generated TypeScript bindings for Trivela Soroban contracts',
+            license: 'Apache-2.0',
+            type: 'module',
+            main: './src/index.js',
+            types: './src/index.d.ts',
+            exports: {
+              '.': './src/index.js',
+              './rewards': './src/rewards.ts',
+              './campaign': './src/campaign.ts',
+              './metadata': './metadata.json',
+            },
+            repository: {
+              type: 'git',
+              url: 'https://github.com/FinesseStudioLab/Trivela.git',
+            },
+            publishConfig: {
+              registry: 'https://npm.pkg.github.com',
+            },
+          };
+
+          writeFileSync('dist-bindings/package.json', JSON.stringify(pkg, null, 2));
+
+          // Barrel index so consumers can do: import { RewardsClient, CampaignClient } from '@trivela/contract-bindings'
+          const index = [
+            "export * from './rewards.js';",
+            "export * from './campaign.js';",
+          ].join('\n') + '\n';
+          writeFileSync('dist-bindings/src/index.ts', index);
+          console.log('Package scaffolded for version', version);
+          EOF
+
+      - name: Publish @trivela/contract-bindings
+        working-directory: dist-bindings
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish

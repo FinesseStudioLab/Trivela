@@ -68,10 +68,26 @@
                     },
                     {
                       "key": {
+                        "symbol": "mxcredit"
+                      },
+                      "val": {
+                        "u64": "0"
+                      }
+                    },
+                    {
+                      "key": {
                         "symbol": "paused"
                       },
                       "val": {
                         "bool": false
+                      }
+                    },
+                    {
+                      "key": {
+                        "symbol": "schema_v"
+                      },
+                      "val": {
+                        "u32": 1
                       }
                     }
                   ]

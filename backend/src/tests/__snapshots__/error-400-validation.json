@@ -1,0 +1,10 @@
+{
+  "error": "Validation failed",
+  "statusCode": 400,
+  "details": [
+    {
+      "field": "name",
+      "message": "Name is required"
+    }
+  ]
+}

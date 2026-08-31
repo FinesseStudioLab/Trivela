@@ -9,6 +9,8 @@ const meta = {
   },
   argTypes: {
     onToggleTheme: { action: 'theme toggled' },
+    onConnectWallet: { action: 'connect wallet' },
+    onDisconnectWallet: { action: 'disconnect wallet' },
   },
   parameters: {
     layout: 'fullscreen',
@@ -22,6 +24,6 @@ export const Default = {};
 export const ConnectedWallet = {
   args: {
     walletAddress: 'GCFX4Q2PEYXXJ5U4VJ4FMOCK4DD7PWLN4S7L4WALLETX3KM',
+    walletBalance: '142.50 XLM',
   },
 };
-

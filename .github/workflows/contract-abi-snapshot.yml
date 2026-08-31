@@ -1,0 +1,93 @@
+name: Contract ABI Snapshot
+
+# Exports each contract's spec (entry points + types) and diffs against the
+# committed snapshot files in contracts/snapshots/. Fails if the ABI changes
+# without an updated snapshot, so accidental breaking changes are caught before
+# merging (#805).
+
+on:
+  pull_request:
+    paths:
+      - 'contracts/**'
+      - '.github/workflows/contract-abi-snapshot.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'contracts/**'
+
+jobs:
+  abi-snapshot:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-abi-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-abi-
+
+      - name: Install Stellar CLI
+        run: |
+          cargo install stellar-cli --version "^22" --locked 2>/dev/null \
+            || cargo install stellar-cli --locked
+
+      - name: Build contracts (WASM)
+        run: |
+          for contract in campaign rewards; do
+            cargo build \
+              --manifest-path "contracts/$contract/Cargo.toml" \
+              --target wasm32v1-none \
+              --release \
+              --quiet
+          done
+
+      - name: Export ABI specs
+        run: |
+          mkdir -p /tmp/abi-current
+          for contract in campaign rewards; do
+            wasm="target/wasm32v1-none/release/trivela_${contract}_contract.wasm"
+            stellar contract inspect --wasm "$wasm" --output json \
+              > "/tmp/abi-current/${contract}.json"
+          done
+
+      - name: Diff against committed snapshots
+        id: diff
+        run: |
+          changed=0
+          for contract in campaign rewards; do
+            current="/tmp/abi-current/${contract}.json"
+            snapshot="contracts/snapshots/${contract}.json"
+            if [ ! -f "$snapshot" ]; then
+              echo "::error::Missing snapshot: $snapshot — run \`make abi-snapshot\` and commit the result."
+              changed=1
+              continue
+            fi
+            if ! diff -u "$snapshot" "$current" > "/tmp/diff_${contract}.txt" 2>&1; then
+              echo "::error::ABI changed for contract '$contract' — update contracts/snapshots/${contract}.json."
+              cat "/tmp/diff_${contract}.txt"
+              changed=1
+            else
+              echo "✓ $contract ABI matches snapshot"
+            fi
+          done
+          exit $changed
+
+      - name: Upload ABI artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: abi-current
+          path: /tmp/abi-current/
+          retention-days: 7

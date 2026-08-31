@@ -1,0 +1,69 @@
+name: Security Headers Check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  security-headers:
+    name: Verify security headers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start backend
+        run: |
+          cd backend
+          npm ci --prefer-offline
+          STELLAR_NETWORK=testnet nohup node src/server.js &
+          echo "Backend PID: $!"
+        env:
+          PORT: 3001
+          CORS_ALLOWED_ORIGINS: http://localhost:5173
+
+      - name: Wait for backend to be ready
+        run: |
+          for i in $(seq 1 20); do
+            curl -sf http://localhost:3001/health && break || sleep 2
+          done
+
+      - name: Check required security headers
+        run: |
+          FAIL=0
+          check_header() {
+            local name="$1" pattern="$2"
+            if curl -sI http://localhost:3001/health | grep -qi "$pattern"; then
+              echo "  PASS  $name"
+            else
+              echo "  FAIL  $name  (pattern: $pattern)"
+              FAIL=1
+            fi
+          }
+          check_header "X-Content-Type-Options"  "x-content-type-options: nosniff"
+          check_header "X-Frame-Options"          "x-frame-options: deny"
+          check_header "Referrer-Policy"          "referrer-policy: strict-origin-when-cross-origin"
+          check_header "Permissions-Policy"       "permissions-policy:"
+          check_header "Content-Security-Policy"  "content-security-policy:"
+          exit $FAIL
+
+      - name: Check embed route allows iframing
+        run: |
+          HEADER=$(curl -sI http://localhost:3001/embed/campaign/1 | tr '[:upper:]' '[:lower:]')
+          if echo "$HEADER" | grep -q "x-frame-options: deny"; then
+            echo "FAIL: /embed/ route must not send X-Frame-Options: DENY"
+            exit 1
+          fi
+          echo "PASS: /embed/ route does not deny framing"
+
+      - name: Verify CSP on embed route allows frame-ancestors *
+        run: |
+          CSP=$(curl -sI http://localhost:3001/embed/campaign/1 | grep -i "content-security-policy" | tr '[:upper:]' '[:lower:]')
+          if echo "$CSP" | grep -q "frame-ancestors \*\|frame-ancestors http\|frame-ancestors '"; then
+            echo "PASS: embed CSP allows frame-ancestors"
+          else
+            echo "FAIL: embed CSP frame-ancestors not found. Got: $CSP"
+            exit 1
+          fi

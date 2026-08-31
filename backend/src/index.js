@@ -3,30 +3,210 @@
  * Serves campaign data, health, and Stellar/Soroban RPC proxy for the frontend.
  */
 
+// #288 — OpenTelemetry SDK MUST initialize before any `http` /
+// `express` import so the auto-instrumentation patches catch them.
+// `initTracing()` is fire-and-forget; the API/SDK still works as a
+// no-op when the optional OTel deps aren't installed.
+import { initTracing, traceparentMiddleware, shutdownTracing } from './tracing.js';
+void initTracing();
+
 import cors from 'cors';
 import express from 'express';
+import compression from 'compression';
+import multer from 'multer';
+import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import createApiKeyAuth from './middleware/apiKeyAuth.js';
-import { createRateLimiter } from './middleware/rateLimit.js';
+import Redis from 'ioredis';
+import createApiKeyAuth, { createMasterKeyAuth, readProvidedKey } from './middleware/apiKeyAuth.js';
+import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
+import { createAuthLockout } from './middleware/authLockout.js';
+import requestLogger, { log } from './middleware/logger.js';
+import requestId from './middleware/requestId.js';
+import { requestContextMiddleware } from './middleware/requestContext.js';
+import securityHeaders from './middleware/securityHeaders.js';
+import errorHandler from './middleware/errorHandler.js';
 import { paginateItems } from './pagination.js';
 import { checkSorobanRpcHealth } from './sorobanRpc.js';
+import { createRpcPool } from './rpcPool.js';
+import { resolveStellarNetworkConfig } from './config/stellarNetwork.js';
+import { validateBackendEnv } from './config/envValidation.js';
+import { getRateTierLimits, DEFAULT_RATE_TIER } from './config/rateTiers.js';
+import { createDal } from './dal/index.js';
+import { createJobRunner } from './jobs/jobRunner.js';
+import { WebhookService, WEBHOOK_EVENTS } from './services/webhookService.js';
+import { createSanctionsService } from './services/sanctionsService.js';
+import {
+  campaignCreateSchema,
+  campaignUpdateSchema,
+  cursorBodySchema,
+  apiKeyCreateSchema,
+  apiKeyRateTierUpdateSchema,
+  formatZodErrors,
+} from './schemas.js';
+import { createProbeHandlers } from './middleware/probes.js';
+import { defaultCacheService } from './services/cacheService.js';
+import { createCacheMiddleware } from './middleware/cacheMiddleware.js';
+import { validateBody, validateQuery } from './middleware/validateRequest.js';
+import { createGraphQLHandler } from './graphql/graphqlHandler.js';
+import { GraphQLSchemaExecutor } from './graphql/graphqlSchema.js';
+import { createStorageAdapter } from './storage/index.js';
+import {
+  uploadCampaignImage,
+  validateImageUpload,
+  MAX_IMAGE_SIZE_BYTES,
+} from './services/imageUpload.js';
+import { buildCampaignStats } from './services/campaignStatsService.js';
+import { createCampaignExportRoute } from './routes/campaignExport.js';
+import { createDeprecationMiddleware } from './middleware/deprecationNotice.js';
+import { DEPRECATION_REGISTRY } from './deprecations.js';
+import { generateAllowlist } from './lib/allowlist/merkle.js';
+import { parseAllowlistCsv, validateGAddress, MAX_ALLOWLIST_ROWS } from './lib/allowlist/csv.js';
+import { createEmbedRoute } from './routes/embed.js';
+import { createTemplateRoutes } from './routes/templates.js';
+import { createSseRoutes, broadcastCampaignEvent } from './routes/sse.js';
+import { getReferralTierProgress } from './services/referralTiers.js';
+import { createEmbedWidgetRoute } from './routes/embedWidget.js';
+import { createDevPortalRoutes } from './routes/devPortal.js';
+import { createVariantRoutes } from './routes/variants.js';
+import { createVariantService } from './services/variantService.js';
+import { createCohortRoutes } from './routes/cohorts.js';
+import { createCohortService } from './services/cohortService.js';
+import { createNotificationPreferenceRoutes } from './routes/notificationPreferences.js';
+import { createPushRoutes } from './routes/push.js';
+import { createOrgRoutes } from './routes/orgs.js';
+import { createAuditRouter } from './routes/audit.js';
+import { createAuditLogService } from './services/auditLogService.js';
+import { createWebPushService } from './services/webPushService.js';
+import { createNotificationService } from './services/notificationService.js';
+import { createOrganizationRoutes } from './routes/organizations.js';
+import { createUsageMeteringService } from './services/usageMeteringService.js';
+import { createFeatureFlagRoutes } from './routes/featureFlags.js';
+import { createFeatureFlagService } from './services/featureFlagService.js';
+import { createUsageMeteringMiddleware } from './middleware/usageMetering.js';
+import { requestTimeout } from './middleware/timeout.js';
+import { PoolSaturatedError } from './rpcPool.js';
+import { initializeWebSocket, getWebSocketServer } from './websocket/index.js';
+import { requireScope } from './middleware/rbac.js';
+import { createIdempotencyMiddleware } from './middleware/idempotency.js';
+import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
+import { createExportJob } from './jobs/exportJob.js';
+import { createEventIndexer } from './jobs/eventIndexer.js';
+import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
+import { createDurableJobQueue } from './jobs/durableJobQueue.js';
+import {
+  createClaimableBalancesJobHandler,
+  CLAIMABLE_BALANCES_JOB_TYPE,
+} from './jobs/claimableBalancesJobHandler.js';
+import { createStellarTomlRoute } from './routes/stellarToml.js';
+import { createSponsoredAccountRoutes } from './routes/sponsoredAccounts.js';
+import { createClaimableBalancesRoutes } from './routes/claimableBalances.js';
+import { createFeeBumpRoutes } from './routes/feeBump.js';
+import { createPathPaymentRoutes } from './routes/pathPayment.js';
+import { createIndexReadRoutes } from './routes/indexRead.js';
+import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
+import { createZkInputsRoutes } from './routes/zkInputs.js';
+import {
+  createNotificationRoutes,
+  createNotificationPreferencesRoutes,
+} from './routes/notifications.js';
+import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createPruningJob } from './jobs/pruningJob.js';
+import {
+  purgePiiForUser,
+  purgePiiForCampaign,
+  exportPiiForUser,
+} from './services/piiPurgeService.js';
+import { createModerationService } from './moderation/moderationService.js';
+import { createContentModerationMiddleware } from './middleware/contentModeration.js';
+import createFaucetRoutes from './routes/faucet.js';
+import createStatusRoutes from './routes/status.js';
+import createWebhookRoutes from './routes/webhooks.js';
+import swaggerUi from 'swagger-ui-express';
+import { readFileSync } from 'node:fs';
+import { load as yamlLoad } from 'js-yaml';
 
 const DEFAULT_PORT = 3001;
-const DEFAULT_RPC_URL = 'https://soroban-testnet.stellar.org';
+
+// BCP-47: language (2-3 chars) + optional script (4 chars) + optional region (2 chars)
+const BCP47_RE = /^[a-z]{2,3}(-[A-Za-z]{2,4}(-[A-Z]{2})?)?$/;
+
+/** @param {string} locale */
+export function isValidLocale(locale) {
+  return BCP47_RE.test(locale);
+}
+
+/** @param {string | undefined} header */
+function parseAcceptLanguage(header) {
+  if (!header) return [];
+  return header
+    .split(',')
+    .map((part) => {
+      const [tag, qPart] = part.trim().split(';');
+      const q = qPart ? parseFloat(qPart.replace(/.*=/, '')) : 1.0;
+      return { locale: tag.trim(), q: Number.isFinite(q) ? q : 1.0 };
+    })
+    .sort((a, b) => b.q - a.q)
+    .map(({ locale }) => locale)
+    .filter(Boolean);
+}
+
+/** @param {import('express').Request} req @returns {string[]} */
+function getRequestLocales(req) {
+  const queryLocale = req.query?.locale;
+  if (typeof queryLocale === 'string' && queryLocale.trim()) {
+    return [queryLocale.trim()];
+  }
+  return parseAcceptLanguage(req.headers['accept-language']);
+}
+
+/**
+ * Strips `_rawTranslations` and applies locale negotiation to name/description.
+ * @param {Record<string, any>} campaign
+ * @param {string[]} [locales]
+ * @returns {Record<string, any>}
+ */
+function serializeCampaign(campaign, locales = []) {
+  const { _rawTranslations, ...pub } = campaign;
+  if (!_rawTranslations || !locales.length) return pub;
+  for (const locale of locales) {
+    if (locale === 'en' || locale.startsWith('en-')) break;
+    const trans = _rawTranslations[locale] ?? _rawTranslations[locale.split('-')[0]] ?? null;
+    if (trans) {
+      if (trans.name) pub.name = trans.name;
+      if (trans.description) pub.description = trans.description;
+      break;
+    }
+  }
+  return pub;
+}
+
 const DEFAULT_RATE_LIMIT_WINDOW_MS = 60_000;
 const DEFAULT_RATE_LIMIT_MAX_REQUESTS = 60;
+const DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD = 5;
+const DEFAULT_AUTH_LOCKOUT_HARD_THRESHOLD = 10;
+const DEFAULT_AUTH_LOCKOUT_BASE_LOCKOUT_MS = 60_000;
+const DEFAULT_SHORT_CACHE_TTL_MS = 5_000;
+const DEFAULT_JSON_BODY_LIMIT = '100kb';
+const DEFAULT_RPC_POLL_INTERVAL_MS = 60_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 const LEGACY_API_PREFIX = '/api';
 const API_V1_PREFIX = '/api/v1';
+const CONTRACT_ID_PATTERN = /^C[A-Z2-7]{55}$/;
 
+/**
+ * @param {string | number | undefined} value
+ * @param {number} fallback
+ * @returns {number}
+ */
 function normalizePositiveInteger(value, fallback) {
-  const parsed = Number.parseInt(value, 10);
+  const parsed = Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function defaultCampaigns() {
+/** @returns {{ name: string, description: string, active: boolean, rewardPerAction: number, createdAt: string }[]} */
+function defaultSeed() {
   return [
     {
-      id: '1',
       name: 'Welcome Campaign',
       description: 'Earn points for completing onboarding',
       active: true,
@@ -36,73 +216,950 @@ function defaultCampaigns() {
   ];
 }
 
-function cloneCampaigns(campaigns) {
-  return campaigns.map((campaign) => ({ ...campaign }));
+/** @param {string | undefined} value @returns {string[]} */
+function parseAllowedOrigins(value) {
+  if (!value) {
+    return [];
+  }
+
+  return String(value)
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
 }
 
-function nextCampaignId(campaigns) {
-  const maxId = campaigns.reduce((currentMax, campaign) => {
-    const parsed = Number.parseInt(campaign.id, 10);
-    return Number.isFinite(parsed) ? Math.max(currentMax, parsed) : currentMax;
-  }, 0);
+/** @param {string[]} allowedOrigins @returns {import('cors').CorsOptions} */
+function createCorsOptions(allowedOrigins) {
+  const corsOptions = {
+    maxAge: 86400,
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    // #288 — accept `traceparent` from instrumented frontends and
+    // expose it on responses so the browser can stitch its own
+    // spans into the same OpenTelemetry trace.
+    // #925 — same treatment for X-Request-Id so JS clients can read the
+    // correlation ID of a response (and optionally supply their own).
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'traceparent', 'X-Request-Id'],
+    exposedHeaders: ['traceparent', 'X-Request-Id'],
+  };
 
-  return String(maxId + 1);
+  if (allowedOrigins.includes('*')) {
+    return { origin: true, ...corsOptions };
+  }
+
+  return {
+    origin(
+      /** @type {string | undefined} */ origin,
+      /** @type {(err: Error | null, allow?: boolean) => void} */ callback,
+    ) {
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
+    ...corsOptions,
+  };
 }
 
-export function createApp(options = {}) {
-  const apiKey = options.apiKey ?? process.env.TRIVELA_API_KEY ?? '';
-  const corsOrigin = options.corsOrigin ?? process.env.CORS_ORIGIN ?? '*';
-  const stellarNetwork = options.stellarNetwork ?? process.env.STELLAR_NETWORK ?? 'testnet';
-  const sorobanRpcUrl = options.sorobanRpcUrl ?? process.env.SOROBAN_RPC_URL ?? DEFAULT_RPC_URL;
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const campaigns = cloneCampaigns(options.campaigns ?? defaultCampaigns());
+/** @param {Record<string, unknown>} options @param {string} envKey @returns {string} */
+function readOptionalConfigValue(options, envKey) {
+  const fromOptions = options[envKey];
+  if (typeof fromOptions === 'string' && fromOptions.trim().length > 0) {
+    return fromOptions;
+  }
+
+  const fromEnv = process.env[envKey];
+  return typeof fromEnv === 'string' ? fromEnv : '';
+}
+
+/** @param {unknown} value @param {string} label @returns {string} */
+function validateContractId(value, label) {
+  if (!value) {
+    return '';
+  }
+  const normalized = String(value).trim();
+  if (!CONTRACT_ID_PATTERN.test(normalized)) {
+    throw new Error(`${label} must be a valid Stellar contract ID`);
+  }
+  return normalized;
+}
+
+/** @param {Record<string, unknown>} options @returns {import('express').Application} */
+export async function createApp(options = {}) {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const jsonBodyLimit =
+    /** @type {string} */ (options.jsonBodyLimit) ??
+    process.env.JSON_BODY_LIMIT ??
+    DEFAULT_JSON_BODY_LIMIT;
+  const corsAllowedOriginsRaw =
+    /** @type {string | undefined} */ (options.corsAllowedOrigins) ??
+    process.env.CORS_ALLOWED_ORIGINS ??
+    process.env.CORS_ORIGIN ??
+    (isProduction ? '' : 'http://localhost:5173');
+  const stellarConfig = resolveStellarNetworkConfig({
+    network: /** @type {string} */ (options.stellarNetwork) ?? process.env.STELLAR_NETWORK,
+    sorobanRpcUrl: /** @type {string} */ (options.sorobanRpcUrl) ?? process.env.SOROBAN_RPC_URL,
+    horizonUrl: /** @type {string} */ (options.horizonUrl) ?? process.env.HORIZON_URL,
+    networkPassphrase:
+      /** @type {string} */ (options.networkPassphrase) ?? process.env.STELLAR_NETWORK_PASSPHRASE,
+  });
+  const rewardsContractId = validateContractId(
+    readOptionalConfigValue(options, 'REWARDS_CONTRACT_ID'),
+    'REWARDS_CONTRACT_ID',
+  );
+  const campaignContractId = validateContractId(
+    readOptionalConfigValue(options, 'CAMPAIGN_CONTRACT_ID'),
+    'CAMPAIGN_CONTRACT_ID',
+  );
+  const fetchImpl = /** @type {typeof fetch} */ (options.fetchImpl) ?? globalThis.fetch;
+  const rpcUrlsRaw =
+    /** @type {string | undefined} */ (options.sorobanRpcUrls) ?? process.env.SOROBAN_RPC_URLS;
+  const rpcUrls = rpcUrlsRaw
+    ? String(rpcUrlsRaw)
+        .split(',')
+        .map((u) => u.trim())
+        .filter(Boolean)
+    : [stellarConfig.sorobanRpcUrl];
+  const rpcPool = createRpcPool(rpcUrls);
+  const allowedOrigins = parseAllowedOrigins(corsAllowedOriginsRaw);
+
+  if (isProduction && allowedOrigins.includes('*')) {
+    throw new Error('Wildcard origins are not permitted in production.');
+  }
+
   const rateLimitWindowMs = normalizePositiveInteger(
-    options.rateLimit?.windowMs ?? process.env.RATE_LIMIT_WINDOW_MS,
+    /** @type {any} */ (options.rateLimit)?.windowMs ?? process.env.RATE_LIMIT_WINDOW_MS,
     DEFAULT_RATE_LIMIT_WINDOW_MS,
   );
   const rateLimitMaxRequests = normalizePositiveInteger(
-    options.rateLimit?.maxRequests ?? process.env.RATE_LIMIT_MAX_REQUESTS,
+    /** @type {any} */ (options.rateLimit)?.maxRequests ?? process.env.RATE_LIMIT_MAX_REQUESTS,
     DEFAULT_RATE_LIMIT_MAX_REQUESTS,
   );
 
+  const authLockoutOptions = /** @type {any} */ (options.authLockout) ?? {};
+  const authLockoutSoftThreshold = normalizePositiveInteger(
+    authLockoutOptions.softThreshold ?? process.env.AUTH_LOCKOUT_SOFT_THRESHOLD,
+    DEFAULT_AUTH_LOCKOUT_SOFT_THRESHOLD,
+  );
+  const authLockoutHardThreshold = normalizePositiveInteger(
+    authLockoutOptions.hardThreshold ?? process.env.AUTH_LOCKOUT_HARD_THRESHOLD,
+    DEFAULT_AUTH_LOCKOUT_HARD_THRESHOLD,
+  );
+  const authLockoutBaseMs = normalizePositiveInteger(
+    authLockoutOptions.baseLockoutMs ?? process.env.AUTH_LOCKOUT_BASE_MS,
+    DEFAULT_AUTH_LOCKOUT_BASE_LOCKOUT_MS,
+  );
+
+  const seed = /** @type {any[]} */ (options.campaigns) ?? defaultSeed();
+  const dbPath = /** @type {string} */ (options.dbPath) ?? process.env.DB_PATH ?? './trivela.db';
+  const dal = await createDal({
+    dbPath,
+    campaigns: seed,
+    campaignRepository: options.campaignRepository,
+    auditLogRepository: options.auditLogRepository,
+  });
+  const campaignRepository = dal.campaigns;
+  const auditLogRepository = dal.auditLogs;
+  const webhookRepository = dal.webhooks;
+  const referralRepository = dal.referrals;
+  const variantRepository = dal.variants;
+  const cohortRepository = dal.cohorts;
+  const pushSubscriptionRepository = dal.pushSubscriptions;
+  const apiKeyRepository = dal.apiKeys;
+  const failedJobRepository = options.failedJobRepository ?? dal.failedJobs;
+  const allowlistRepository = dal.allowlists;
+  const notificationPreferencesRepository = dal.notificationPreferences;
+  const orgMemberRepository = dal.orgMembers;
+  const usageRepository = options.usageRepository ?? dal.usage;
+  const idempotencyRepository = dal.idempotency;
+
+  const idempotencyMiddleware = createIdempotencyMiddleware({
+    repository: idempotencyRepository,
+  });
+
+  const storageAdapter = /** @type {import('./storage/storageAdapter.js').StorageAdapter} */ (
+    options.storageAdapter ?? createStorageAdapter(process.env)
+  );
+  const imageUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: MAX_IMAGE_SIZE_BYTES },
+  });
+  const webhookService = new WebhookService(webhookRepository, {
+    fetchImpl,
+    logger: log,
+  });
+  const variantService = createVariantService({ variantRepo: variantRepository });
+  const cohortService = createCohortService({ cohortRepo: cohortRepository });
+  const auditLogService = createAuditLogService({
+    auditLogRepository,
+    orgMemberRepository,
+  });
+  const webPushService = createWebPushService({
+    repository: pushSubscriptionRepository,
+    vapid: {
+      publicKey: process.env.VAPID_PUBLIC_KEY,
+      privateKey: process.env.VAPID_PRIVATE_KEY,
+      subject: process.env.VAPID_SUBJECT,
+    },
+    logger: log,
+  });
+
+  const notificationService = createNotificationService({
+    notificationRepo: dal.notifications,
+    notificationPreferencesRepo: notificationPreferencesRepository,
+    webPushService,
+  });
+
+  // Sanctions/blocklist screening for payout addresses — closes #955.
+  // Provider is configurable via SANCTIONS_PROVIDER env var (default: "local").
+  // Add blocked addresses via SANCTIONS_BLOCKLIST (comma-separated Stellar addresses).
+  const sanctionsService = createSanctionsService({ logger: log });
+  const shortCacheTtlMs = normalizePositiveInteger(
+    /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
+    DEFAULT_SHORT_CACHE_TTL_MS,
+  );
+  const rpcPollIntervalMs = normalizePositiveInteger(
+    /** @type {any} */ (options.rpcPollIntervalMs) ?? process.env.RPC_HEALTH_POLL_INTERVAL_MS,
+    DEFAULT_RPC_POLL_INTERVAL_MS,
+  );
+  const shortCache = new Map();
+  const indexerCursorState = {
+    cursor:
+      /** @type {string | null} */ (options.initialIndexerCursor) ??
+      process.env.INDEXER_EVENT_CURSOR ??
+      null,
+    updatedAt: new Date().toISOString(),
+    source: (options.initialIndexerCursor ?? process.env.INDEXER_EVENT_CURSOR) ? 'env' : 'runtime',
+  };
+  const rpcHealthCache = {
+    updatedAt: /** @type {string | null} */ (null),
+    payload: /** @type {unknown} */ (null),
+  };
+
   const app = express();
-  const requireApiKey = createApiKeyAuth({ apiKey });
+  const metrics = {
+    requestTotal: 0,
+    requestErrors: 0,
+    routeHits: new Map(),
+    authFailures: 0,
+    authLockouts: 0,
+    // p95 latency histogram — 12 buckets (ms): 50,100,200,500,1000,2000,5000,...
+    latencyBuckets: [50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 30_000, Infinity],
+    latencyCounts: /** @type {number[]} */ ([]),
+    latencyTotal: 0,
+    latencySum: 0,
+  };
+  // Initialise bucket counters to 0.
+  metrics.latencyCounts = metrics.latencyBuckets.map(() => 0);
+
+  // Apply global request deadline so every route self-defends against slow
+  // upstreams.  The timeout is configurable via REQUEST_TIMEOUT_MS.
+  const requestTimeoutMs = normalizePositiveInteger(
+    options.requestTimeoutMs ?? process.env.REQUEST_TIMEOUT_MS,
+    DEFAULT_REQUEST_TIMEOUT_MS,
+  );
+  app.use(requestTimeout(requestTimeoutMs));
+
+  /**
+   * Compatibility shim: ?api_version=v0 rewrites v1 routes to legacy patterns
+   * and adds a Deprecation header. This is a temporary bridge for integrators
+   * during the 90-day migration window (see docs/API_MIGRATION.md).
+   */
+  app.use((req, res, next) => {
+    if (req.query.api_version === 'v0') {
+      // Rewrite /api/v1/* → /api/* for route matching
+      req.url = req.url.replace(/^\/api\/v1/, '/api');
+      res.setHeader('Deprecation', 'true');
+      res.setHeader('Sunset', 'Sat, 01 Jul 2026 00:00:00 GMT');
+    }
+    next();
+  });
+
+  // Brute-force / credential-stuffing guard (#588). Runs immediately before the
+  // auth middleware on every protected route; a spike in failures/lockouts is
+  // surfaced via the trivela_auth_* counters and structured warn logs.
+  const authGuard = createAuthLockout({
+    softThreshold: authLockoutSoftThreshold,
+    hardThreshold: authLockoutHardThreshold,
+    baseLockoutMs: authLockoutBaseMs,
+    timeProvider: authLockoutOptions.timeProvider,
+    delayFn: authLockoutOptions.delayFn,
+    store: authLockoutOptions.store,
+    onFailure: ({ key, failures }) => {
+      metrics.authFailures += 1;
+      log.warn({ key, failures }, 'Failed authentication attempt');
+    },
+    onLockout: ({ key, failures, lockoutMs, lockoutCount }) => {
+      metrics.authLockouts += 1;
+      log.warn(
+        { key, failures, lockoutMs, lockoutCount },
+        'Authentication lockout triggered (possible brute-force)',
+      );
+    },
+  });
+
+  // Auth middlewares are exposed as [authGuard, requireX] arrays; Express
+  // flattens nested handler arrays, so existing route registrations pick up the
+  // guard with no change. Only auth-bearing routes are guarded, which keeps a
+  // 200 on a public route from ever resetting an attacker's failure counter.
+  const requireApiKey = [
+    authGuard,
+    createApiKeyAuth({
+      apiKeys:
+        /** @type {string} */ (options.apiKeys) ??
+        /** @type {string} */ (options.apiKey) ??
+        process.env.TRIVELA_API_KEYS ??
+        process.env.TRIVELA_API_KEY ??
+        '',
+      apiKeyRepository: options.apiKeyRepository ?? apiKeyRepository,
+      orgMemberRepository: options.orgMemberRepository ?? orgMemberRepository,
+    }),
+  ];
+  const requireMasterKey = [
+    authGuard,
+    createMasterKeyAuth({
+      masterKey: /** @type {string} */ (options.masterKey) ?? process.env.TRIVELA_MASTER_KEY ?? '',
+    }),
+  ];
+  const requireAdminMasterKey = requireMasterKey;
+
+  let rateLimitStore = null;
+  let usageRedisClient = null;
+  const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
+  if (redisUrl && !options.disableRedis) {
+    try {
+      const redisClient = new Redis(redisUrl, {
+        maxRetriesPerRequest: 3,
+        enableReadyCheck: true,
+        lazyConnect: false,
+      });
+      redisClient.on('error', (err) => {
+        log.error({ err }, 'Redis connection error');
+      });
+      rateLimitStore = createRedisStore(redisClient);
+      usageRedisClient = redisClient;
+      log.info(
+        { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
+        'Rate limiter using Redis store',
+      );
+    } catch (error) {
+      log.warn(
+        { err: error },
+        'Failed to connect to Redis, falling back to in-memory rate limiter',
+      );
+    }
+  }
+
+  // Distributed lock — Redis when available, in-process Map otherwise (#564)
+  const lockTtlMs = normalizePositiveInteger(
+    /** @type {any} */ (options.lockTtlMs) ?? process.env.LOCK_TTL_MS,
+    30_000,
+  );
+  const lockProvider =
+    options.lockProvider ??
+    (usageRedisClient
+      ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
+      : createInMemoryLock({ ttlMs: lockTtlMs }));
+
+  // Data export job — daily CSV export to object storage (#562)
+  const exportRetentionDays = normalizePositiveInteger(
+    /** @type {any} */ (options.exportRetentionDays) ?? process.env.EXPORT_RETENTION_DAYS,
+    30,
+  );
+  const exportJob = createExportJob({
+    db: dal.db,
+    storage: storageAdapter,
+    logger: log,
+    retentionDays: exportRetentionDays,
+    uploadDir: process.env.UPLOAD_DIR ?? './uploads',
+  });
+
+  const eventIndexer = createEventIndexer({
+    db: dal.db,
+    rpcPool,
+    logger: log,
+    referralBonus: normalizePositiveInteger(
+      /** @type {any} */ (options.referralBonus) ?? process.env.REFERRAL_BONUS,
+      0,
+    ),
+    // Ledgers an event must be buried under before its projection is applied.
+    // 0 projects on arrival (reorgs are still detected and reported, but land
+    // below the confirmed watermark). See jobs/eventIndexer.js. (#981)
+    confirmationDepth: normalizePositiveInteger(
+      /** @type {any} */ (options.indexerConfirmationDepth) ??
+        process.env.INDEXER_CONFIRMATION_DEPTH,
+      0,
+    ),
+    notificationService,
+  });
+
+  // Durable job queue store — persistent across restarts (#565)
+  const jobQueueStore = createSqliteJobQueueRepository({ db: dal.db });
+
+  const usageMeteringService = createUsageMeteringService({
+    usageRepository,
+    redisClient: usageRedisClient ?? /** @type {any} */ (options.usageRedisClient) ?? null,
+    timeProvider: /** @type {any} */ (options.usageMeteringService)?.timeProvider,
+  });
+  const stopUsageFlush = usageMeteringService.startFlushInterval();
+
+  const usageMeteringMiddleware = createUsageMeteringMiddleware({ usageMeteringService });
+
+  const moderationService =
+    /** @type {any} */ (options.moderationService) ??
+    createModerationService({
+      provider:
+        /** @type {string} */ (options.moderationProvider) ?? process.env.MODERATION_PROVIDER,
+      openaiApiKey: /** @type {string} */ (options.moderationApiKey) ?? process.env.OPENAI_API_KEY,
+      fetchImpl,
+    });
+  const contentModerationMiddleware = createContentModerationMiddleware({
+    moderationService,
+    log,
+  });
+
+  // Per-API-key rate tiers (#924). The limiter runs before auth on every
+  // route (it's the first line of defense against unauthenticated abuse
+  // too), so tier resolution can't rely on req.auth being set yet — it
+  // independently reads the raw key and looks up its tier directly.
+  // Env-configured keys and untiered/unauthenticated traffic fall back to
+  // the global default, matching pre-#924 behavior exactly.
+  function resolveRateLimitForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return null;
+
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return null;
+
+    return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER);
+  }
+
+  // Monthly quota hooks (#759) — mirror resolveRateLimitForRequest's shape
+  // (independently re-reads/validates the key rather than relying on
+  // req.auth, for the same reason: this runs before auth middleware).
+  // Requests with no API key (env-configured keys, unauthenticated traffic)
+  // have no monthly quota, matching how they also skip per-key rate tiers.
+  function resolveMonthlyQuotaForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return null;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return null;
+    return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER).monthlyQuota;
+  }
+
+  function getMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.getMonthlyUsage(match.id);
+  }
+
+  function incrementMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.incrementMonthlyUsage(match.id);
+  }
+
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
     maxRequests: rateLimitMaxRequests,
-    timeProvider: options.rateLimit?.timeProvider,
+    timeProvider: /** @type {any} */ (options.rateLimit)?.timeProvider,
+    store: rateLimitStore,
+    resolveLimits: resolveRateLimitForRequest,
+    resolveMonthlyQuota: resolveMonthlyQuotaForRequest,
+    getMonthlyUsage: getMonthlyUsageForRequest,
+    incrementMonthlyUsage: incrementMonthlyUsageForRequest,
   });
 
-  app.use(cors({ origin: corsOrigin }));
-  app.use(express.json());
+  app.use(requestId);
+  // Must run immediately after requestId (#925) so every downstream
+  // middleware/route/job/RPC call started from this request can read its
+  // correlation ID via requestContext's getRequestId() without threading it
+  // through explicit parameters.
+  app.use(requestContextMiddleware);
+  app.use(compression({ threshold: 1024 }));
+  app.use(cors(createCorsOptions(allowedOrigins)));
+  app.use(securityHeaders);
+  app.use(createDeprecationMiddleware({ log }));
+  app.use(traceparentMiddleware());
+  app.use(requestLogger);
+  app.use(express.json({ limit: jsonBodyLimit }));
+
+  const uploadDir = process.env.UPLOAD_DIR ?? './uploads';
+  if ((process.env.STORAGE_BACKEND ?? 'local') === 'local') {
+    app.use('/uploads', express.static(uploadDir));
+  }
+  app.use(
+    (
+      /** @type {any} */ err,
+      /** @type {import('express').Request} */ _req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      if (err?.type === 'entity.too.large') {
+        return res.status(413).json({ error: 'Request body too large', code: 'PAYLOAD_TOO_LARGE' });
+      }
+      return next(err);
+    },
+  );
+  app.use(
+    (
+      /** @type {import('express').Request} */ req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      metrics.requestTotal += 1;
+      const _reqStart = Date.now();
+      res.on('finish', () => {
+        const routeKey = `${req.method} ${req.path}`;
+        metrics.routeHits.set(routeKey, (metrics.routeHits.get(routeKey) ?? 0) + 1);
+        if (res.statusCode >= 400) {
+          metrics.requestErrors += 1;
+        }
+        // Record request duration into the latency histogram.
+        const durationMs = Date.now() - _reqStart;
+        metrics.latencySum += durationMs;
+        metrics.latencyTotal += 1;
+        for (let _bi = 0; _bi < metrics.latencyBuckets.length; _bi++) {
+          if (durationMs <= metrics.latencyBuckets[_bi]) {
+            metrics.latencyCounts[_bi] += 1;
+            break;
+          }
+        }
+      });
+      next();
+    },
+  );
+
+  const SCHEMA_VERSION_HEADER = 'X-Trivela-Schema-Version';
+  const SCHEMA_VERSION = '1';
+
+  app.use(
+    (
+      /** @type {import('express').Request} */ req,
+      /** @type {import('express').Response} */ res,
+      /** @type {import('express').NextFunction} */ next,
+    ) => {
+      res.setHeader(SCHEMA_VERSION_HEADER, SCHEMA_VERSION);
+
+      const requestedVersion = req.get(SCHEMA_VERSION_HEADER);
+      if (requestedVersion && requestedVersion !== SCHEMA_VERSION) {
+        return res.status(400).json({
+          error: 'Unsupported API schema version',
+          code: 'UNSUPPORTED_SCHEMA_VERSION',
+          supported: SCHEMA_VERSION,
+          requested: requestedVersion,
+        });
+      }
+
+      return next();
+    },
+  );
+
+  const jobMaxAttempts = normalizePositiveInteger(
+    /** @type {any} */ (options.jobMaxAttempts) ?? process.env.JOB_MAX_RETRIES,
+    5,
+  );
+  const jobBaseDelayMs = normalizePositiveInteger(
+    /** @type {any} */ (options.jobBaseDelayMs) ?? process.env.JOB_BASE_DELAY_MS,
+    1_000,
+  );
+  const jobMaxDelayMs = normalizePositiveInteger(
+    /** @type {any} */ (options.jobMaxDelayMs) ?? process.env.JOB_MAX_DELAY_MS,
+    30_000,
+  );
+
+  const pruningJob = createPruningJob({ dal });
+
+  const jobRunner = createJobRunner({
+    handlers: {
+      async rpc_health_poll() {
+        for (const url of rpcPool.getUrls()) {
+          const result = await checkSorobanRpcHealth({ rpcUrl: url, fetchImpl });
+          if (/** @type {any} */ (result).status === 'ok') {
+            rpcPool.markHealthy(url);
+          } else {
+            rpcPool.markUnhealthy(url);
+          }
+        }
+        const rpcUrl = rpcPool.getHealthyRpcUrl();
+        const rpc = await checkSorobanRpcHealth({ rpcUrl, fetchImpl });
+        rpcHealthCache.payload = rpc;
+        rpcHealthCache.updatedAt = new Date().toISOString();
+      },
+      async webhook_retry_failed_deliveries() {
+        await webhookService.retryFailedDeliveries();
+      },
+      async data_export({ date }) {
+        await exportJob.run(date);
+      },
+      async storage_pruning() {
+        await pruningJob();
+      },
+    },
+    logger: log,
+    deadLetter: failedJobRepository,
+    lockProvider,
+    defaultMaxAttempts: jobMaxAttempts,
+    defaultBaseDelayMs: jobBaseDelayMs,
+    defaultMaxDelayMs: jobMaxDelayMs,
+  });
+
+  if (!options.disableJobs && rpcPollIntervalMs > 0) {
+    jobRunner.enqueue('rpc_health_poll', null);
+    setInterval(() => jobRunner.enqueue('rpc_health_poll', null), rpcPollIntervalMs).unref?.();
+  }
+
+  // Enqueue webhook retry job every 5 minutes (Issue #352)
+  if (!options.disableJobs) {
+    const webhookRetryIntervalMs = 5 * 60 * 1000; // 5 minutes
+    jobRunner.enqueue('webhook_retry_failed_deliveries', null);
+    setInterval(
+      () => jobRunner.enqueue('webhook_retry_failed_deliveries', null),
+      webhookRetryIntervalMs,
+    ).unref?.();
+  }
+
+  // Daily storage pruning (#1029)
+  if (!options.disableJobs) {
+    const pruningIntervalMs = 24 * 60 * 60 * 1000; // 24 hours
+    jobRunner.enqueue('storage_pruning', null);
+    setInterval(() => jobRunner.enqueue('storage_pruning', null), pruningIntervalMs).unref?.();
+  }
+
+  // Daily data export — idempotent, safe to fire on every startup (#562)
+  if (!options.disableJobs) {
+    const doExport = () =>
+      jobRunner.enqueue('data_export', { date: new Date().toISOString().slice(0, 10) });
+    doExport();
+    setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
+  }
+
+  // Durable job queue — starts poll loop and recovers stale jobs from prior crashes (#565)
+  const durableJobQueue = createDurableJobQueue({
+    store: jobQueueStore,
+    handlers: {
+      // #922 — end-of-campaign claimable balance creation, enqueued from
+      // POST /campaigns/:id/claimable-balances instead of running inline.
+      [CLAIMABLE_BALANCES_JOB_TYPE]: createClaimableBalancesJobHandler({
+        dal,
+        stellarConfig,
+        env: process.env,
+        log,
+      }),
+    },
+    logger: log,
+    deadLetter: failedJobRepository,
+  });
+  if (!options.disableJobs) {
+    durableJobQueue.start();
+  }
+
+  // Event indexer: use Horizon SSE for near-instant indexing; fall back to 30s polling
+  if (!options.disableJobs && (rewardsContractId || campaignContractId)) {
+    const contractIds = [rewardsContractId, campaignContractId].filter(Boolean);
+    if (stellarConfig.horizonUrl) {
+      eventIndexer.startSse({
+        contractIds,
+        horizonUrl: stellarConfig.horizonUrl,
+        allowHttp: !stellarConfig.horizonUrl.startsWith('https'),
+      });
+    } else {
+      const indexerPollMs = 30_000;
+      for (const contractId of contractIds) {
+        setInterval(async () => {
+          const cursor = eventIndexer.getCursor(contractId);
+          await eventIndexer.poll(contractId, cursor);
+        }, indexerPollMs).unref?.();
+      }
+    }
+  }
+
+  // #552 — Operator balance monitoring job
+  const operatorBalanceJob = createOperatorBalanceJob({
+    db: dal.db,
+    stellarConfig,
+    metrics,
+    env: process.env,
+    logger: log,
+  });
+  if (!options.disableJobs) {
+    operatorBalanceJob.start();
+  }
 
   async function buildHealthPayload() {
-    const rpc = await checkSorobanRpcHealth({
-      rpcUrl: sorobanRpcUrl,
-      fetchImpl,
-    });
+    const rpcUrl = rpcPool.getHealthyRpcUrl();
+    const rpc = rpcHealthCache.payload ?? (await checkSorobanRpcHealth({ rpcUrl, fetchImpl }));
+
+    // Redis health — closes #858: surface Redis connectivity in /health so
+    // operators can detect a Redis outage before rate-limit correctness degrades.
+    let redisHealth = { status: 'disabled' };
+    if (usageRedisClient) {
+      try {
+        const pong = await usageRedisClient.ping();
+        redisHealth = { status: pong === 'PONG' ? 'ok' : 'degraded' };
+      } catch {
+        redisHealth = { status: 'error' };
+      }
+    }
+
+    const isOk =
+      /** @type {any} */ (rpc).status === 'ok' &&
+      (redisHealth.status === 'ok' || redisHealth.status === 'disabled');
 
     return {
-      status: rpc.status === 'ok' ? 'ok' : 'degraded',
+      status: isOk ? 'ok' : 'degraded',
       service: 'trivela-api',
       timestamp: new Date().toISOString(),
       rpc,
+      rpcPool: rpcPool.getStatus(),
+      redis: redisHealth,
     };
   }
+
+  /** @param {import('express').Request} req @returns {string} */
+  function formatAuditActor(req) {
+    const apiKey = req?.auth?.type === 'apiKey' ? req.auth.apiKey : '';
+    if (!apiKey) return 'anonymous';
+    const key = String(apiKey);
+    if (key.length <= 8) return 'apiKey:***';
+    return `apiKey:${key.slice(0, 4)}...${key.slice(-4)}`;
+  }
+
+  /**
+   * @param {import('express').Request} req
+   * @param {{ action: string, entity: string, entityId: string, diff: unknown }} entry
+   */
+  function recordAuditEntry(req, { action, entity, entityId, diff }) {
+    try {
+      auditLogRepository.create({
+        actor: formatAuditActor(req),
+        action,
+        entity,
+        entityId,
+        diff,
+        orgId: req.auth?.orgId || null,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      log.warn({ err: error }, 'Failed to record audit entry');
+    }
+  }
+
+  let isShuttingDown = false;
 
   app.get('/health', async (_req, res) => {
     const payload = await buildHealthPayload();
     res.json(payload);
   });
 
-  app.get('/health/rpc', async (_req, res) => {
-    const rpc = await checkSorobanRpcHealth({
-      rpcUrl: sorobanRpcUrl,
-      fetchImpl,
-    });
-    res.status(rpc.status === 'ok' ? 200 : 503).json(rpc);
+  const probeHandlers = createProbeHandlers({ getIsShuttingDown: () => isShuttingDown });
+  app.get('/health/live', probeHandlers.livenessHandler);
+  app.get('/health/ready', probeHandlers.readinessHandler);
+  app.get('/livez', probeHandlers.livenessHandler);
+  app.get('/readyz', probeHandlers.readinessHandler);
+  app.get('/healthz', probeHandlers.livenessHandler);
+
+  app.get('/ready', (_req, res) => {
+    if (isShuttingDown) {
+      return res.status(503).json({ status: 'shutting_down', ready: false });
+    }
+    return res.json({ status: 'ok', ready: true });
   });
 
+  const graphqlHandler = createGraphQLHandler({
+    executor: new GraphQLSchemaExecutor({ campaignRepository }),
+  });
+  app.all('/graphql', rateLimiter, graphqlHandler);
+
+  const siteOrigin =
+    process.env.SITE_ORIGIN ?? allowedOrigins.find((origin) => origin !== '*') ?? '';
+
+  // Embed endpoints use a tighter per-IP rate limit (30 req/min) to guard
+  // against scraping while still allowing reasonable widget traffic.
+  const embedRateLimiter = createRateLimiter({
+    windowMs: rateLimitWindowMs,
+    maxRequests: Math.min(30, rateLimitMaxRequests),
+    timeProvider: /** @type {any} */ (options.rateLimit)?.timeProvider,
+    store: rateLimitStore,
+  });
+
+  app.get(
+    '/embed/campaign/:id',
+    embedRateLimiter,
+    createEmbedRoute(campaignRepository, siteOrigin, {
+      embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+    }),
+  );
+
+  // SSE live streams for campaigns (#815)
+  app.use(API_V1_PREFIX, createSseRoutes({ campaignRepository }));
+  // Versioned embed widgets (#809)
+  app.get(
+    '/embed/v1/:widgetType/:campaignId',
+    embedRateLimiter,
+    createEmbedWidgetRoute(campaignRepository, siteOrigin, {
+      embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+    }),
+  );
+  // Developer portal (#807)
+  app.use(
+    '/dev-portal',
+    createDevPortalRoutes({
+      openApiPath: join(process.cwd(), 'backend', 'openapi.yaml'),
+    }),
+  );
+
+  // Interactive API docs (#882) — Swagger UI served at /docs
+  // The dev-portal HTML embeds this in an iframe; also linkable directly.
+  (() => {
+    const openApiPath = join(process.cwd(), 'backend', 'openapi.yaml');
+    let swaggerSpec;
+    try {
+      swaggerSpec = yamlLoad(readFileSync(openApiPath, 'utf8'));
+    } catch {
+      swaggerSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Trivela API', version: '0.0.0' },
+        paths: {},
+      };
+    }
+    app.use('/docs', swaggerUi.serve);
+    app.get(
+      '/docs',
+      swaggerUi.setup(swaggerSpec, {
+        customSiteTitle: 'Trivela API Reference',
+        swaggerOptions: { persistAuthorization: true },
+      }),
+    );
+  })();
+
+  app.get('/health/rpc', async (_req, res) => {
+    const rpcUrl = rpcPool.getHealthyRpcUrl();
+    const rpc = await checkSorobanRpcHealth({ rpcUrl, fetchImpl });
+    if (/** @type {any} */ (rpc).status !== 'ok') {
+      rpcPool.markUnhealthy(rpcUrl);
+    }
+    res.status(/** @type {any} */ (rpc).status === 'ok' ? 200 : 503).json({
+      ...rpc,
+      rpcPool: rpcPool.getStatus(),
+    });
+  });
+
+  app.get('/health/indexer', (_req, res) => {
+    const health = eventIndexer?.getHealth?.() ?? {
+      status: 'unavailable',
+      lastLedger: 0,
+      lagLedgers: 0,
+      eventsTotal: 0,
+      errorsTotal: 0,
+    };
+    const isHealthy = health.status === 'ok' || health.status === 'idle';
+    res.status(isHealthy ? 200 : 503).json(health);
+  });
+
+  app.get('/metrics', (_req, res) => {
+    const uptimeSeconds = process.uptime();
+    const routeLines = [...metrics.routeHits.entries()]
+      .map(([route, count]) => {
+        const escapedRoute = route.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        return `trivela_route_hits_total{route="${escapedRoute}"} ${count}`;
+      })
+      .join('\n');
+
+    // Latency histogram — cumulative buckets (le = upper bound in ms).
+    const latencyBucketLines = metrics.latencyBuckets
+      .map((le, i) => {
+        const cumulative = metrics.latencyCounts.slice(0, i + 1).reduce((a, b) => a + b, 0);
+        const leLabel = le === Infinity ? '+Inf' : String(le);
+        return `trivela_http_request_duration_ms_bucket{le="${leLabel}"} ${cumulative}`;
+      })
+      .join('\n');
+
+    // RPC pool saturation metrics.
+    const poolStatus = rpcPool.getStatus();
+    const jobRunnerStatus = jobRunner.getStatus();
+    const durableJobQueueStatus = durableJobQueue.getStatus();
+
+    const payload = [
+      '# HELP trivela_requests_total Total HTTP requests handled.',
+      '# TYPE trivela_requests_total counter',
+      `trivela_requests_total ${metrics.requestTotal}`,
+      '# HELP trivela_request_errors_total Total HTTP requests with status >= 400.',
+      '# TYPE trivela_request_errors_total counter',
+      `trivela_request_errors_total ${metrics.requestErrors}`,
+      '# HELP trivela_auth_failures_total Total failed authentication attempts on guarded routes.',
+      '# TYPE trivela_auth_failures_total counter',
+      `trivela_auth_failures_total ${metrics.authFailures}`,
+      '# HELP trivela_auth_lockouts_total Total brute-force lockouts triggered on guarded routes.',
+      '# TYPE trivela_auth_lockouts_total counter',
+      `trivela_auth_lockouts_total ${metrics.authLockouts}`,
+      '# HELP trivela_process_uptime_seconds Node.js process uptime.',
+      '# TYPE trivela_process_uptime_seconds gauge',
+      `trivela_process_uptime_seconds ${uptimeSeconds.toFixed(3)}`,
+      '# HELP trivela_route_hits_total Route-level request counts.',
+      '# TYPE trivela_route_hits_total counter',
+      routeLines,
+      // Request latency histogram (issue #650 — p95 latency SLO).
+      '# HELP trivela_http_request_duration_ms HTTP request duration in milliseconds.',
+      '# TYPE trivela_http_request_duration_ms histogram',
+      latencyBucketLines,
+      `trivela_http_request_duration_ms_count ${metrics.latencyTotal}`,
+      `trivela_http_request_duration_ms_sum ${metrics.latencySum}`,
+      // RPC pool saturation (issue #650 — pool saturation safety).
+      '# HELP trivela_rpc_pool_in_use RPC pool slots currently in use.',
+      '# TYPE trivela_rpc_pool_in_use gauge',
+      `trivela_rpc_pool_in_use ${poolStatus.in_use}`,
+      '# HELP trivela_rpc_pool_idle RPC pool slots immediately available.',
+      '# TYPE trivela_rpc_pool_idle gauge',
+      `trivela_rpc_pool_idle ${poolStatus.idle}`,
+      '# HELP trivela_rpc_pool_waiting Callers queued waiting for a pool slot.',
+      '# TYPE trivela_rpc_pool_waiting gauge',
+      `trivela_rpc_pool_waiting ${poolStatus.waiting}`,
+      '# HELP trivela_rpc_pool_healthy Healthy RPC endpoints in the pool.',
+      '# TYPE trivela_rpc_pool_healthy gauge',
+      `trivela_rpc_pool_healthy ${poolStatus.healthy}`,
+      '# HELP trivela_rpc_pool_unhealthy Unhealthy RPC endpoints in the pool.',
+      '# TYPE trivela_rpc_pool_unhealthy gauge',
+      `trivela_rpc_pool_unhealthy ${poolStatus.unhealthy}`,
+      // Job queue depth (issue #930 — RED + queue + RPC metrics).
+      '# HELP trivela_job_queue_depth Jobs waiting to run, by queue.',
+      '# TYPE trivela_job_queue_depth gauge',
+      `trivela_job_queue_depth{queue="in_memory"} ${jobRunnerStatus.queued}`,
+      `trivela_job_queue_depth{queue="durable"} ${durableJobQueueStatus.pending}`,
+      '# HELP trivela_job_queue_running Jobs currently executing, by queue.',
+      '# TYPE trivela_job_queue_running gauge',
+      `trivela_job_queue_running{queue="in_memory"} ${jobRunnerStatus.running}`,
+      `trivela_job_queue_running{queue="durable"} ${durableJobQueueStatus.running}`,
+      '# HELP trivela_job_queue_dead_total Jobs moved to the dead-letter queue after exhausting retries.',
+      '# TYPE trivela_job_queue_dead_total gauge',
+      `trivela_job_queue_dead_total{queue="durable"} ${durableJobQueueStatus.dead}`,
+      // Cross-queue dead-letter size (feeds the pre-existing DLQGrowth alert).
+      '# HELP trivela_dlq_size_total Total jobs (across all queues) in the dead-letter store.',
+      '# TYPE trivela_dlq_size_total gauge',
+      `trivela_dlq_size_total ${failedJobRepository.count()}`,
+      // Indexer metrics (#532).
+      ...Object.entries(eventIndexer?.getMetrics?.() ?? {})
+        .map(([key, value]) => [
+          `# HELP ${key.replace(/_/g, ' ')} Indexer metric.`,
+          `# TYPE ${key} gauge`,
+          `${key} ${value}`,
+        ])
+        .flat(),
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    res.set('Content-Type', 'text/plain; version=0.0.4; charset=utf-8');
+    res.send(`${payload}\n`);
+  });
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
   function apiInfo(req, res) {
     const usingLegacyPrefix =
       req.path.startsWith(LEGACY_API_PREFIX) && !req.path.startsWith(API_V1_PREFIX);
@@ -113,104 +1170,2197 @@ export function createApp(options = {}) {
       prefix: API_V1_PREFIX,
       endpoints: {
         health: 'GET /health',
+        ready: 'GET /ready',
         healthRpc: 'GET /health/rpc',
+        metrics: 'GET /metrics',
         info: `GET ${API_V1_PREFIX}`,
         campaigns: `GET ${API_V1_PREFIX}/campaigns`,
-        campaign: `GET ${API_V1_PREFIX}/campaigns/:id`,
+        campaignById: `GET ${API_V1_PREFIX}/campaigns/:id`,
+        campaignBySlug: `GET ${API_V1_PREFIX}/campaigns/by-slug/:slug`,
+        createCampaign: `POST ${API_V1_PREFIX}/campaigns`,
+        cloneCampaign: `POST ${API_V1_PREFIX}/campaigns/:id/clone`,
+        updateCampaign: `PUT ${API_V1_PREFIX}/campaigns/:id`,
         deleteCampaign: `DELETE ${API_V1_PREFIX}/campaigns/:id`,
+        auditLogs: `GET ${API_V1_PREFIX}/audit-logs`,
+        usage: `GET ${API_V1_PREFIX}/usage`,
+        adminUsage: `GET ${API_V1_PREFIX}/admin/usage`,
+        adminUsageQuotas: `PUT ${API_V1_PREFIX}/admin/usage/quotas`,
+        config: `GET ${API_V1_PREFIX}/config`,
+        explorer: `GET ${API_V1_PREFIX}/explorer`,
       },
       compatibility: {
         legacyPrefix: LEGACY_API_PREFIX,
         legacyRoutesSupported: true,
-        migrationNote: 'Prefer /api/v1/* routes. Legacy /api/* routes remain available for compatibility.',
+        migrationNote:
+          'Prefer /api/v1/* routes. Legacy /api/* routes remain available for compatibility.',
         usingLegacyPrefix,
       },
       stellar: {
-        network: stellarNetwork,
-        rpcUrl: sorobanRpcUrl,
+        ...stellarConfig,
+      },
+      config: {
+        rewardsContractId: rewardsContractId || null,
+        campaignContractId: campaignContractId || null,
+      },
+      cors: {
+        allowedOrigins,
       },
       rateLimit: {
         keying: 'per API key when present, otherwise per IP address',
         windowMs: rateLimitWindowMs,
         maxRequests: rateLimitMaxRequests,
       },
+      authLockout: {
+        keying: 'per client IP address',
+        softThreshold: authLockoutSoftThreshold,
+        hardThreshold: authLockoutHardThreshold,
+        baseLockoutMs: authLockoutBaseMs,
+      },
+      body: {
+        jsonLimit: jsonBodyLimit,
+      },
     });
   }
 
-  function listCampaigns(req, res) {
-    res.json(paginateItems(campaigns, req.query));
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function getPublicConfig(_req, res) {
+    res.json({
+      stellar: {
+        ...stellarConfig,
+      },
+      contracts: {
+        rewards: rewardsContractId || null,
+        campaign: campaignContractId || null,
+      },
+    });
   }
 
-  function getCampaignById(req, res) {
-    const campaign = campaigns.find((entry) => entry.id === req.params.id);
-    if (!campaign) {
-      return res.status(404).json({ error: 'Campaign not found' });
-    }
-
-    return res.json(campaign);
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function getExplorerLinks(_req, res) {
+    res.json({
+      network: stellarConfig.network,
+      explorerUrl: stellarConfig.explorerUrl,
+    });
   }
 
-  function createCampaign(req, res) {
-    const { name, description, rewardPerAction } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: 'name is required' });
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  async function listCampaigns(req, res) {
+    // Exclude ?locale from cache key so locale variants share the same raw-data cache entry.
+    const cacheKey = `campaigns:${req.originalUrl.replace(/([?&])locale=[^&]*/g, '$1').replace(/[?&]$/, '')}`;
+    const locales = getRequestLocales(req);
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
+      const payload = {
+        ...rawCached.payload,
+        data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)),
+      };
+      return res.set('x-cache', 'HIT').json(payload);
     }
 
-    const campaign = {
-      id: nextCampaignId(campaigns),
-      name,
-      description: description || '',
-      active: true,
-      rewardPerAction: rewardPerAction ?? 0,
-      createdAt: new Date().toISOString(),
+    const activeRaw =
+      typeof req.query.active === 'string' ? req.query.active.toLowerCase() : undefined;
+    const activeFilter = activeRaw === 'true' ? true : activeRaw === 'false' ? false : undefined;
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const sort = typeof req.query.sort === 'string' ? req.query.sort : undefined;
+    const order =
+      req.query.order === 'asc' ? 'asc' : req.query.order === 'desc' ? 'desc' : undefined;
+    const category = typeof req.query.category === 'string' ? req.query.category.trim() : undefined;
+    const tagsRaw = typeof req.query.tags === 'string' ? req.query.tags.trim() : '';
+    const tags = tagsRaw
+      ? tagsRaw
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : undefined;
+
+    // Status filtering (Issue #457)
+    // By default, only show published campaigns to public API
+    // API key holders can request draft/archived/all statuses
+    const statusRaw = typeof req.query.status === 'string' ? req.query.status.trim() : undefined;
+    const hasApiKey = req.context?.apiKeyRecord !== undefined;
+    let status = statusRaw;
+
+    if (statusRaw && ['draft', 'archived', 'all'].includes(statusRaw) && !hasApiKey) {
+      // Require API key for non-published statuses
+      return res.status(401).json({
+        error: 'API key required to access draft, archived, or all campaigns',
+        code: 'UNAUTHORIZED',
+      });
+    }
+
+    // Default to published only for public API
+    if (!status && !hasApiKey) {
+      status = 'published';
+    }
+
+    // Handle urgency sorting separately since it requires application-level logic
+    const isUrgencySort = sort === 'urgency';
+    const dbSort = isUrgencySort ? undefined : sort;
+    const dbOrder = isUrgencySort ? undefined : order;
+
+    const items = campaignRepository.list({
+      active: activeFilter,
+      q,
+      sort: dbSort,
+      order: dbOrder,
+      category,
+      tags,
+      status,
+    });
+
+    // Apply urgency sorting if requested
+    let sortedItems = items;
+    if (isUrgencySort) {
+      const { sortByUrgency } = await import('./utils/urgency.js');
+      sortedItems = sortByUrgency(items);
+    }
+
+    const rawPayload = paginateItems(sortedItems, req.query);
+    shortCache.set(cacheKey, {
+      expiresAt: Date.now() + shortCacheTtlMs,
+      payload: rawPayload,
+    });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = {
+      ...rawPayload,
+      data: rawPayload.data.map((c) => serializeCampaign(c, locales)),
     };
-
-    campaigns.push(campaign);
-    return res.status(201).json(campaign);
+    return res.set('x-cache', 'MISS').json(payload);
   }
 
-  function updateCampaign(req, res) {
-    const campaign = campaigns.find((entry) => entry.id === req.params.id);
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getTrendingCampaigns(req, res) {
+    const limitRaw = Number.parseInt(String(req.query.limit ?? '6'), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 && limitRaw <= 50 ? limitRaw : 6;
+    const locales = getRequestLocales(req);
+
+    const cacheKey = `trending:${limit}`;
+    const rawCached = shortCache.get(cacheKey);
+    if (rawCached && rawCached.expiresAt > Date.now()) {
+      res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+      const payload = {
+        ...rawCached.payload,
+        data: rawCached.payload.data.map((c) => serializeCampaign(c, locales)),
+      };
+      return res.set('x-cache', 'HIT').json(payload);
+    }
+
+    const all = campaignRepository.list({
+      active: true,
+      sort: 'reward_per_action',
+      order: 'desc',
+    });
+    const rawData = all.slice(0, limit);
+    const rawPayload = { data: rawData, total: rawData.length };
+
+    shortCache.set(cacheKey, { expiresAt: Date.now() + shortCacheTtlMs, payload: rawPayload });
+    res.set('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
+    const payload = {
+      ...rawPayload,
+      data: rawPayload.data.map((c) => serializeCampaign(c, locales)),
+    };
+    return res.set('x-cache', 'MISS').json(payload);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getCampaignById(req, res) {
+    const campaign = campaignRepository.getById(req.params.id);
     if (!campaign) {
-      return res.status(404).json({ error: 'Campaign not found' });
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
-
-    Object.assign(campaign, req.body, { id: campaign.id });
-    return res.json(campaign);
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
   }
 
-  function deleteCampaign(req, res) {
-    const index = campaigns.findIndex((entry) => entry.id === req.params.id);
-    if (index === -1) {
-      return res.status(404).json({ error: 'Campaign not found' });
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getCampaignStats(req, res) {
+    const campaign = campaignRepository.getById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
     }
 
-    campaigns.splice(index, 1);
+    const stats = buildCampaignStats({
+      db: dal.db,
+      campaign,
+      referralRepository,
+      indexerCursor: indexerCursorState,
+      query: req.query,
+    });
+
+    return res.json(stats);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function getCampaignBySlug(req, res) {
+    const campaign = campaignRepository.getBySlug(req.params.slug);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    return res.json(serializeCampaign(campaign, getRequestLocales(req)));
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function createCampaign(req, res) {
+    const result = campaignCreateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Invalid campaign payload',
+        code: 'VALIDATION_ERROR',
+        details: formatZodErrors(result.error),
+      });
+    }
+
+    const {
+      name,
+      slug,
+      description,
+      rewardPerAction,
+      referralBonusPoints,
+      startDate,
+      endDate,
+      featured,
+      hidden,
+      hiddenReason,
+      active,
+      contractId,
+      imageUrl,
+      tags,
+      category,
+      status,
+    } = result.data;
+    try {
+      const campaign = campaignRepository.create({
+        name,
+        slug: slug || undefined,
+        description: description || '',
+        active: active ?? true,
+        featured: featured ?? false,
+        hidden: hidden ?? false,
+        hiddenReason: hiddenReason ?? null,
+        rewardPerAction: rewardPerAction ?? 0,
+        referralBonusPoints: referralBonusPoints ?? 0,
+        startDate: startDate ?? null,
+        endDate: endDate ?? null,
+        contractId: contractId ?? null,
+        imageUrl: imageUrl ?? null,
+        tags: tags ?? [],
+        category: category ?? null,
+        status: status ?? 'draft',
+      });
+      recordAuditEntry(req, {
+        action: 'create',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #287)
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_CREATED,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.created webhook');
+        });
+
+      // Notify WebSocket clients about new campaign (Issue #456)
+      const wsServer = getWebSocketServer();
+      if (wsServer) {
+        wsServer.broadcast('campaigns', {
+          type: 'campaign_created',
+          campaign,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      shortCache.clear();
+      return res.status(201).json(serializeCampaign(campaign));
+    } catch (error) {
+      if (
+        /** @type {any} */ (error).message?.includes('Tag') ||
+        /** @type {any} */ (error).message?.includes('Category')
+      ) {
+        return res.status(400).json({
+          error: /** @type {Error} */ (error).message,
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      if (/** @type {any} */ (error).message?.includes('UNIQUE constraint failed')) {
+        return res.status(409).json({
+          error: 'Slug already exists',
+          code: 'SLUG_CONFLICT',
+          details: ['A campaign with this slug already exists'],
+        });
+      }
+      throw error;
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function updateCampaign(req, res) {
+    const result = campaignUpdateSchema.safeParse(req.body);
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Invalid campaign payload',
+        code: 'VALIDATION_ERROR',
+        details: formatZodErrors(result.error),
+      });
+    }
+
+    const {
+      name,
+      description,
+      active,
+      rewardPerAction,
+      referralBonusPoints,
+      startDate,
+      endDate,
+      featured,
+      hidden,
+      hiddenReason,
+      contractId,
+      imageUrl,
+      tags,
+      category,
+      status,
+    } = result.data;
+    /** @type {Record<string, unknown>} */
+    const updateFields = {};
+    if (name !== undefined) updateFields.name = name;
+    if (description !== undefined) updateFields.description = description;
+    if (active !== undefined) updateFields.active = active;
+    if (featured !== undefined) updateFields.featured = featured;
+    if (rewardPerAction !== undefined) updateFields.rewardPerAction = rewardPerAction;
+    if (referralBonusPoints !== undefined) updateFields.referralBonusPoints = referralBonusPoints;
+    if (startDate !== undefined) updateFields.startDate = startDate;
+    if (endDate !== undefined) updateFields.endDate = endDate;
+    if (hidden !== undefined) updateFields.hidden = hidden;
+    if (hiddenReason !== undefined) updateFields.hiddenReason = hiddenReason;
+    if (contractId !== undefined) updateFields.contractId = contractId;
+    if (imageUrl !== undefined) updateFields.imageUrl = imageUrl;
+    if (tags !== undefined) updateFields.tags = tags;
+    if (category !== undefined) updateFields.category = category;
+    if (status !== undefined) updateFields.status = status;
+
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    let campaign;
+    try {
+      campaign = campaignRepository.update(req.params.id, updateFields);
+    } catch (error) {
+      if (
+        /** @type {any} */ (error).message?.includes('Tag') ||
+        /** @type {any} */ (error).message?.includes('Category')
+      ) {
+        return res.status(400).json({
+          error: /** @type {Error} */ (error).message,
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      throw error;
+    }
+
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    const changes = Object.keys(updateFields);
+    recordAuditEntry(req, {
+      action: 'update',
+      entity: 'campaign',
+      entityId: campaign.id,
+      diff: { before, after: campaign, changes },
+    });
+
+    // Dispatch webhook events (Issue #290, #352)
+    const wasActive = before.active;
+    const isNowActive = campaign.active;
+
+    if (active !== undefined && wasActive !== isNowActive) {
+      // Dispatch activation/deactivation event
+      const eventType = isNowActive
+        ? WEBHOOK_EVENTS.CAMPAIGN_ACTIVATED
+        : WEBHOOK_EVENTS.CAMPAIGN_DEACTIVATED;
+      webhookService
+        .dispatchEvent({
+          type: eventType,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id, eventType },
+            'Failed to dispatch campaign activation/deactivation webhook',
+          );
+        });
+    } else {
+      // Dispatch generic update event
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_UPDATED,
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn({ err, campaignId: campaign.id }, 'Failed to dispatch campaign.updated webhook');
+        });
+    }
+
+    // Notify WebSocket clients about campaign update (Issue #456)
+    const wsServer = getWebSocketServer();
+    if (wsServer) {
+      wsServer.notifyCampaignUpdate(campaign.id, {
+        campaign,
+        changes,
+        before,
+      });
+    }
+
+    shortCache.clear();
+    return res.json(serializeCampaign(campaign));
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function deleteCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    const deleted = campaignRepository.delete(req.params.id);
+    if (!deleted) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    recordAuditEntry(req, {
+      action: 'delete',
+      entity: 'campaign',
+      entityId: req.params.id,
+      diff: before ? { before } : null,
+    });
+
+    // Dispatch webhook event (Issue #285)
+    if (before) {
+      webhookService
+        .dispatchEvent({
+          type: WEBHOOK_EVENTS.CAMPAIGN_DELETED,
+          campaignId: req.params.id,
+          data: before,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: req.params.id },
+            'Failed to dispatch campaign.deleted webhook',
+          );
+        });
+    }
+
+    shortCache.clear();
     return res.status(204).end();
   }
 
-  function registerApiRoutes(prefix) {
-    app.get(prefix, rateLimiter, apiInfo);
-    app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
-    app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
-    app.post(`${prefix}/campaigns`, rateLimiter, requireApiKey, createCampaign);
-    app.put(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, updateCampaign);
-    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function restoreCampaign(req, res) {
+    const restored = campaignRepository.restore(req.params.id);
+    if (!restored) {
+      return res
+        .status(404)
+        .json({ error: 'Campaign not found or not deleted', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    recordAuditEntry(req, {
+      action: 'restore',
+      entity: 'campaign',
+      entityId: req.params.id,
+      diff: { restored: true },
+    });
+
+    webhookService
+      .dispatchEvent({
+        type: WEBHOOK_EVENTS.CAMPAIGN_RESTORED,
+        campaignId: req.params.id,
+        data: restored,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err) => {
+        log.warn(
+          { err, campaignId: req.params.id },
+          'Failed to dispatch campaign.restored webhook',
+        );
+      });
+
+    shortCache.clear();
+    return res.json(serializeCampaign(restored));
   }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgeCampaign(req, res) {
+    const purged = campaignRepository.hardDelete(req.params.id);
+    if (!purged) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    recordAuditEntry(req, {
+      action: 'purge',
+      entity: 'campaign',
+      entityId: req.params.id,
+      diff: { purged: true },
+    });
+    shortCache.clear();
+    return res.status(204).end();
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listDeletedCampaigns(req, res) {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const olderThanDays = req.query.olderThanDays
+      ? parseInt(req.query.olderThanDays, 10)
+      : undefined;
+    const campaigns = campaignRepository.listDeleted({ limit, olderThanDays });
+    return res.json({ campaigns, total: campaigns.length });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgePiiUser(req, res) {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string') {
+      return res.status(400).json({ error: 'identifier is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = purgePiiForUser(dal.db, identifier);
+    recordAuditEntry(req, {
+      action: 'pii_purge',
+      entity: 'user',
+      entityId: identifier,
+      diff: result,
+    });
+    return res.json({ success: true, ...result });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgePiiCampaign(req, res) {
+    const { campaignId } = req.body;
+    if (!campaignId) {
+      return res.status(400).json({ error: 'campaignId is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = purgePiiForCampaign(dal.db, campaignId);
+    recordAuditEntry(req, {
+      action: 'pii_purge',
+      entity: 'campaign',
+      entityId: String(campaignId),
+      diff: result,
+    });
+    return res.json({ success: true, ...result });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function exportPiiUser(req, res) {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string') {
+      return res.status(400).json({ error: 'identifier is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = exportPiiForUser(dal.db, identifier);
+    recordAuditEntry(req, {
+      action: 'pii_export',
+      entity: 'user',
+      entityId: identifier,
+      // Row counts only — never the exported data itself — so the audit
+      // trail never becomes a second copy of the PII it's logging about.
+      diff: {
+        tables: Object.fromEntries(
+          Object.entries(result.data).map(([t, rows]) => [t, rows.length]),
+        ),
+      },
+    });
+    return res.json({ success: true, ...result });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function cloneCampaign(req, res) {
+    const sourceId = req.params.id;
+    const source = campaignRepository.getById(sourceId);
+
+    if (!source) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    const overrides = req.body?.overrides || {};
+
+    try {
+      const clonedCampaign = campaignRepository.clone(sourceId, overrides);
+
+      if (!clonedCampaign) {
+        return res.status(500).json({ error: 'Failed to clone campaign', code: 'CLONE_FAILED' });
+      }
+
+      recordAuditEntry(req, {
+        action: 'clone',
+        entity: 'campaign',
+        entityId: clonedCampaign.id,
+        diff: { cloned_from: sourceId, overrides },
+      });
+
+      shortCache.clear();
+      return res.status(201).json(serializeCampaign(clonedCampaign));
+    } catch (error) {
+      if (/** @type {any} */ (error).message?.includes('UNIQUE constraint failed')) {
+        return res.status(409).json({
+          error: 'Slug already exists',
+          code: 'SLUG_CONFLICT',
+          details: ['A campaign with this slug already exists'],
+        });
+      }
+      throw error;
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function publishCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.publish(req.params.id);
+      recordAuditEntry(req, {
+        action: 'publish',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.published',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.published webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(serializeCampaign(campaign));
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'PUBLISH_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function archiveCampaign(req, res) {
+    const before = campaignRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    try {
+      const campaign = campaignRepository.archive(req.params.id);
+      recordAuditEntry(req, {
+        action: 'archive',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before, after: campaign },
+      });
+
+      // Dispatch webhook event (Issue #457)
+      webhookService
+        .dispatchEvent({
+          type: 'campaign.archived',
+          campaignId: campaign.id,
+          data: campaign,
+          timestamp: new Date().toISOString(),
+        })
+        .catch((err) => {
+          log.warn(
+            { err, campaignId: campaign.id },
+            'Failed to dispatch campaign.archived webhook',
+          );
+        });
+
+      shortCache.clear();
+      return res.json(serializeCampaign(campaign));
+    } catch (error) {
+      return res.status(400).json({
+        error: /** @type {Error} */ (error).message,
+        code: 'ARCHIVE_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listAuditLogs(req, res) {
+    const entity = typeof req.query.entity === 'string' ? req.query.entity.trim() : '';
+    const entityId = typeof req.query.entityId === 'string' ? req.query.entityId.trim() : '';
+    const action = typeof req.query.action === 'string' ? req.query.action.trim() : '';
+    const orgId = typeof req.query.orgId === 'string' ? req.query.orgId.trim() : '';
+    const items = auditLogRepository.list({
+      entity: entity || undefined,
+      entityId: entityId || undefined,
+      action: action || undefined,
+      orgId: orgId || undefined,
+    });
+    return res.json(paginateItems(items, req.query));
+  }
+
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function verifyAuditChain(_req, res) {
+    const result = auditLogRepository.verify();
+    return res.status(result.valid ? 200 : 409).json(result);
+  }
+
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function getIndexerCursorState(_req, res) {
+    return res.json({
+      cursor: indexerCursorState.cursor,
+      updatedAt: indexerCursorState.updatedAt,
+      source: indexerCursorState.source,
+    });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function setIndexerCursorState(req, res) {
+    const result = cursorBodySchema.safeParse(req.body ?? {});
+    if (!result.success) {
+      return res.status(400).json({
+        error: formatZodErrors(result.error)[0] ?? 'Invalid request body',
+        code: 'VALIDATION_ERROR',
+      });
+    }
+    const { cursor } = result.data;
+    const previousCursor = indexerCursorState.cursor;
+    indexerCursorState.cursor = cursor;
+    indexerCursorState.updatedAt = new Date().toISOString();
+    indexerCursorState.source = 'api';
+    recordAuditEntry(req, {
+      action: 'update',
+      entity: 'indexerCursor',
+      entityId: 'global',
+      diff: { previousCursor, newCursor: cursor },
+    });
+    return res.status(200).json({
+      ok: true,
+      cursor: indexerCursorState.cursor,
+      updatedAt: indexerCursorState.updatedAt,
+    });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listCategories(_req, res) {
+    const categories = campaignRepository.listCategories?.() ?? [];
+    return res.json({ data: categories });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listTags(_req, res) {
+    const tags = campaignRepository.listTags?.() ?? [];
+    return res.json({ data: tags });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  async function getAdminDashboard(req, res) {
+    const cacheKey = 'admin:dashboard';
+    const cached = shortCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return res.set('x-cache', 'HIT').json(cached.payload);
+    }
+
+    // Campaign stats
+    const allCampaigns = campaignRepository.list({ includeHidden: true });
+    const totalCampaigns = allCampaigns.length;
+    const now = new Date();
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+    const campaignsByStatus = {
+      draft: allCampaigns.filter((c) => !c.active && c.hidden).length,
+      published: allCampaigns.filter((c) => c.active && !c.hidden).length,
+      archived: allCampaigns.filter((c) => !c.active && !c.hidden).length,
+    };
+
+    const campaignsCreatedLast7Days = allCampaigns.filter(
+      (c) => new Date(c.createdAt) >= sevenDaysAgo,
+    ).length;
+    const campaignsCreatedLast30Days = allCampaigns.filter(
+      (c) => new Date(c.createdAt) >= thirtyDaysAgo,
+    ).length;
+
+    // Participants (unique wallets from referrals)
+    const allReferrals = referralRepository.listAll?.() ?? [];
+    const uniqueParticipants = new Set();
+    for (const referral of allReferrals) {
+      uniqueParticipants.add(referral.refereeAddress);
+      uniqueParticipants.add(referral.referrerAddress);
+    }
+    const totalParticipants = uniqueParticipants.size;
+
+    // Rewards stats (placeholder - would need indexer event DB integration)
+    const rewards = {
+      totalPointsCredited: 0,
+      totalClaimed: 0,
+      redemptionRate: 0,
+    };
+
+    // Activity: registrations per day (last 30 days)
+    const activity = [];
+    for (let i = 29; i >= 0; i--) {
+      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+      const dateStr = date.toISOString().split('T')[0];
+      const dayReferrals = allReferrals.filter((r) => r.createdAt.startsWith(dateStr)).length;
+      activity.push({ date: dateStr, registrations: dayReferrals });
+    }
+
+    // Errors from metrics (last 24h would need time-series tracking, using current total)
+    const errors = {
+      last24h: metrics.requestErrors,
+    };
+
+    // RPC pool status
+    const rpc = rpcPool.getStatus();
+
+    const payload = {
+      campaigns: {
+        total: totalCampaigns,
+        byStatus: campaignsByStatus,
+        createdLast7Days: campaignsCreatedLast7Days,
+        createdLast30Days: campaignsCreatedLast30Days,
+      },
+      participants: {
+        total: totalParticipants,
+      },
+      rewards,
+      activity,
+      errors,
+      rpc,
+      timestamp: now.toISOString(),
+    };
+
+    shortCache.set(cacheKey, {
+      expiresAt: Date.now() + 60000, // 60 seconds
+      payload,
+    });
+
+    return res.set('x-cache', 'MISS').json(payload);
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listAdminCampaigns(req, res) {
+    const allCampaigns = campaignRepository.list({ includeHidden: true });
+    return res.json(paginateItems(allCampaigns, req.query));
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  async function uploadCampaignImageHandler(req, res) {
+    const campaign = campaignRepository.getById(req.params.id);
+    if (!campaign) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+
+    const file = /** @type {Express.Multer.File | undefined} */ (req.file);
+    const validation = validateImageUpload({
+      buffer: file?.buffer,
+      mimetype: file?.mimetype ?? '',
+      size: file?.size ?? 0,
+      originalname: file?.originalname,
+    });
+
+    if (!validation.ok) {
+      return res.status(400).json({
+        error: validation.error,
+        code: validation.code,
+      });
+    }
+
+    try {
+      const { imageUrl } = await uploadCampaignImage(storageAdapter, {
+        buffer: validation.buffer,
+        mimeType: validation.mimeType,
+        campaignId: campaign.id,
+      });
+
+      const updated = campaignRepository.update(campaign.id, { imageUrl });
+      recordAuditEntry(req, {
+        action: 'update',
+        entity: 'campaign',
+        entityId: campaign.id,
+        diff: { before: campaign, after: updated, changes: ['imageUrl'] },
+      });
+
+      shortCache.clear();
+      return res.status(200).json({ imageUrl });
+    } catch (error) {
+      log.error({ err: error, campaignId: campaign.id }, 'Failed to upload campaign image');
+      return res.status(500).json({
+        error: 'Failed to upload image',
+        code: 'UPLOAD_FAILED',
+      });
+    }
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function createApiKeyHandler(req, res) {
+    const result = apiKeyCreateSchema.safeParse(req.body ?? {});
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Invalid API key payload',
+        code: 'VALIDATION_ERROR',
+        details: formatZodErrors(result.error),
+      });
+    }
+
+    const created = apiKeyRepository.create({
+      label: result.data.label ?? '',
+      expiresAt: result.data.expiresAt ?? null,
+      orgId: result.data.orgId ?? null,
+      scopes: result.data.scopes ?? undefined,
+      rateTier: result.data.rateTier ?? undefined,
+    });
+
+    recordAuditEntry(req, {
+      action: 'create',
+      entity: 'apiKey',
+      entityId: created.key.id,
+      diff: { after: created.key },
+    });
+
+    return res.status(201).json({
+      key: created.rawKey,
+      metadata: created.key,
+    });
+  }
+
+  /** @param {import('express').Request} _req @param {import('express').Response} res */
+  function listApiKeysHandler(_req, res) {
+    const keys = apiKeyRepository.list();
+    return res.json({ data: keys });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function revokeApiKeyHandler(req, res) {
+    const before = apiKeyRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
+    }
+
+    apiKeyRepository.revoke(req.params.id);
+    recordAuditEntry(req, {
+      action: 'revoke',
+      entity: 'apiKey',
+      entityId: req.params.id,
+      diff: { before },
+    });
+
+    return res.status(204).end();
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function rotateApiKeyHandler(req, res) {
+    const rotated = apiKeyRepository.rotate(req.params.id);
+    if (!rotated) {
+      return res
+        .status(404)
+        .json({ error: 'API key not found or already revoked', code: 'API_KEY_NOT_FOUND' });
+    }
+
+    recordAuditEntry(req, {
+      action: 'rotate',
+      entity: 'apiKey',
+      entityId: req.params.id,
+      diff: { newKeyId: rotated.key.id },
+    });
+
+    return res.status(200).json({
+      key: rotated.rawKey,
+      metadata: rotated.key,
+    });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function updateApiKeyRateTierHandler(req, res) {
+    const before = apiKeyRepository.getById(req.params.id);
+    if (!before) {
+      return res.status(404).json({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
+    }
+
+    const result = apiKeyRateTierUpdateSchema.safeParse(req.body ?? {});
+    if (!result.success) {
+      return res.status(400).json({
+        error: 'Invalid rate tier payload',
+        code: 'VALIDATION_ERROR',
+        details: formatZodErrors(result.error),
+      });
+    }
+
+    const updated = apiKeyRepository.setRateTier(req.params.id, result.data.rateTier);
+
+    recordAuditEntry(req, {
+      action: 'update',
+      entity: 'apiKey',
+      entityId: req.params.id,
+      diff: { before: { rateTier: before.rateTier }, after: { rateTier: updated.rateTier } },
+    });
+
+    return res.status(200).json({ metadata: updated });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listFailedJobsHandler(req, res) {
+    const limitRaw = Number.parseInt(/** @type {string} */ (req.query.limit), 10);
+    const offsetRaw = Number.parseInt(/** @type {string} */ (req.query.offset), 10);
+    const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? limitRaw : 100;
+    const offset = Number.isFinite(offsetRaw) && offsetRaw >= 0 ? offsetRaw : 0;
+
+    const items = failedJobRepository.list({ limit, offset });
+    const total = failedJobRepository.count();
+
+    return res.json({
+      data: items,
+      pagination: { total, count: items.length, limit, offset },
+    });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function retryFailedJobHandler(req, res) {
+    const entry = failedJobRepository.getById(req.params.id);
+    if (!entry) {
+      return res.status(404).json({ error: 'Failed job not found', code: 'FAILED_JOB_NOT_FOUND' });
+    }
+
+    jobRunner.enqueue(entry.type, entry.payload);
+    failedJobRepository.remove(entry.id);
+
+    recordAuditEntry(req, {
+      action: 'retry',
+      entity: 'failedJob',
+      entityId: entry.id,
+      diff: { type: entry.type, attempts: entry.attempts },
+    });
+
+    return res.status(202).json({
+      requeued: true,
+      job: { id: entry.id, type: entry.type },
+    });
+  }
+
+  /** @param {string} prefix */
+  function registerApiRoutes(prefix) {
+    // Shorthand: auth + per-tenant api_calls metering in one step.
+    const guard = [requireApiKey, usageMeteringMiddleware];
+
+    app.get(prefix, rateLimiter, apiInfo);
+    app.get(`${prefix}/config`, rateLimiter, getPublicConfig);
+    app.get(`${prefix}/explorer`, rateLimiter, getExplorerLinks);
+    app.get(`${prefix}/campaigns`, rateLimiter, listCampaigns);
+    app.get(`${prefix}/categories`, rateLimiter, listCategories);
+    app.get(`${prefix}/tags`, rateLimiter, listTags);
+    app.get(`${prefix}/campaigns/trending`, rateLimiter, getTrendingCampaigns);
+    app.get(`${prefix}/campaigns/by-slug/:slug`, rateLimiter, getCampaignBySlug);
+    app.get(`${prefix}/campaigns/:id`, rateLimiter, getCampaignById);
+    app.get(`${prefix}/campaigns/:id/stats`, rateLimiter, getCampaignStats);
+    app.use(
+      prefix,
+      createCampaignExportRoute({
+        db: dal.db,
+        campaignRepository,
+        auditLogRepository,
+        requireApiKey,
+      }),
+    );
+    app.get(`${prefix}/deprecations`, rateLimiter, (_req, res) =>
+      res.json({ deprecations: DEPRECATION_REGISTRY }),
+    );
+    app.get(`${prefix}/audit-logs`, rateLimiter, ...guard, listAuditLogs);
+    app.get(`${prefix}/admin/audit/verify`, rateLimiter, requireMasterKey, verifyAuditChain);
+    app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
+    app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
+    app.post(
+      `${prefix}/campaigns`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      contentModerationMiddleware,
+      createCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/clone`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      cloneCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/image`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res, next) => {
+        imageUpload.single('image')(req, res, (err) => {
+          if (err?.code === 'LIMIT_FILE_SIZE') {
+            return res.status(400).json({
+              error: 'Image must be 5MB or smaller',
+              code: 'FILE_TOO_LARGE',
+            });
+          }
+          if (err) return next(err);
+          return uploadCampaignImageHandler(req, res);
+        });
+      },
+    );
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      contentModerationMiddleware,
+      updateCampaign,
+    );
+    app.delete(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      deleteCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      updateCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/publish`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      publishCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/archive`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      archiveCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
+    app.put(
+      `${prefix}/campaigns/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      updateCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/publish`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      publishCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/archive`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      archiveCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
+
+    // Soft-delete management routes
+    app.post(
+      `${prefix}/campaigns/:id/restore`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      restoreCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/restore`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      restoreCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id/purge`, rateLimiter, requireApiKey, purgeCampaign);
+    app.delete(
+      `${prefix}/campaigns/:id/purge`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      purgeCampaign,
+    );
+    app.get(`${prefix}/campaigns/deleted`, rateLimiter, requireApiKey, listDeletedCampaigns);
+    app.get(
+      `${prefix}/campaigns/deleted`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:read'),
+      listDeletedCampaigns,
+    );
+
+    // GDPR / PII purge + export routes (admin only, issue #927).
+    //
+    // Bug fix: this used to be two competing route registrations per path —
+    // Express only ever dispatches the first match, so the second
+    // (requireScope('org:manage'), a scope that isn't even in
+    // VALID_API_KEY_SCOPES and so could never actually pass) was silently
+    // unreachable dead code. The live behavior was "any valid tenant API
+    // key can purge any user's PII site-wide" — replaced with a single
+    // requireMasterKey-gated registration per path, consistent with every
+    // other admin-sensitive route in this file.
+    app.post(
+      `${prefix}/pii/purge-user`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      purgePiiUser,
+    );
+    app.post(
+      `${prefix}/pii/purge-campaign`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      purgePiiCampaign,
+    );
+    app.post(`${prefix}/pii/export-user`, rateLimiter, requireMasterKey, exportPiiUser);
+
+    // Campaign translations (i18n)
+    app.get(`${prefix}/campaigns/:id/translations`, rateLimiter, ...guard, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const translations = campaignRepository.getTranslations(req.params.id);
+      return res.json({ campaignId: campaign.id, translations });
+    });
+
+    app.put(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+
+        if (!isValidLocale(locale)) {
+          return res.status(400).json({
+            error: 'Invalid locale — must be a valid BCP-47 tag (e.g. es, fr, zh-CN)',
+            code: 'INVALID_LOCALE',
+          });
+        }
+
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+
+        const { name, description } = req.body ?? {};
+        if (!name && !description) {
+          return res.status(400).json({
+            error: 'At least one of name or description is required',
+            code: 'VALIDATION_ERROR',
+          });
+        }
+
+        const translationPayload = {};
+        if (name !== undefined) translationPayload.name = String(name);
+        if (description !== undefined) translationPayload.description = String(description);
+
+        if (Buffer.byteLength(JSON.stringify(translationPayload), 'utf8') > 2048) {
+          return res.status(413).json({
+            error: 'Translation exceeds the 2KB limit',
+            code: 'TRANSLATION_TOO_LARGE',
+          });
+        }
+
+        const current = campaignRepository.getTranslations(req.params.id);
+        const currentLocales = Object.keys(current);
+        if (!currentLocales.includes(locale) && currentLocales.length >= 10) {
+          return res.status(422).json({
+            error: 'Maximum 10 locales per campaign',
+            code: 'LOCALE_LIMIT_EXCEEDED',
+          });
+        }
+
+        campaignRepository.upsertTranslation(req.params.id, locale, translationPayload);
+        shortCache.clear();
+
+        const updated = campaignRepository.getTranslations(req.params.id);
+        return res.json({ campaignId: campaign.id, locale, translation: updated[locale] });
+      },
+    );
+
+    app.delete(
+      `${prefix}/campaigns/:id/translations/:locale`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      (req, res) => {
+        const { locale } = req.params;
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+        const removed = campaignRepository.deleteTranslation(req.params.id, locale);
+        if (!removed) {
+          return res.status(404).json({ error: 'Locale not found', code: 'LOCALE_NOT_FOUND' });
+        }
+        shortCache.clear();
+        return res.status(204).end();
+      },
+    );
+
+    // Campaign templates (#810)
+    app.use(`${prefix}/templates`, rateLimiter, createTemplateRoutes());
+
+    app.post(
+      `${prefix}/admin/api-keys`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      createApiKeyHandler,
+    );
+    app.get(`${prefix}/admin/api-keys`, rateLimiter, requireMasterKey, listApiKeysHandler);
+    app.delete(`${prefix}/admin/api-keys/:id`, rateLimiter, requireMasterKey, revokeApiKeyHandler);
+    app.put(
+      `${prefix}/admin/api-keys/:id/rotate`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      rotateApiKeyHandler,
+    );
+    app.put(
+      `${prefix}/admin/api-keys/:id/rate-tier`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      updateApiKeyRateTierHandler,
+    );
+
+    // Admin dashboard and campaign management (Issue #467)
+    app.get(`${prefix}/admin/dashboard`, rateLimiter, requireMasterKey, getAdminDashboard);
+    app.get(`${prefix}/admin/campaigns`, rateLimiter, requireMasterKey, listAdminCampaigns);
+
+    // Content moderation blocklist management
+    app.get(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (_req, res) => {
+      return res.json({ terms: moderationService.getTerms() });
+    });
+    app.post(`${prefix}/admin/moderation/blocklist`, rateLimiter, requireMasterKey, (req, res) => {
+      const { action, term } = req.body ?? {};
+      if (!term || typeof term !== 'string' || !term.trim()) {
+        return res.status(400).json({ error: 'term is required', code: 'VALIDATION_ERROR' });
+      }
+      if (action !== 'add' && action !== 'remove') {
+        return res.status(400).json({
+          error: 'action must be "add" or "remove"',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      if (action === 'add') {
+        moderationService.addTerm(term);
+      } else {
+        moderationService.removeTerm(term);
+      }
+      return res.json({ ok: true, terms: moderationService.getTerms() });
+    });
+
+    // Tenant usage metering (Issue #574)
+    app.get(`${prefix}/usage`, rateLimiter, ...guard, (req, res) => {
+      const orgId = req.auth?.orgId;
+      if (!orgId) {
+        return res.status(403).json({
+          error: 'Usage data is scoped to org-linked API keys.',
+          code: 'NO_ORG_CONTEXT',
+        });
+      }
+      const usage = usageMeteringService.getOrgUsage(orgId);
+      return res.json({ orgId, usage });
+    });
+
+    app.get(`${prefix}/admin/usage`, rateLimiter, requireMasterKey, (_req, res) => {
+      const rows = usageMeteringService.adminExport();
+      return res.json({ usage: rows });
+    });
+
+    app.put(`${prefix}/admin/usage/quotas`, rateLimiter, requireMasterKey, (req, res) => {
+      const {
+        orgId,
+        resource,
+        softLimit = null,
+        hardLimit = null,
+        windowSeconds = 3600,
+      } = req.body ?? {};
+      if (!orgId || !resource) {
+        return res.status(400).json({
+          error: 'orgId and resource are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      const quota = usageRepository.upsertQuota({
+        orgId,
+        resource,
+        softLimit,
+        hardLimit,
+        windowSeconds,
+      });
+      recordAuditEntry(req, {
+        action: 'update',
+        entity: 'usageQuota',
+        entityId: `${orgId}:${resource}`,
+        diff: { orgId, resource, softLimit, hardLimit, windowSeconds },
+      });
+      return res.json(quota);
+    });
+
+    // Job dead-letter inspection / requeue (Issue #286)
+    app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, listFailedJobsHandler);
+    app.post(
+      `${prefix}/jobs/retry/:id`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      retryFailedJobHandler,
+    );
+
+    // Durable job queue DLQ admin — inspect and replay dead jobs (#565)
+    app.get(`${prefix}/admin/jobs/dlq`, rateLimiter, requireMasterKey, (req, res) => {
+      const limit = Math.min(parseInt(/** @type {any} */ (req.query.limit)) || 100, 500);
+      const offset = Math.max(parseInt(/** @type {any} */ (req.query.offset)) || 0, 0);
+      const items = jobQueueStore.listDead({ limit, offset });
+      const total = jobQueueStore.countDead();
+      return res.json({ data: items, pagination: { total, count: items.length, limit, offset } });
+    });
+
+    app.post(
+      `${prefix}/admin/jobs/:id/replay`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      async (req, res) => {
+        const job = jobQueueStore.getById(req.params.id);
+        if (!job) {
+          return res.status(404).json({ error: 'Job not found', code: 'JOB_NOT_FOUND' });
+        }
+        durableJobQueue.enqueue(job.type, job.payload);
+        jobQueueStore.removeById(job.id);
+        recordAuditEntry(req, { action: 'replay', entity: 'durableJob', entityId: job.id });
+        return res.status(202).json({ requeued: true, job: { id: job.id, type: job.type } });
+      },
+    );
+
+    // Webhook routes (Issue #287)
+    app.post(`${prefix}/webhooks`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
+      const { url, events, secret } = req.body;
+      if (!url || !Array.isArray(events) || events.length === 0) {
+        return res.status(400).json({
+          error: 'Invalid webhook payload',
+          code: 'VALIDATION_ERROR',
+          details: ['url and events array are required'],
+        });
+      }
+      const webhook = webhookRepository.create({ url, events, secret });
+      recordAuditEntry(req, {
+        action: 'create',
+        entity: 'webhook',
+        entityId: webhook.id,
+        diff: { after: webhook },
+      });
+      return res.status(201).json(webhook);
+    });
+
+    app.get(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
+      const webhooks = webhookRepository.list();
+      return res.json(paginateItems(webhooks, req.query));
+    });
+
+    app.get(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      return res.json(webhook);
+    });
+
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
+      const { url, events, active } = req.body;
+      const before = webhookRepository.getById(req.params.id);
+      if (!before) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const updates = {};
+      if (url !== undefined) updates.url = url;
+      if (events !== undefined) updates.events = events;
+      if (active !== undefined) updates.active = active;
+      const webhook = webhookRepository.update(req.params.id, updates);
+      recordAuditEntry(req, {
+        action: 'update',
+        entity: 'webhook',
+        entityId: webhook.id,
+        diff: { before, after: webhook },
+      });
+      return res.json(webhook);
+    });
+
+    app.delete(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
+      const before = webhookRepository.getById(req.params.id);
+      const deleted = webhookRepository.delete(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      recordAuditEntry(req, {
+        action: 'delete',
+        entity: 'webhook',
+        entityId: req.params.id,
+        diff: before ? { before } : null,
+      });
+      return res.status(204).end();
+    });
+
+    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, ...guard, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const deliveries = webhookRepository.listDeliveries(req.params.id, {
+        limit: parseInt(req.query.limit) || 100,
+      });
+      return res.json(paginateItems(deliveries, req.query));
+    });
+
+    app.get(`${prefix}/webhooks/:id/deliveries/:deliveryId`, rateLimiter, ...guard, (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+      if (!delivery || delivery.webhookId !== req.params.id) {
+        return res.status(404).json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+      }
+      return res.json(delivery);
+    });
+
+    app.post(
+      `${prefix}/webhooks/:id/deliveries/:deliveryId/replay`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      async (req, res) => {
+        const webhook = webhookRepository.getById(req.params.id);
+        if (!webhook) {
+          return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+        }
+        const delivery = webhookRepository.getDeliveryById(req.params.deliveryId);
+        if (!delivery || delivery.webhookId !== req.params.id) {
+          return res.status(404).json({ error: 'Delivery not found', code: 'DELIVERY_NOT_FOUND' });
+        }
+        try {
+          await webhookService.deliverWebhook(webhook, {
+            type: delivery.event,
+            data: delivery.payload,
+            timestamp: new Date().toISOString(),
+          });
+          return res.json({ replayed: true, webhookId: req.params.id, event: delivery.event });
+        } catch (err) {
+          log.warn({ err, webhookId: req.params.id }, 'Webhook replay error');
+          return res.status(502).json({ error: 'Replay delivery failed', code: 'REPLAY_FAILED' });
+        }
+      },
+    );
+
+    app.post(`${prefix}/webhooks/:id/test`, rateLimiter, ...guard, async (req, res) => {
+      const webhook = webhookRepository.getById(req.params.id);
+      if (!webhook) {
+        return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
+      }
+      const eventType = req.body?.eventType || 'campaign.created';
+      try {
+        await webhookService.deliverWebhook(webhook, {
+          type: eventType,
+          data: { test: true, timestamp: new Date().toISOString() },
+          timestamp: new Date().toISOString(),
+        });
+        return res.json({ sent: true, webhookId: req.params.id, eventType });
+      } catch (err) {
+        log.warn({ err, webhookId: req.params.id }, 'Webhook test error');
+        return res.status(502).json({ error: 'Test delivery failed', code: 'TEST_FAILED' });
+      }
+    });
+
+    // POST /webhooks/verify — signature verification helper for consumers (no auth required)
+    app.post(`${prefix}/webhooks/verify`, rateLimiter, (req, res) => {
+      const { signature, secret, payload } = req.body ?? {};
+      if (!signature || !secret || payload === undefined) {
+        return res.status(400).json({
+          error: 'signature, secret, and payload are required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      try {
+        const payloadStr = typeof payload === 'string' ? payload : JSON.stringify(payload);
+        const valid = webhookService.verifySignature(signature, secret, payloadStr);
+        return res.json({ valid });
+      } catch {
+        return res.json({ valid: false });
+      }
+    });
+
+    // Sanctions screening — closes #955
+    // POST /api/v1/sanctions/screen  { address: string }
+    // Screen a Stellar address against the configured blocklist before settlement.
+    // Returns { blocked: boolean, reason?: string, provider: string }.
+    // Blocked addresses are also written to the audit log.
+    app.post(`${prefix}/sanctions/screen`, rateLimiter, async (req, res) => {
+      const address = req.body?.address;
+      if (typeof address !== 'string' || !address.trim()) {
+        return res.status(400).json({
+          error: 'address is required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      try {
+        const result = await sanctionsService.screen(address.trim(), { logger: log });
+        if (result.blocked) {
+          recordAuditEntry(req, {
+            action: 'block',
+            entity: 'sanctions',
+            entityId: address.trim(),
+            diff: { reason: result.reason, provider: result.provider },
+          });
+        }
+        return res.status(result.blocked ? 403 : 200).json(result);
+      } catch (err) {
+        log.error({ err }, 'sanctions: screen error');
+        return res.status(500).json({ error: 'Sanctions check failed', code: 'INTERNAL_ERROR' });
+      }
+    });
+
+    // Referral routes (Issue #350)
+    app.post(`${prefix}/campaigns/:id/referrals`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+
+      const { referrerAddress, refereeAddress } = req.body ?? {};
+      if (!referrerAddress || typeof referrerAddress !== 'string') {
+        return res
+          .status(400)
+          .json({ error: 'referrerAddress is required', code: 'VALIDATION_ERROR' });
+      }
+      if (!refereeAddress || typeof refereeAddress !== 'string') {
+        return res
+          .status(400)
+          .json({ error: 'refereeAddress is required', code: 'VALIDATION_ERROR' });
+      }
+      if (referrerAddress === refereeAddress) {
+        return res.status(400).json({
+          error: 'referrerAddress and refereeAddress must be different',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+
+      const referral = referralRepository.create({
+        campaignId: req.params.id,
+        referrerAddress: referrerAddress.trim(),
+        refereeAddress: refereeAddress.trim(),
+      });
+
+      if (!referral) {
+        return res.status(409).json({
+          error: 'Referee already attributed to a referrer for this campaign',
+          code: 'REFERRAL_DUPLICATE',
+        });
+      }
+
+      // Live-update anyone watching this campaign's referral leaderboard stream.
+      broadcastCampaignEvent(`${req.params.id}:leaderboard`, 'referral', {
+        campaignId: String(campaign.id),
+        referrerAddress: referral.referrerAddress,
+        timestamp: referral.createdAt,
+      });
+
+      return res.status(201).json(referral);
+    });
+
+    // Referral leaderboard — top referrers for a campaign, with tiered perk
+    // progress and tie-safe ranking (Growth & Community epic).
+    //
+    // Registered ahead of the /:walletAddress route below: Express matches
+    // routes in registration order, and "leaderboard" would otherwise be
+    // captured as a wallet address by the more general param route.
+    app.get(`${prefix}/campaigns/:id/referrals/leaderboard`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+      const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+      const offset = (page - 1) * limit;
+
+      const { rows, total } = referralRepository.getLeaderboard(req.params.id, {
+        limit,
+        offset,
+      });
+
+      const data = rows.map((row) => {
+        const { tier, nextTier, referralsToNextTier, progressPercent } = getReferralTierProgress(
+          row.referralCount,
+        );
+        return {
+          rank: row.rank,
+          walletAddress: row.referrerAddress,
+          referralCount: row.referralCount,
+          tier,
+          nextTier,
+          referralsToNextTier,
+          tierProgressPercent: progressPercent,
+        };
+      });
+
+      return res.json({
+        data,
+        pagination: {
+          page,
+          limit,
+          total,
+          hasNextPage: offset + rows.length < total,
+        },
+      });
+    });
+
+    app.get(`${prefix}/campaigns/:id/referrals/leaderboard/rank`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+
+      const walletAddress = String(req.query.wallet ?? '').trim();
+      if (!walletAddress) {
+        return res
+          .status(400)
+          .json({ error: 'wallet query parameter is required', code: 'VALIDATION_ERROR' });
+      }
+
+      const ranked = referralRepository.getReferrerRank(req.params.id, walletAddress);
+      const referralCount = ranked?.referralCount ?? 0;
+      const { tier, nextTier, referralsToNextTier, progressPercent } =
+        getReferralTierProgress(referralCount);
+
+      return res.json({
+        walletAddress,
+        campaignId: String(campaign.id),
+        rank: ranked?.rank ?? null,
+        referralCount,
+        tier,
+        nextTier,
+        referralsToNextTier,
+        tierProgressPercent: progressPercent,
+      });
+    });
+
+    app.get(`${prefix}/campaigns/:id/referrals/:walletAddress`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+
+      const walletAddress = req.params.walletAddress.trim();
+      const referralCount = referralRepository.countByReferrer(req.params.id, walletAddress);
+      const bonusEarned = referralCount * (campaign.referralBonusPoints ?? 0);
+      const { tier, nextTier, referralsToNextTier, progressPercent } =
+        getReferralTierProgress(referralCount);
+
+      return res.json({
+        walletAddress,
+        campaignId: String(campaign.id),
+        referralCount,
+        referralBonusPoints: campaign.referralBonusPoints ?? 0,
+        bonusEarned,
+        tier,
+        nextTier,
+        referralsToNextTier,
+        tierProgressPercent: progressPercent,
+      });
+    });
+
+    // Allowlist CSV import + proof routes (Issue #514)
+    const csvUpload = multer({
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 /* 5 MB */ },
+    });
+
+    app.post(
+      `${prefix}/campaigns/:id/allowlist/import`,
+      rateLimiter,
+      ...guard,
+      requireScope('allowlist:write'),
+      csvUpload.single('file'),
+      async (req, res) => {
+        const campaign = campaignRepository.getById(req.params.id);
+        if (!campaign) {
+          return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+        }
+        if (!req.file && !req.body.csv) {
+          return res.status(400).json({ error: 'No CSV data provided', code: 'MISSING_CSV' });
+        }
+        const raw = req.file ? req.file.buffer.toString('utf8') : String(req.body.csv);
+        const { rows } = parseAllowlistCsv(raw);
+        if (rows.length === 0) {
+          return res.status(400).json({ error: 'CSV contains no addresses', code: 'EMPTY_CSV' });
+        }
+        if (rows.length > MAX_ALLOWLIST_ROWS) {
+          return res.status(400).json({
+            error: `CSV exceeds maximum of ${MAX_ALLOWLIST_ROWS} rows`,
+            code: 'CSV_TOO_LARGE',
+          });
+        }
+        const invalid = rows.filter((r) => !validateGAddress(r.address));
+        if (invalid.length > 0) {
+          return res.status(400).json({
+            error: 'CSV contains invalid Stellar addresses',
+            code: 'INVALID_ADDRESSES',
+            details: invalid.slice(0, 20).map((r) => ({ row: r.row, address: r.address })),
+          });
+        }
+        try {
+          const addresses = rows.map((r) => r.address);
+          const { root, proofs } = await generateAllowlist(addresses);
+          const addressEntries = rows.map((r) => ({
+            address: r.address,
+            label: r.label,
+            bonus_points: r.bonus_points ? Number(r.bonus_points) : undefined,
+            proof: proofs[r.address],
+          }));
+          allowlistRepository.upsertAllowlistEntries({
+            campaignId: req.params.id,
+            addressEntries,
+            merkleRootHex: root,
+          });
+          return res.status(201).json({
+            campaignId: String(req.params.id),
+            merkleRoot: root,
+            count: rows.length,
+          });
+        } catch (err) {
+          log.error({ err, campaignId: req.params.id }, 'Allowlist import failed');
+          return res
+            .status(500)
+            .json({ error: 'Failed to generate allowlist', code: 'ALLOWLIST_ERROR' });
+        }
+      },
+    );
+
+    app.get(`${prefix}/campaigns/:id/allowlist`, rateLimiter, ...guard, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const entries = allowlistRepository.listAllowlist(req.params.id);
+      const merkleRoot = entries[0]?.merkleRoot ?? null;
+      return res.json({
+        campaignId: String(req.params.id),
+        merkleRoot,
+        count: entries.length,
+        entries,
+      });
+    });
+
+    app.get(`${prefix}/campaigns/:id/allowlist/:address/proof`, rateLimiter, (req, res) => {
+      const campaign = campaignRepository.getById(req.params.id);
+      if (!campaign) {
+        return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+      }
+      const address = req.params.address.trim();
+      if (!validateGAddress(address)) {
+        return res.status(400).json({ error: 'Invalid Stellar address', code: 'INVALID_ADDRESS' });
+      }
+      const row = allowlistRepository.getProof(req.params.id, address);
+      if (!row) {
+        return res
+          .status(404)
+          .json({ error: 'Address not in allowlist', code: 'NOT_IN_ALLOWLIST' });
+      }
+      const proof = row.merkle_proof ? JSON.parse(row.merkle_proof) : null;
+      return res.json({
+        campaignId: String(req.params.id),
+        address,
+        merkleRoot: row.merkle_root,
+        proof,
+      });
+    });
+
+    // Org + RBAC member management routes (Issue #608)
+    // Registered BEFORE the app.use(prefix, requireApiKey, ...) mounts so that
+    // master-key-only routes (POST /orgs) are not intercepted by the API-key
+    // guard that the variant/cohort/push routers apply at the prefix level.
+    const orgRouter = createOrgRoutes({
+      orgMemberRepository,
+      requireMasterKey,
+      requireApiKey,
+      recordAuditEntry,
+    });
+    app.use(prefix, rateLimiter, orgRouter);
+
+    // Audit log routes for organization-scoped audit logging and activity feeds (Issue #612)
+    const auditRouter = createAuditRouter({
+      auditLogService,
+      requireApiKey,
+    });
+    app.use(prefix, rateLimiter, auditRouter);
+
+    // Variant routes for A/B testing (Issue #624)
+    const variantRouter = createVariantRoutes({
+      variantRepo: variantRepository,
+      variantService,
+      campaignRepo: campaignRepository,
+      recordAuditEntry,
+    });
+    app.use(prefix, rateLimiter, ...guard, variantRouter);
+
+    // Cohort and retention analysis routes (Issue #623)
+    const cohortRouter = createCohortRoutes({
+      cohortService,
+      campaignRepo: campaignRepository,
+    });
+    app.use(prefix, rateLimiter, requireApiKey, cohortRouter);
+
+    // Notification preferences + unsubscribe compliance (Issue #1026)
+    const notifRouter = createNotificationPreferenceRoutes({
+      notifRepo: notificationPreferencesRepository,
+    });
+    app.use(prefix, rateLimiter, notifRouter);
+    app.use(prefix, rateLimiter, ...guard, cohortRouter);
+
+    // Web Push subscription routes (Issue #619)
+    const pushRouter = createPushRoutes({
+      repository: pushSubscriptionRepository,
+      service: webPushService,
+    });
+    app.use(prefix, rateLimiter, requireApiKey, pushRouter);
+
+    // Organization and team member invitation routes (Issue #609)
+    const organizationRouter = createOrganizationRoutes(dal);
+    app.use(`${prefix}/organizations`, rateLimiter, requireApiKey, organizationRouter);
+    app.use(prefix, rateLimiter, ...guard, pushRouter);
+
+    // Feature flag system routes (Issue #625)
+    const featureFlagService = createFeatureFlagService({
+      featureFlagRepository: dal.featureFlags,
+    });
+    const featureFlagRouter = createFeatureFlagRoutes({
+      featureFlagService,
+      requireApiKey,
+      recordAuditEntry,
+    });
+    app.use(`${prefix}/feature-flags`, rateLimiter, featureFlagRouter);
+
+    // #560 — Public read API over indexed data (cursor-paginated, ETag cached)
+    const indexReadRouter = createIndexReadRoutes({ dal, campaignRepository });
+    app.use(`${prefix}/index`, rateLimiter, indexReadRouter);
+
+    // #556 — Sponsored account creation + CAP-33 reserve sponsorship
+    const sponsoredAccountRouter = createSponsoredAccountRoutes({
+      dal,
+      stellarConfig,
+      env: process.env,
+    });
+    app.use(`${prefix}/sponsored-accounts`, rateLimiter, ...guard, sponsoredAccountRouter);
+
+    // #548 — Claimable balances for unclaimed/expired rewards
+    // #922 — submission runs via durableJobQueue; idempotencyMiddleware
+    // guards the POST route against duplicate enqueues on request retry.
+    const claimableBalancesRouter = createClaimableBalancesRoutes({
+      dal,
+      campaignRepository,
+      jobQueue: durableJobQueue,
+      idempotencyMiddleware,
+      env: process.env,
+      logger: log,
+    });
+    app.use(prefix, rateLimiter, ...guard, claimableBalancesRouter);
+
+    // #555 — Fee-bump / sponsored transactions (gasless registration & claim)
+    const feeBumpRouter = createFeeBumpRoutes({
+      dal,
+      stellarConfig,
+      env: process.env,
+      logger: log,
+    });
+    app.use(`${prefix}/fee-bump`, rateLimiter, feeBumpRouter);
+
+    // #549 — Path payment support for multi-asset claims
+    const pathPaymentRouter = createPathPaymentRoutes({
+      stellarConfig,
+      fetchImpl,
+    });
+    app.use(`${prefix}/payment-paths`, rateLimiter, pathPaymentRouter);
+  }
+
+  // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
+  const stellarTomlRouter = createStellarTomlRoute({ env: process.env });
+  app.use(stellarTomlRouter);
+
+  // #547 — SEP-10 Stellar Web Authentication
+  const sep10Router = createSep10Routes({
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+    networkPassphrase: process.env.STELLAR_NETWORK,
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+  });
+  app.use(rateLimiter, sep10Router);
+
+  // Expose requireWalletAuth for routes that need wallet-based auth
+  const requireWalletAuth = createRequireWalletAuth({
+    jwtSecret: process.env.TRIVELA_JWT_SECRET,
+    serverSecret: process.env.STELLAR_SECRET_KEY,
+  });
+
+  // #543 — ZK proving inputs (public, no auth — secrets never leave the device)
+  const zkInputsRouter = createZkInputsRoutes({ campaignRepository });
+  app.use(API_V1_PREFIX, rateLimiter, zkInputsRouter);
+
+  // #1027 — In-app notification center with read/unread state
+  const notificationRouter = createNotificationRoutes({ dal });
+  app.use(API_V1_PREFIX, rateLimiter, notificationRouter);
+
+  // #1028 — SMS/WhatsApp notification preferences
+  const notificationPreferencesRouter = createNotificationPreferencesRoutes({ dal });
+  app.use(API_V1_PREFIX, rateLimiter, notificationPreferencesRouter);
+
+  // #808 — In-app testnet faucet/funding helper
+  app.use(`${API_V1_PREFIX}/faucet`, createFaucetRoutes);
+
+  // #811 — Partner webhook subscription management
+  app.use(`${API_V1_PREFIX}/webhooks`, createWebhookRoutes);
+
+  // #818 — Public status page + incident communication
+  app.use(`${API_V1_PREFIX}/status`, createStatusRoutes);
 
   registerApiRoutes(API_V1_PREFIX);
   registerApiRoutes(LEGACY_API_PREFIX);
 
+  // Dynamic sitemap.xml for SEO — lists all public (non-hidden, active) campaign pages
+  app.get('/sitemap.xml', rateLimiter, (req, res) => {
+    const siteUrl =
+      (process.env.SITE_URL || '').replace(/\/+$/, '') || `${req.protocol}://${req.get('host')}`;
+
+    const staticPaths = ['/', '/explore', '/about'];
+    const campaigns = campaignRepository.list({ active: true });
+
+    const urlEntries = [
+      ...staticPaths.map(
+        (p) =>
+          `<url><loc>${siteUrl}${p}</loc><changefreq>daily</changefreq><priority>${p === '/' || p === '/explore' ? '1.0' : '0.7'}</priority></url>`,
+      ),
+      ...campaigns.map(
+        (c) =>
+          `<url><loc>${siteUrl}/campaign/${encodeURIComponent(c.id)}</loc><lastmod>${c.updatedAt ? new Date(c.updatedAt).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`,
+      ),
+    ];
+
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urlEntries.join('\n')}\n</urlset>`;
+
+    res
+      .set('Content-Type', 'application/xml; charset=utf-8')
+      .set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400')
+      .send(xml);
+  });
+
+  // Central error handler — must be registered after all routes
+  app.use(errorHandler);
+
+  app._close = () => {
+    isShuttingDown = true;
+    try {
+      dal.db.close();
+    } catch (_) {
+      /* ignore errors closing the database during shutdown */
+    }
+  };
+
+  // Expose usage-metering lifecycle hooks so startServer's graceful shutdown
+  // (which only has the `app` handle) can flush metering before exit.
+  app._stopUsageFlush = stopUsageFlush;
+  app._usageMeteringService = usageMeteringService;
+
+  // Expose wallet auth middleware for use by routes and tests
+  app._requireWalletAuth = requireWalletAuth;
+
   return app;
 }
 
-export function startServer(options = {}) {
-  const app = createApp(options);
+/** @param {Record<string, unknown>} options @returns {Promise<import('http').Server>} */
+export async function startServer(options = {}) {
+  if (!options.skipEnvValidation) {
+    validateBackendEnv(process.env);
+  }
+
+  const app = await createApp(options);
   const port = options.port ?? process.env.PORT ?? DEFAULT_PORT;
 
-  return app.listen(port, () => {
-    console.log(`Trivela API running at http://localhost:${port}`);
+  const server = app.listen(port, () => {
+    log.info({ port }, 'Trivela API running');
   });
+
+  // Initialize WebSocket server if not disabled
+  if (!options.disableWebSocket && process.env.ENABLE_WEBSOCKET !== 'false') {
+    try {
+      initializeWebSocket(server, {
+        path: process.env.WEBSOCKET_PATH || '/ws',
+      });
+      log.info('WebSocket server initialized on /ws');
+    } catch (error) {
+      log.error({ error }, 'Failed to initialize WebSocket server');
+    }
+  }
+
+  // ── Graceful shutdown (issue #650) ─────────────────────────────────────────
+  const SHUTDOWN_GRACE_MS = normalizePositiveInteger(process.env.SHUTDOWN_GRACE_MS, 15_000);
+
+  let shuttingDown = false;
+
+  async function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    app._close?.();
+    log.info({ signal, graceMs: SHUTDOWN_GRACE_MS }, 'graceful shutdown started');
+
+    const forceTimer = setTimeout(() => {
+      log.error('graceful shutdown timed out — forcing exit');
+      process.exit(1);
+    }, SHUTDOWN_GRACE_MS);
+    if (typeof forceTimer.unref === 'function') forceTimer.unref();
+
+    await new Promise((resolve) => server.close(resolve));
+
+    app._stopUsageFlush?.();
+    await app._usageMeteringService
+      ?.flushToDb()
+      .catch((err) => log.warn({ err }, 'usage flush warning'));
+
+    await shutdownTracing().catch((err) => log.warn({ err }, 'OTel shutdown warning'));
+
+    log.info('graceful shutdown complete');
+    clearTimeout(forceTimer);
+    process.exit(0);
+  }
+
+  process.once('SIGTERM', () => gracefulShutdown('SIGTERM'));
+  process.once('SIGINT', () => gracefulShutdown('SIGINT'));
+
+  return server;
 }
 
 const isExecutedDirectly =

@@ -1,0 +1,16 @@
+{
+  "id": 1,
+  "slug": "test-campaign",
+  "name": "Test Campaign",
+  "description": "A test campaign",
+  "rewardPerAction": 100,
+  "referralBonusPoints": 50,
+  "active": true,
+  "featured": false,
+  "imageUrl": null,
+  "tags": ["test"],
+  "createdAt": "2024-01-01T00:00:00.000Z",
+  "updatedAt": "2024-01-01T00:00:00.000Z",
+  "campaignContractId": null,
+  "rewardsContractId": null
+}

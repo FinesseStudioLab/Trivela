@@ -1,0 +1,21 @@
+{
+  "name": "@trivela/webhook-verify",
+  "version": "0.1.0",
+  "description": "Trivela webhook signature verification helpers for Node.js integrators",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "test": "node --experimental-vm-modules node_modules/.bin/jest src/index.test.js"
+  },
+  "keywords": ["trivela", "webhook", "signature", "hmac", "verification"],
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
+  }
+}

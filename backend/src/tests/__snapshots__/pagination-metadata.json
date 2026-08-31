@@ -1,0 +1,10 @@
+{
+  "pagination": {
+    "total": 100,
+    "page": 2,
+    "pageSize": 20,
+    "totalPages": 5,
+    "hasNext": true,
+    "hasPrevious": true
+  }
+}

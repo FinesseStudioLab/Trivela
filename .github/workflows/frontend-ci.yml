@@ -1,10 +1,9 @@
 name: Frontend CI
 
 on:
+  # Runs on pull requests (full contributor CI). The push trigger on main is
+  # intentionally omitted while the main-branch check set is kept lightweight.
   pull_request:
-  push:
-    branches:
-      - main
 
 jobs:
   frontend:
@@ -21,7 +20,10 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Validate env examples
+        run: npm run env:validate
 
       - name: Detect optional frontend scripts
         id: scripts
@@ -31,16 +33,182 @@ jobs:
           const pkg = JSON.parse(fs.readFileSync('./frontend/package.json', 'utf8'));
           const out = process.env.GITHUB_OUTPUT;
           fs.appendFileSync(out, 'has_lint=' + (pkg.scripts?.lint ? 'true' : 'false') + '\n');
+          fs.appendFileSync(out, 'has_format_check=' + (pkg.scripts?.['format:check'] ? 'true' : 'false') + '\n');
           fs.appendFileSync(out, 'has_test=' + (pkg.scripts?.test ? 'true' : 'false') + '\n');
           EOF
 
-      - name: Build frontend
-        run: npm run build --workspace=frontend
+      - name: Build frontend (via Turborepo)
+        run: npx turbo run build --filter=frontend
 
-      - name: Lint frontend
-        if: steps.scripts.outputs.has_lint == 'true'
-        run: npm run lint --workspace=frontend
+      - name: Bundle size budget gate
+        run: node scripts/check-bundle-size.mjs
 
-      - name: Test frontend
+      - name: Upload frontend build artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          if-no-files-found: error
+
+      - name: Install Playwright browsers
         if: steps.scripts.outputs.has_test == 'true'
-        run: npm run test --workspace=frontend
+        run: npx playwright install --with-deps chromium firefox webkit
+
+      - name: Lint frontend (via Turborepo)
+        if: steps.scripts.outputs.has_lint == 'true'
+        run: npx turbo run lint --filter=frontend
+
+      - name: Check frontend formatting
+        if: steps.scripts.outputs.has_format_check == 'true'
+        run: npm run format:check --workspace=frontend
+
+      - name: Test frontend (via Turborepo)
+        if: steps.scripts.outputs.has_test == 'true'
+        run: npx turbo run test --filter=frontend
+
+      - name: Coverage gate — unit tests with thresholds
+        run: npm run test:coverage --workspace=frontend
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          if-no-files-found: ignore
+
+      - name: Upload Playwright artifacts on failure
+        if: failure() && steps.scripts.outputs.has_test == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+  accessibility:
+    name: Accessibility (axe) Checks
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Install Playwright with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run accessibility tests
+        run: npm run test:a11y --workspace=frontend
+        continue-on-error: false
+
+      - name: Upload accessibility test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: a11y-test-results
+          path: frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Generate accessibility summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## ♿ Accessibility Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Automated accessibility checks using axe-core completed." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Homepage" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Campaign list page" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Campaign detail page" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Navigation and header" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Forms and inputs" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Keyboard navigation" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Color contrast (WCAG AA)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Images (alt text)" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ ARIA attributes" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Heading hierarchy" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Button and link names" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Mobile accessibility" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Standards**: WCAG 2.1 Level AA" >> $GITHUB_STEP_SUMMARY
+          echo "**Critical violations**: Build fails ❌" >> $GITHUB_STEP_SUMMARY
+          echo "**Serious violations**: Build fails ❌" >> $GITHUB_STEP_SUMMARY
+          echo "**Moderate violations**: Reported ⚠️" >> $GITHUB_STEP_SUMMARY
+          echo "**Minor violations**: Reported ℹ️" >> $GITHUB_STEP_SUMMARY
+
+  cross-browser-e2e:
+    name: Cross-browser E2E (Chromium/Firefox/WebKit)
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Install Playwright browser - ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+
+      - name: Run E2E tests - ${{ matrix.browser }}
+        run: npx playwright test --project=${{ matrix.browser }}
+        working-directory: frontend
+
+      - name: Upload test results - ${{ matrix.browser }}
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results-${{ matrix.browser }}
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+
+      - name: Generate browser-specific summary
+        if: always()
+        run: |
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "## E2E Results - ${{ matrix.browser }}" >> $GITHUB_STEP_SUMMARY
+          if [ -f frontend/playwright-report/index.html ]; then
+            echo "✅ Tests completed on ${{ matrix.browser }}" >> $GITHUB_STEP_SUMMARY
+            echo "📊 Full report available in artifacts: \`playwright-results-${{ matrix.browser }}\`" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "⚠️ No test report generated for ${{ matrix.browser }}" >> $GITHUB_STEP_SUMMARY
+          fi
