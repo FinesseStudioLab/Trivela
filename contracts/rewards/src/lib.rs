@@ -174,6 +174,61 @@ pub enum Error {
     InvalidLockSchedule = 55,
     /// Boost multiplier cannot be zero.
     ZeroBoostMultiplier = 56,
+    // ── Issue #895: Operator delegation errors ────────────────────────────────
+    /// Operator budget has been fully consumed.
+    OperatorBudgetExceeded = 57,
+    /// Operator delegation not found or has been revoked.
+    OperatorDelegationNotFound = 58,
+    /// Invalid operator delegation configuration.
+    InvalidOperatorDelegation = 59,
+    // ── Issue #896: Multi-asset redemption errors ─────────────────────────────
+    /// Redemption asset not found or not configured.
+    RedemptionAssetNotFound = 60,
+    /// Redemption asset is disabled.
+    RedemptionAssetDisabled = 61,
+    /// Invalid asset configuration.
+    InvalidAssetConfig = 62,
+    // ── Issue #899: Claim cooldown errors ─────────────────────────────────────
+    /// Claim is still within the cooldown period.
+    ClaimCooldownActive = 63,
+    /// Invalid cooldown configuration.
+    InvalidCooldownConfig = 64,
+}
+
+// ── Issue #895: Operator delegation types ─────────────────────────────────────
+
+/// Operator delegation configuration stored per (operator, campaign_id).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct OperatorDelegation {
+    pub operator: Address,
+    pub campaign_id: u64,
+    pub budget_total: u64,
+    pub budget_used: u64,
+    pub granted_at: u32,
+    pub revoked: bool,
+}
+
+// ── Issue #896: Multi-asset redemption types ──────────────────────────────────
+
+/// Per-asset redemption configuration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RedemptionAssetConfig {
+    pub asset_address: Address,
+    pub rate_bps: u64,          // Points per asset unit (basis points)
+    pub reserve_balance: i128,
+    pub enabled: bool,
+}
+
+// ── Issue #899: Claim cooldown types ──────────────────────────────────────────
+
+/// Per-campaign claim cooldown configuration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ClaimCooldown {
+    pub cooldown_ledgers: u32,  // Minimum ledgers between claims
+    pub enabled: bool,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -439,6 +494,40 @@ const CAMPAIGN_CAP: Symbol = symbol_short!("campcap");
 const CAMPAIGN_ISSUED: Symbol = symbol_short!("campiss");
 /// Campaign supply cap set event: topics (campcap, campaign_id), data (cap: u64)
 const CAMPAIGN_CAP_EVENT: Symbol = symbol_short!("campcap");
+
+// ── Issue #895: Operator delegation constants ────────────────────────────────
+/// Operator delegation storage: (OP_DELEGATION, operator, campaign_id) -> OperatorDelegation
+const OP_DELEGATION: Symbol = symbol_short!("opdlgt");
+/// Operator registry for enumeration: (OP_REGISTRY, campaign_id) -> Vec<Address>
+const OP_REGISTRY: Symbol = symbol_short!("opreg");
+/// Grant operator event: topics (op_grant, operator, campaign_id), data (budget: u64)
+const OP_GRANT_EVENT: Symbol = symbol_short!("opgrant");
+/// Revoke operator event: topics (op_revoke, operator, campaign_id), data ()
+const OP_REVOKE_EVENT: Symbol = symbol_short!("oprevoke");
+/// Operator credit event: topics (op_credit, operator, user), data (amount: u64)
+const OP_CREDIT_EVENT: Symbol = symbol_short!("opcredit");
+
+// ── Issue #896: Multi-asset redemption constants ──────────────────────────────
+/// List of redemption asset addresses: REDEMPTION_ASSETS -> Vec<Address>
+const REDEMPTION_ASSETS: Symbol = symbol_short!("rd_assts");
+/// Per-asset config: (ASSET_CONFIG, Address) -> RedemptionAssetConfig
+const ASSET_CONFIG: Symbol = symbol_short!("ast_cfg");
+/// Asset added event: topics (ast_add,), data (asset: Address, rate: u64)
+const ASSET_ADD_EVENT: Symbol = symbol_short!("ast_add");
+/// Asset updated event: topics (ast_upd,), data (asset: Address, rate: u64)
+const ASSET_UPDATE_EVENT: Symbol = symbol_short!("ast_upd");
+/// Asset removed event: topics (ast_rem,), data (asset: Address)
+const ASSET_REMOVE_EVENT: Symbol = symbol_short!("ast_rem");
+/// Multi-asset redeem event: topics (redeem_ma, user, asset), data (points: u64, amount: i128)
+const REDEEM_MULTIASSET_EVENT: Symbol = symbol_short!("rd_ma");
+
+// ── Issue #899: Claim cooldown constants ──────────────────────────────────────
+/// Cooldown config: (CLAIM_COOLDOWN, campaign_id) -> ClaimCooldown
+const CLAIM_COOLDOWN: Symbol = symbol_short!("clm_cool");
+/// Last claim ledger: (LAST_CLAIM, user, campaign_id) -> u32
+const LAST_CLAIM: Symbol = symbol_short!("lst_clm");
+/// Cooldown set event: topics (cool_set, campaign_id), data (ledgers: u32)
+const COOLDOWN_SET_EVENT: Symbol = symbol_short!("cool_set");
 
 // ── Multi-sig constants (issue #733) ─────────────────────────────────────────
 const MULTISIG_CFG: Symbol = symbol_short!("mscfg");
@@ -3975,6 +4064,585 @@ impl RewardsContract {
             .persistent()
             .get::<_, bool>(&nullifier_key)
             .unwrap_or(false)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #895: Delegated / Scoped Crediting Permissions
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Grant an operator permission to credit points within a specific campaign and budget (admin only).
+    /// If the operator already has a delegation for this campaign, this call adds to their budget.
+    pub fn grant_operator(
+        env: Env,
+        admin: Address,
+        operator: Address,
+        campaign_id: u64,
+        budget: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if budget == 0 {
+            return Err(Error::InvalidOperatorDelegation);
+        }
+
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(OperatorDelegation {
+                operator: operator.clone(),
+                campaign_id,
+                budget_total: 0,
+                budget_used: 0,
+                granted_at: env.ledger().sequence(),
+                revoked: false,
+            });
+
+        // If previously revoked, reset usage tracking
+        if delegation.revoked {
+            delegation.budget_used = 0;
+            delegation.revoked = false;
+            delegation.granted_at = env.ledger().sequence();
+        }
+
+        delegation.budget_total = delegation
+            .budget_total
+            .checked_add(budget)
+            .ok_or(Error::Overflow)?;
+
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Add to registry if not already present
+        let registry_key = (OP_REGISTRY, campaign_id);
+        let mut registry: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&registry_key)
+            .unwrap_or(Vec::new(&env));
+
+        if !registry.iter().any(|addr| addr == operator) {
+            registry.push_back(operator.clone());
+            env.storage().instance().set(&registry_key, &registry);
+        }
+
+        env.events()
+            .publish((OP_GRANT_EVENT, operator, campaign_id), budget);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Revoke an operator's delegation for a campaign (admin only). Revocation is immediate.
+    pub fn revoke_operator(
+        env: Env,
+        admin: Address,
+        operator: Address,
+        campaign_id: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::OperatorDelegationNotFound)?;
+
+        delegation.revoked = true;
+
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((OP_REVOKE_EVENT, operator, campaign_id), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Credit points as an operator within scoped campaign and budget.
+    pub fn credit_as_operator(
+        env: Env,
+        operator: Address,
+        campaign_id: u64,
+        user: Address,
+        amount: u64,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        operator.require_auth();
+        ensure_credit_not_paused(&env)?;
+
+        // Check delegation exists and is not revoked
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::OperatorDelegationNotFound)?;
+
+        if delegation.revoked {
+            return Err(Error::OperatorDelegationNotFound);
+        }
+
+        // Check budget
+        let new_used = delegation
+            .budget_used
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+
+        if new_used > delegation.budget_total {
+            return Err(Error::OperatorBudgetExceeded);
+        }
+
+        // Update budget tracking
+        delegation.budget_used = new_used;
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Credit the user
+        let balance_key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage().instance().set(
+            &TOTAL_SUPPLY,
+            &supply.checked_add(amount).ok_or(Error::Overflow)?,
+        );
+
+        env.events()
+            .publish((OP_CREDIT_EVENT, operator, user.clone()), amount);
+        env.events().publish((CREDIT_EVENT, user), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(new_balance)
+    }
+
+    /// Get operator delegation status for a campaign.
+    pub fn get_operator_delegation(
+        env: Env,
+        operator: Address,
+        campaign_id: u64,
+    ) -> Option<OperatorDelegation> {
+        let key = (OP_DELEGATION, operator, campaign_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// List all operators for a campaign.
+    pub fn list_operators(env: Env, campaign_id: u64) -> Vec<Address> {
+        let registry_key = (OP_REGISTRY, campaign_id);
+        env.storage()
+            .instance()
+            .get(&registry_key)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #896: Multi-Asset Redemption
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Add a new redemption asset with rate and initial reserve (admin only).
+    pub fn add_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        rate_bps: u64,
+        initial_reserve: i128,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if rate_bps == 0 {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+
+        // Check if asset already exists
+        if env.storage().persistent().has(&config_key) {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config = RedemptionAssetConfig {
+            asset_address: asset.clone(),
+            rate_bps,
+            reserve_balance: initial_reserve,
+            enabled: true,
+        };
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Add to assets list
+        let mut assets: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_ASSETS)
+            .unwrap_or(Vec::new(&env));
+
+        assets.push_back(asset.clone());
+        env.storage().instance().set(&REDEMPTION_ASSETS, &assets);
+
+        env.events().publish((ASSET_ADD_EVENT,), (asset, rate_bps));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Update redemption rate for an existing asset (admin only).
+    pub fn update_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        rate_bps: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if rate_bps == 0 {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        config.rate_bps = rate_bps;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((ASSET_UPDATE_EVENT,), (asset, rate_bps));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Remove (disable) a redemption asset (admin only).
+    pub fn remove_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        config.enabled = false;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((ASSET_REMOVE_EVENT,), asset);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Redeem points to a specific asset.
+    pub fn redeem_to_asset(
+        env: Env,
+        user: Address,
+        points_amount: u64,
+        target_asset: Address,
+    ) -> Result<i128, Error> {
+        if points_amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        user.require_auth();
+        ensure_redeem_not_paused(&env)?;
+
+        // Get asset config
+        let config_key = (ASSET_CONFIG, target_asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        if !config.enabled {
+            return Err(Error::RedemptionAssetDisabled);
+        }
+
+        // Calculate asset amount: points * 10_000 / rate_bps
+        let asset_amount = ((points_amount as u128)
+            .checked_mul(BPS_DENOMINATOR)
+            .ok_or(Error::Overflow)?)
+        .checked_div(config.rate_bps as u128)
+        .ok_or(Error::InvalidRedemptionRate)? as i128;
+
+        if asset_amount == 0 {
+            return Err(Error::InvalidRedemptionRate);
+        }
+
+        // Check reserve
+        if config.reserve_balance < asset_amount {
+            return Err(Error::InsufficientReserve);
+        }
+
+        // Deduct points from user balance
+        let balance_key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current
+            .checked_sub(points_amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Update total supply
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&TOTAL_SUPPLY, &supply.saturating_sub(points_amount));
+
+        // Update reserve
+        config.reserve_balance -= asset_amount;
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Transfer asset to user
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &target_asset);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &user,
+            &asset_amount,
+        );
+
+        env.events().publish(
+            (REDEEM_MULTIASSET_EVENT, user, target_asset),
+            (points_amount, asset_amount),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(asset_amount)
+    }
+
+    /// Get list of all configured redemption assets.
+    pub fn get_redemption_assets(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&REDEMPTION_ASSETS)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get redemption asset configuration.
+    pub fn get_asset_config(env: Env, asset: Address) -> Option<RedemptionAssetConfig> {
+        let config_key = (ASSET_CONFIG, asset);
+        env.storage().persistent().get(&config_key)
+    }
+
+    /// Fund reserve for a specific redemption asset (anyone can call).
+    pub fn fund_asset_reserve(
+        env: Env,
+        from: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        from.require_auth();
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        // Transfer asset to contract
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &asset);
+        token_client.transfer(&from, &env.current_contract_address(), &amount);
+
+        // Update reserve
+        config.reserve_balance = config
+            .reserve_balance
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #899: Claim Cooldown
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Set claim cooldown for a campaign (admin only).
+    pub fn set_claim_cooldown(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        cooldown_ledgers: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let cooldown = ClaimCooldown {
+            cooldown_ledgers,
+            enabled: cooldown_ledgers > 0,
+        };
+
+        let key = (CLAIM_COOLDOWN, campaign_id);
+        env.storage().instance().set(&key, &cooldown);
+
+        env.events()
+            .publish((COOLDOWN_SET_EVENT, campaign_id), cooldown_ledgers);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get claim cooldown configuration for a campaign.
+    pub fn get_claim_cooldown(env: Env, campaign_id: u64) -> Option<ClaimCooldown> {
+        let key = (CLAIM_COOLDOWN, campaign_id);
+        env.storage().instance().get(&key)
+    }
+
+    /// Get the ledger of the last claim for a user in a campaign.
+    pub fn get_user_last_claim(env: Env, user: Address, campaign_id: u64) -> Option<u32> {
+        let key = (LAST_CLAIM, user, campaign_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// Check if a user can claim now (not in cooldown).
+    pub fn can_claim_now(env: Env, user: Address, campaign_id: u64) -> bool {
+        let cooldown_key = (CLAIM_COOLDOWN, campaign_id);
+        let cooldown: Option<ClaimCooldown> = env.storage().instance().get(&cooldown_key);
+
+        if let Some(cooldown) = cooldown {
+            if !cooldown.enabled {
+                return true;
+            }
+
+            let last_claim_key = (LAST_CLAIM, user, campaign_id);
+            if let Some(last_claim_ledger) = env.storage().persistent().get::<_, u32>(&last_claim_key)
+            {
+                let now = env.ledger().sequence();
+                now >= last_claim_ledger + cooldown.cooldown_ledgers
+            } else {
+                true // No prior claim
+            }
+        } else {
+            true // No cooldown configured
+        }
+    }
+
+    /// Claim with cooldown enforcement for a specific campaign.
+    pub fn claim_with_cooldown(
+        env: Env,
+        user: Address,
+        campaign_id: u64,
+        amount: u64,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let min_claim: u64 = env.storage().instance().get(&MIN_CLAIM).unwrap_or(0);
+        if min_claim > 0 && amount < min_claim {
+            return Err(Error::BelowMinClaim);
+        }
+
+        user.require_auth();
+        ensure_claim_not_paused(&env)?;
+
+        // Check cooldown
+        let cooldown_key = (CLAIM_COOLDOWN, campaign_id);
+        if let Some(cooldown) = env.storage().instance().get::<_, ClaimCooldown>(&cooldown_key) {
+            if cooldown.enabled {
+                let last_claim_key = (LAST_CLAIM, user.clone(), campaign_id);
+                if let Some(last_claim_ledger) =
+                    env.storage().persistent().get::<_, u32>(&last_claim_key)
+                {
+                    let now = env.ledger().sequence();
+                    if now < last_claim_ledger + cooldown.cooldown_ledgers {
+                        return Err(Error::ClaimCooldownActive);
+                    }
+                }
+
+                // Update last claim ledger
+                let now = env.ledger().sequence();
+                env.storage().persistent().set(&last_claim_key, &now);
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&last_claim_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+            }
+        }
+
+        // Perform the claim
+        let key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+        let new_balance = current
+            .checked_sub(amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&key, &new_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount));
+
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&TOTAL_SUPPLY, &supply.saturating_sub(amount));
+
+        env.events().publish((CLAIM_EVENT, user), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(new_balance)
     }
 }
 
