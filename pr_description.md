@@ -1,39 +1,28 @@
-# Advanced Contract Features, Observability, and Wallet UX Improvements
+# Security Caps & Merkle-based Claims
 
 ## Summary
-This PR introduces massive architectural improvements across the Trivela stack to improve security, observability, and user experience. 
+This PR combines two major smart contract epics to improve both security and distribution scaling without hitting gas or storage constraints.
 
 ## Changes
 
-### 1. Role-based access control (RBAC) beyond single admin
-- Refactored Soroban contracts (`rewards` and `campaign`) to replace the single all-powerful `admin` with a granular RBAC module.
-- Introduced specific roles: `admin`, `operator`, `pauser`, `treasurer`.
-- Each privileged function now strictly checks for the appropriate role, reducing blast radius and enabling safe delegation to campaign operators.
+### 1. Redemption Caps & Circuit Breaker (#723)
+- **Per-Account Redemption Cap:** Added a daily limit (configurable) that prevents a single account from redeeming an excessive amount of funds.
+- **Global Circuit Breaker:** Introduced a global redemption window limit. If aggregate redemptions across all users exceed this cap within the window, the circuit breaker trips.
+- **Auto-Pause:** When the global circuit breaker trips, it automatically sets `redeem_paused` to true, stopping all further redemptions until an admin manually intervenes and unpauses.
+- **Events & Errors:** Added `CircuitBreakerTripped` event, along with typed errors `PerAccountCapExceeded` and `GlobalCapExceeded`.
 
-### 2. Multi-campaign / multi-tenant isolation model
-- Updated smart contracts to support multiple concurrent campaigns securely.
-- Namespaced storage and reserves per campaign ID.
-- Added cross-tenant safety guards to prevent one campaign from accessing or leaking data to another campaign's state or analytics.
-
-### 3. Distributed tracing across backend -> RPC -> contract calls
-- Extended the backend tracing module to propagate trace context entirely through the backend, Soroban RPC calls, and background jobs.
-- Instrumented RPC connection pools and the outbox service with OpenTelemetry spans.
-- Traces can now be exported to an OTLP-compatible backend, providing end-to-end visibility of latency and errors.
-
-### 4. Wallet integration: Freighter + WalletConnect + hardware wallet support
-- Built a unified wallet provider interface in the React frontend (`WalletManager.js`).
-- Implemented full support for Freighter and WalletConnect (v2).
-- Added network mismatch detection to alert users when they are on the wrong network (e.g. mainnet vs testnet).
-- Handled seamless account switching events and state restoration.
+### 2. Merkle-based bulk crediting (#897)
+- **Admin Root Publishing:** Admins can now publish a single Merkle Root representing the distribution list (user, amount) using `set_merkle_root`.
+- **User Claiming (O(log n)):** Users provide their Merkle proof to the `claim_merkle` function. The contract verifies the proof against the stored root, ensuring that users can only claim their exact allocation.
+- **Double-Claim Prevention:** Added a tracking mechanism mapping each successfully claimed leaf hash to a boolean to prevent double-claiming.
+- **Gas Costs Shifted:** The gas cost of crediting is now correctly shifted to the end-users claiming the reward, keeping admin overhead minimal and scalable to millions of users.
 
 ## Verification
-- Added comprehensive unit and fuzz tests for RBAC role grants, revocations, and unauthorized access.
-- Confirmed cross-tenant isolation with integration tests ensuring campaigns are strictly isolated.
-- Verified trace propagation across API -> RPC -> Background Job locally with Jaeger.
-- Manually tested Freighter and WalletConnect on both desktop and mobile, ensuring network mismatches correctly guide the user.
+- Deployed locally and tested that exceeding per-account limit returns `Error::PerAccountCapExceeded`.
+- Tested the global circuit breaker threshold triggering an auto-pause of the contract.
+- Added a full suite of Rust tests with locally generated Merkle trees to verify valid and invalid proofs.
+- Attempting to claim twice with the same valid proof properly reverts with `Error::AlreadyClaimed`.
 
 ## Closes
-Closes #894
-Closes #893
-Closes #875
-Closes #863
+Closes #723
+Closes #897
