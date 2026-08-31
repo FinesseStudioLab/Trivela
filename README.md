@@ -283,6 +283,19 @@ cp backend/.env.example backend/.env
 npm run dev:backend
 ```
 
+API: http://localhost:3001 (health: http://localhost:3001/health, v1 endpoints: http://localhost:3001/api/v1).
+
+#### API Endpoints & Versioning
+
+All API routes are served under the versioned `/api/v1/` prefix:
+- `GET /api/v1/` — API metadata and version information
+- `GET /api/v1/campaigns` — List all campaigns
+- `GET /api/v1/campaigns/:id` — Get campaign details by ID
+- `POST /api/v1/campaigns` — Create a new campaign (requires API key)
+- `PUT /api/v1/campaigns/:id` — Update a campaign (requires API key)
+- `DELETE /api/v1/campaigns/:id` — Delete a campaign (requires API key)
+
+> **Migration Note**: Legacy `/api/*` endpoints remain supported for backward compatibility, but developers are encouraged to use `/api/v1/*` for all new integrations.
 #### Backend Endpoints
 
 | Service    | URL                          |
