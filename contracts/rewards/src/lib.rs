@@ -143,6 +143,17 @@ pub enum Error {
     AirdropInvalidProof = 47,
     /// The nullifier has already been used to claim from this airdrop.
     AirdropNullifierUsed = 48,
+    // ── Distribution mode errors (issue #871) ─────────────────────────────────────
+    /// Invalid distribution mode specified.
+    InvalidDistributionMode = 49,
+    /// Below minimum claim amount.
+    BelowMinClaim = 50,
+    /// Invalid boost curve configuration.
+    InvalidBoostCurve = 51,
+    /// Zero boost multiplier not allowed.
+    ZeroBoostMultiplier = 52,
+    /// Invalid lock schedule configuration.
+    InvalidLockSchedule = 53,
     // ── Issue #900: Minimum claim threshold ──────────────────────────────────
     /// Claim amount is below the configured minimum threshold.
     BelowMinClaim = 49,
@@ -176,6 +187,17 @@ pub struct VestingRecord {
 }
 
 // ── Staking types ──────────────────────────────────────────────────────────
+
+/// Distribution mode for campaign rewards (issue #871).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DistributionMode {
+    /// Linear: rewards proportional to actions (default)
+    Linear = 0,
+    /// Quadratic: rewards = isqrt(actions) to reduce whale dominance
+    Quadratic = 1,
+}
 
 /// Individual staking position for a user.
 #[contracttype]
@@ -515,6 +537,12 @@ const CLAWBACK_EXECUTE_EVENT: Symbol = symbol_short!("clwbexec");
 const AIRDROP_ROOT: Symbol = symbol_short!("airdrop");
 const AIRDROP_NULLIFIERS: Symbol = symbol_short!("nulli");
 const AIRDROP_CLAIMED_EVENT: Symbol = symbol_short!("airreclm");
+
+// ── Distribution mode constants (issue #871) ──────────────────────────────────
+// Quadratic/anti-whale distribution mode for campaigns.
+// Storage key: (DIST_MODE, campaign_id) -> u8 (DistributionMode enum)
+const DIST_MODE: Symbol = symbol_short!("distmode");
+const DIST_MODE_SET_EVENT: Symbol = symbol_short!("distmset");
 
 /// Proposal record stored under `(CLAWBACK_PROPOSAL, id)`.
 #[contracttype]
@@ -875,6 +903,38 @@ fn verify_multisig(
     Ok(())
 }
 
+/// Integer square root for quadratic distribution (issue #871).
+/// Uses Newton's method for efficient computation in no_std environments.
+fn isqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+/// Apply the configured distribution mode to a base amount.
+/// Linear mode: returns amount as-is.
+/// Quadratic mode: returns isqrt(amount) to reduce whale dominance.
+fn apply_distribution_mode(env: &Env, campaign_id: u64, base_amount: u64) -> u64 {
+    let mode: u8 = env
+        .storage()
+        .instance()
+        .get(&(DIST_MODE, campaign_id))
+        .unwrap_or(0); // Default to Linear (0)
+
+    match mode {
+        0 => base_amount, // Linear
+        1 => isqrt(base_amount), // Quadratic
+        _ => base_amount, // Fallback to linear for unknown modes
+    }
+}
+
 #[contractimpl]
 impl RewardsContract {
     /// Initialize the rewards contract (admin).
@@ -1009,6 +1069,41 @@ impl RewardsContract {
             .unwrap_or(10_000)
     }
 
+    // ── Distribution mode (issue #871) ────────────────────────────────────────
+
+    /// Set distribution mode for a campaign (admin only).
+    /// - mode 0 (Linear): standard 1:1 rewards
+    /// - mode 1 (Quadratic): isqrt(amount) to reduce whale dominance
+    ///
+    /// Nullifier/ZK integration at the campaign layer guards against sybil gaming.
+    pub fn set_distribution_mode(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        mode: u8,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if mode > 1 {
+            return Err(Error::InvalidDistributionMode);
+        }
+        env.storage().instance().set(&(DIST_MODE, campaign_id), &mode);
+        env.events()
+            .publish((DIST_MODE_SET_EVENT, campaign_id), mode);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get distribution mode for a campaign (0 = Linear, 1 = Quadratic).
+    /// Defaults to Linear (0) if not set.
+    pub fn distribution_mode(env: Env, campaign_id: u64) -> u8 {
+        env.storage()
+            .instance()
+            .get(&(DIST_MODE, campaign_id))
+            .unwrap_or(0)
+    }
+
     /// Get contract metadata (name and symbol).
     pub fn metadata(env: Env) -> (Symbol, Symbol) {
         env.storage()
@@ -1084,6 +1179,49 @@ impl RewardsContract {
         }
         let adjusted = adjusted_u128 as u64;
         Self::credit(env, from, user, adjusted)
+    }
+
+    /// Credit points with distribution mode applied (issue #871).
+    /// Applies the configured distribution mode (linear/quadratic) then the multiplier.
+    /// 
+    /// Flow:
+    /// 1. Apply distribution mode to base_amount (e.g., quadratic: isqrt(base_amount))
+    /// 2. Apply campaign multiplier (mode_adjusted * multiplier_bps / 10_000)
+    /// 3. Credit final amount to user
+    ///
+    /// Example (quadratic mode with 1.5x multiplier on 10,000 base):
+    ///   - Distribution: isqrt(10_000) = 100
+    ///   - Multiplier: 100 * 15_000 / 10_000 = 150
+    ///   - Final credit: 150 points
+    pub fn credit_with_distribution(
+        env: Env,
+        from: Address,
+        user: Address,
+        campaign_id: u64,
+        base_amount: u64,
+    ) -> Result<u64, Error> {
+        // Apply distribution mode first
+        let mode_adjusted = apply_distribution_mode(&env, campaign_id, base_amount);
+
+        // Then apply campaign multiplier
+        let multiplier_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000);
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        let final_amount_u128 = (mode_adjusted as u128)
+            .checked_mul(multiplier_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if final_amount_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let final_amount = final_amount_u128 as u64;
+
+        Self::credit(env, from, user, final_amount)
     }
 
     /// Credit points to multiple users in one call.
