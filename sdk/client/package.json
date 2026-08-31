@@ -1,19 +1,62 @@
 {
   "name": "@trivela/client",
   "version": "0.1.0",
-  "description": "Auto-generated TypeScript client types for the Trivela REST API",
+  "description": "TypeScript SDK for Trivela - REST API client and Stellar contract bindings",
   "type": "module",
-  "main": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./zk": "./zk/index.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./zk": {
+      "types": "./dist/zk/index.d.ts",
+      "import": "./dist/zk/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts/index.d.ts",
+      "import": "./dist/contracts/index.js"
+    }
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
-    "generate": "openapi-ts --input ../../backend/openapi.yaml --output src --plugins @hey-api/typescript",
+    "generate": "npm run generate:api && npm run generate:contracts",
+    "generate:api": "openapi-ts --input ../../backend/openapi.yaml --output src --plugins @hey-api/typescript",
+    "generate:contracts": "node scripts/generate-bindings.mjs",
+    "build": "tsc",
+    "prepublishOnly": "npm run generate && npm run build",
     "check-drift": "npm run generate && git diff --exit-code src/"
   },
   "devDependencies": {
-    "@hey-api/openapi-ts": "0.99.0"
+    "@hey-api/openapi-ts": "0.99.0",
+    "@stellar/stellar-sdk": "^13.0.0",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "@stellar/stellar-sdk": "^13.0.0"
+  },
+  "keywords": [
+    "trivela",
+    "stellar",
+    "soroban",
+    "smart-contracts",
+    "typescript",
+    "sdk",
+    "rewards",
+    "campaign"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/FinesseStudioLab/Trivela.git",
+    "directory": "sdk/client"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "Apache-2.0"
 }

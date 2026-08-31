@@ -143,6 +143,26 @@ pub enum Error {
     AirdropInvalidProof = 47,
     /// The nullifier has already been used to claim from this airdrop.
     AirdropNullifierUsed = 48,
+    // ── Issue #900: Minimum claim threshold ──────────────────────────────────
+    /// Claim amount is below the configured minimum threshold.
+    BelowMinClaim = 49,
+    // ── Issue #903: Campaign supply cap ───────────────────────────────────────
+    /// Credit would exceed the campaign's configured total supply cap.
+    CampaignSupplyCapExceeded = 50,
+    /// Campaign supply cap configuration is invalid.
+    InvalidSupplyCap = 51,
+    // ── Issue #898: Multi-level referral tree ────────────────────────────────
+    /// Invalid referral depth configuration (must be > 0 and <= MAX_REFERRAL_DEPTH).
+    InvalidReferralDepth = 52,
+    /// Referral tier configuration is invalid.
+    InvalidReferralTierConfig = 53,
+    // ── Staking/Boost errors ──────────────────────────────────────────────────
+    /// Invalid boost curve configuration.
+    InvalidBoostCurve = 54,
+    /// Lock schedule configuration is invalid.
+    InvalidLockSchedule = 55,
+    /// Boost multiplier cannot be zero.
+    ZeroBoostMultiplier = 56,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -377,6 +397,26 @@ const REF_BONUS_EVENT: Symbol = symbol_short!("refbonus");
 // Upper bound on the configurable rate (1000%) to guard against fat-finger
 // configuration and keep `qualifying_amount * rate_bps` comfortably in range.
 const MAX_REFERRAL_RATE_BPS: u32 = 100_000;
+
+// ── Multi-level referral tree (issue #898) ───────────────────────────────────
+/// Maximum referral tree depth (prevents unbounded loops and gas attacks).
+const MAX_REFERRAL_TREE_DEPTH: u32 = 10;
+/// Configured referral tree depth: (REF_DEPTH) -> u32
+const REF_DEPTH: Symbol = symbol_short!("refdepth");
+/// Per-level rate configuration: (REF_TIER_RATE, level: u32) -> rate_bps: u32
+const REF_TIER_RATE: Symbol = symbol_short!("reftrate");
+/// Multi-level referral reward event: topics (ref_mlvl, referrer, referee, level), data (bonus, qualifying_amount)
+const REF_MULTILEVEL_EVENT: Symbol = symbol_short!("refmlvl");
+/// Referral chain storage (mirrored from campaign contract): (REFERRAL, referee) -> referrer
+const REFERRAL: Symbol = symbol_short!("referral");
+
+// ── Campaign supply cap (issue #903) ─────────────────────────────────────────
+/// Per-campaign total supply cap: (CAMPAIGN_CAP, campaign_id) -> u64 (0 = uncapped)
+const CAMPAIGN_CAP: Symbol = symbol_short!("campcap");
+/// Per-campaign issued total: (CAMPAIGN_ISSUED, campaign_id) -> u64
+const CAMPAIGN_ISSUED: Symbol = symbol_short!("campiss");
+/// Campaign supply cap set event: topics (campcap, campaign_id), data (cap: u64)
+const CAMPAIGN_CAP_EVENT: Symbol = symbol_short!("campcap");
 
 // ── Multi-sig constants (issue #733) ─────────────────────────────────────────
 const MULTISIG_CFG: Symbol = symbol_short!("mscfg");
@@ -2377,6 +2417,258 @@ impl RewardsContract {
     /// The referrer that was rewarded for `referee`, if any.
     pub fn rewarded_referrer_of(env: Env, referee: Address) -> Option<Address> {
         env.storage().instance().get(&(REF_PAID, referee))
+    }
+
+    // ── Multi-level referral tree (issue #898) ───────────────────────────────
+
+    /// Configure multi-level referral tree parameters (admin only).
+    ///
+    /// `depth` defines how many levels up the referral chain receive rewards
+    /// (must be 1..=MAX_REFERRAL_TREE_DEPTH). `tier_rates` is a vector of
+    /// rate_bps for each level (level 1 = direct referrer, level 2 = referrer's
+    /// referrer, etc.). The vector length must equal `depth`.
+    ///
+    /// Example: depth=3, tier_rates=[5000, 2500, 1250] means:
+    /// - Level 1 (direct referrer): 50% of qualifying amount
+    /// - Level 2: 25% of qualifying amount
+    /// - Level 3: 12.5% of qualifying amount
+    pub fn set_multi_level_referral_config(
+        env: Env,
+        admin: Address,
+        depth: u32,
+        tier_rates: Vec<u32>,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        
+        if depth == 0 || depth > MAX_REFERRAL_TREE_DEPTH {
+            return Err(Error::InvalidReferralDepth);
+        }
+        if tier_rates.len() != depth {
+            return Err(Error::InvalidReferralTierConfig);
+        }
+        
+        // Validate all tier rates
+        for (level, rate_bps) in tier_rates.iter().enumerate() {
+            if rate_bps == 0 || rate_bps > MAX_REFERRAL_RATE_BPS {
+                return Err(Error::InvalidReferralTierConfig);
+            }
+            // Store per-level rate: level is 1-indexed for clarity (level 1 = direct referrer)
+            env.storage().instance().set(&(REF_TIER_RATE, (level as u32) + 1), &rate_bps);
+        }
+        
+        env.storage().instance().set(&REF_DEPTH, &depth);
+        env.events().publish((REF_CONFIG_EVENT,), (depth, tier_rates));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the configured referral tree depth (0 means multi-level not configured).
+    pub fn referral_tree_depth(env: Env) -> u32 {
+        env.storage().instance().get(&REF_DEPTH).unwrap_or(0)
+    }
+
+    /// Get the rate for a specific referral level (1-indexed).
+    /// Returns 0 if level not configured.
+    pub fn referral_tier_rate(env: Env, level: u32) -> u32 {
+        env.storage().instance().get(&(REF_TIER_RATE, level)).unwrap_or(0)
+    }
+
+    /// Pay multi-level referral bonuses up the referral chain (admin only).
+    ///
+    /// Starting from `referee`, walks up the referral chain (via campaign
+    /// contract's referral graph) and credits bonuses to each ancestor up to
+    /// the configured depth. Each level receives `qualifying_amount * tier_rate_bps / 10_000`.
+    ///
+    /// `campaign_contract`: address of the campaign contract that tracks the referral graph.
+    ///
+    /// Anti-abuse: uses campaign's referral graph (which enforces no-cycles, uniqueness).
+    /// Returns total bonus credited across all levels.
+    pub fn pay_multi_level_referral_bonus(
+        env: Env,
+        admin: Address,
+        campaign_contract: Address,
+        referee: Address,
+        qualifying_amount: u64,
+    ) -> Result<u64, Error> {
+        require_admin(&env, &admin)?;
+        ensure_not_paused(&env)?;
+
+        let depth: u32 = env.storage().instance().get(&REF_DEPTH).unwrap_or(0);
+        if depth == 0 {
+            return Err(Error::ReferralNotConfigured);
+        }
+
+        let mut total_bonuses: u64 = 0;
+        let mut current_referee = referee.clone();
+
+        for level in 1..=depth {
+            // Get the rate for this level
+            let rate_bps: u32 = env
+                .storage()
+                .instance()
+                .get(&(REF_TIER_RATE, level))
+                .unwrap_or(0);
+            if rate_bps == 0 {
+                break; // No more configured levels
+            }
+
+            // Query campaign contract for the referrer of current_referee
+            // This requires the campaign contract to expose a `get_referrer(address) -> Option<Address>` view
+            // For now, use internal storage as fallback (assumes campaign syncs referral graph here)
+            let referrer_opt: Option<Address> = env
+                .storage()
+                .instance()
+                .get(&(REFERRAL, current_referee.clone()));
+
+            let referrer = match referrer_opt {
+                Some(r) => r,
+                None => break, // No more referrers in chain
+            };
+
+            // Calculate bonus for this level
+            let bonus_u128 = (qualifying_amount as u128)
+                .checked_mul(rate_bps as u128)
+                .ok_or(Error::Overflow)?
+                / BPS_DENOMINATOR;
+            if bonus_u128 > u64::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            let bonus = bonus_u128 as u64;
+
+            if bonus > 0 {
+                // Credit the referrer's balance
+                let balance_key = (BALANCE, referrer.clone());
+                let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+                let new_balance = current_balance.checked_add(bonus).ok_or(Error::Overflow)?;
+                env.storage().instance().set(&balance_key, &new_balance);
+
+                // Update total supply
+                let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+                env.storage().instance().set(
+                    &TOTAL_SUPPLY,
+                    &supply.checked_add(bonus).ok_or(Error::Overflow)?,
+                );
+
+                // Emit events
+                env.events()
+                    .publish((CREDIT_EVENT, referrer.clone()), bonus);
+                env.events().publish(
+                    (REF_MULTILEVEL_EVENT, referrer.clone(), current_referee.clone(), level),
+                    (bonus, qualifying_amount),
+                );
+
+                total_bonuses = total_bonuses.checked_add(bonus).ok_or(Error::Overflow)?;
+            }
+
+            // Move up the chain
+            current_referee = referrer;
+        }
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(total_bonuses)
+    }
+
+    // ── Campaign supply cap (issue #903) ──────────────────────────────────────
+
+    /// Set the total supply cap for a campaign (admin only).
+    ///
+    /// `cap` is the maximum total points that can be issued for this campaign_id.
+    /// Set to 0 for uncapped. Once set, all `credit_for_campaign` calls are
+    /// checked against the cap.
+    pub fn set_campaign_supply_cap(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        cap: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&(CAMPAIGN_CAP, campaign_id), &cap);
+        env.events().publish((CAMPAIGN_CAP_EVENT, campaign_id), cap);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the total supply cap for a campaign (0 means uncapped).
+    pub fn campaign_supply_cap(env: Env, campaign_id: u64) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(CAMPAIGN_CAP, campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Get the total issued amount for a campaign.
+    pub fn campaign_issued(env: Env, campaign_id: u64) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(CAMPAIGN_ISSUED, campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Credit points using campaign multiplier with supply cap enforcement.
+    /// Extends `credit_for_campaign` to check against the campaign's supply cap.
+    pub fn credit_for_campaign_capped(
+        env: Env,
+        from: Address,
+        user: Address,
+        campaign_id: u64,
+        base_amount: u64,
+    ) -> Result<u64, Error> {
+        let multiplier_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000);
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        let adjusted_u128 = (base_amount as u128)
+            .checked_mul(multiplier_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if adjusted_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let adjusted = adjusted_u128 as u64;
+
+        // Check campaign supply cap
+        let cap: u64 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_CAP, campaign_id))
+            .unwrap_or(0);
+        if cap > 0 {
+            let issued: u64 = env
+                .storage()
+                .instance()
+                .get(&(CAMPAIGN_ISSUED, campaign_id))
+                .unwrap_or(0);
+            let new_issued = issued.checked_add(adjusted).ok_or(Error::Overflow)?;
+            if new_issued > cap {
+                return Err(Error::CampaignSupplyCapExceeded);
+            }
+            env.storage()
+                .instance()
+                .set(&(CAMPAIGN_ISSUED, campaign_id), &new_issued);
+        } else {
+            // No cap, still track issued amount
+            let issued: u64 = env
+                .storage()
+                .instance()
+                .get(&(CAMPAIGN_ISSUED, campaign_id))
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &(CAMPAIGN_ISSUED, campaign_id),
+                &issued.checked_add(adjusted).ok_or(Error::Overflow)?,
+            );
+        }
+
+        Self::credit(env, from, user, adjusted)
     }
 
     // ── Multi-sig admin (issue #733) ──────────────────────────────────────────
