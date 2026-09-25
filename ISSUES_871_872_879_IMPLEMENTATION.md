@@ -23,7 +23,7 @@ rewards.credit_with_distribution(&from, &user, &campaign_id, &10_000)?;
 
 ## Issue #872: NFT / SBT Achievement Badges ✅
 
-### Implementation
+### Implementation.
 Badges contract already complete. Added integration documentation.
 
 **contracts/badges/MILESTONE_INTEGRATION.md** - NEW
