@@ -47,7 +47,7 @@ in the current upstream codebase.
   - `get_participant_count()` function (lines 350-354) returns current count
   - Count incremented on successful registration (line 325)
 
-**Events**: `SET_MAX_CAP_EVENT` published when cap is updated
+**Events**: `SET_MAX_CAP_EVENT` published when cap is updated.
 
 ---
 
