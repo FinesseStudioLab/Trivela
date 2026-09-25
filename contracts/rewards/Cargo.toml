@@ -23,6 +23,7 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 soroban-sdk = "25.1"
 
 [dev-dependencies]
+trivela-contract-errors = { path = "../errors" }
 soroban-sdk = { version = "25.1", features = ["testutils"] }
 trivela-campaign-contract = { path = "../campaign" }
 ed25519-dalek = "2"

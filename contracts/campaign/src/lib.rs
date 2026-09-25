@@ -121,6 +121,8 @@ pub const TTL_THRESHOLD: u32 = 100_000;
 pub const TTL_EXTEND_TO: u32 = 518_400;
 
 #[cfg(test)]
+mod error_codes_test;
+#[cfg(test)]
 pub const TTL_THRESHOLD: u32 = 50;
 #[cfg(test)]
 pub const TTL_EXTEND_TO: u32 = 100;

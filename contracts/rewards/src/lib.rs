@@ -47,6 +47,8 @@ use soroban_sdk::{
 pub mod groth16;
 
 #[cfg(test)]
+mod error_codes_test;
+#[cfg(test)]
 mod poseidon;
 #[cfg(test)]
 mod merkle;
