@@ -6,7 +6,7 @@ This implementation adds a comprehensive A/B testing framework to the Trivela pl
 campaign operators to create and test multiple variants of their campaigns to optimize conversion
 rates.
 
-## Features Implemented
+## Features Implemented.
 
 ### 1. **Database Schema** (Migration 010)
 
