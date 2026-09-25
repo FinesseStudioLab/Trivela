@@ -31,13 +31,15 @@ use soroban_sdk::{
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
+// Codes live in the 200–299 nullifier range from `trivela-contract-errors`
+// (#1192); previously 1–3, which collided with the rewards contract.
 pub enum Error {
     /// The nullifier has already been spent by this consumer.
-    AlreadySpent = 1,
+    AlreadySpent = 200,
     /// The caller is not an authorized consumer.
-    Unauthorized = 2,
+    Unauthorized = 201,
     /// The contract has not been initialized.
-    NotInitialized = 3,
+    NotInitialized = 202,
 }
 
 contractmeta!(
@@ -55,6 +57,8 @@ pub const TTL_THRESHOLD: u32 = 100_000;
 #[cfg(not(test))]
 pub const TTL_EXTEND_TO: u32 = 518_400;
 
+#[cfg(test)]
+mod error_codes_test;
 #[cfg(test)]
 pub const TTL_THRESHOLD: u32 = 50;
 #[cfg(test)]

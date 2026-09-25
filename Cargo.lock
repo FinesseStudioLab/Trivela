@@ -1861,13 +1861,19 @@ dependencies = [
  "proptest",
  "rand_core 0.6.4",
  "soroban-sdk",
+ "trivela-contract-errors",
 ]
+
+[[package]]
+name = "trivela-contract-errors"
+version = "0.1.0"
 
 [[package]]
 name = "trivela-nullifier-registry"
 version = "0.1.0"
 dependencies = [
  "soroban-sdk",
+ "trivela-contract-errors",
 ]
 
 [[package]]
@@ -1880,6 +1886,7 @@ dependencies = [
  "proptest",
  "soroban-sdk",
  "trivela-campaign-contract",
+ "trivela-contract-errors",
 ]
 
 [[package]]
