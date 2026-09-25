@@ -578,6 +578,9 @@ export async function createApp(options = {}) {
 
   const eventIndexer = createEventIndexer({
     db: dal.db,
+    // Live activity feed (#1201): resolved lazily because the WebSocket
+    // server is attached after the HTTP server starts listening.
+    onActivity: (activity) => getWebSocketServer()?.publishActivity(activity),
     rpcPool,
     logger: log,
     referralBonus: normalizePositiveInteger(
