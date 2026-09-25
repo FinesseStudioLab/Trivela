@@ -126,6 +126,10 @@ export function createEventIndexer({
   referralBonus = 0,
   confirmationDepth = 0,
   notificationService,
+  // Called after a claim/register event is projected, for the platform-wide
+  // live activity feed (#1201). Errors are swallowed so the feed can never
+  // stall indexing.
+  onActivity,
 } = {}) {
   const sql = createSqlAdapter(db);
   const depth = Math.max(0, Math.floor(Number(confirmationDepth)) || 0);
@@ -147,13 +151,19 @@ export function createEventIndexer({
 
   const handlers = {
     credit: (event, db) => handleCreditEvent(event, db, notificationService),
-    claim: (event, db) => handleClaimEvent(event, db, notificationService),
+    claim: async (event, db) => {
+      await handleClaimEvent(event, db, notificationService);
+      emitActivity(onActivity, 'claim', event, logger);
+    },
     snapshot: handleSnapshotEvent,
     vcredit: (event, db) => handleVestedCreditEvent(event, db, notificationService),
     vclaim: (event, db) => handleVestedClaimEvent(event, db, notificationService),
     referred: (event, database) => handleReferredEvent(event, database, referralBonus),
     refbonus: handleRefBonusEvent,
-    register: handleRegisterEvent,
+    register: async (event, db) => {
+      await handleRegisterEvent(event, db);
+      emitActivity(onActivity, 'registration', event, logger);
+    },
     deregister: handleDeregisterEvent,
   };
 
@@ -714,6 +724,29 @@ function applyBalanceDelta(db, user, delta) {
        updated_at = excluded.updated_at`,
     [user, delta.toString()],
   );
+}
+
+/**
+ * Forward a projected event to the live activity feed (#1201).
+ * claim topics: [name, user, campaignId?], data = amount
+ * register topics: [name, user, campaignId]
+ */
+export function emitActivity(onActivity, kind, event, logger = console) {
+  if (typeof onActivity !== 'function') return;
+  const wallet = event.topic?.[1];
+  if (!wallet) return;
+  try {
+    onActivity({
+      kind,
+      wallet: String(wallet),
+      campaignId: event.topic?.[2] != null ? String(event.topic[2]) : null,
+      amount: kind === 'claim' ? String(event.data ?? 0) : null,
+      ledger: event.ledger ?? null,
+      txHash: event.txHash ?? null,
+    });
+  } catch (err) {
+    logger.warn?.({ err, kind }, 'live activity publish failed');
+  }
 }
 
 async function handleCreditEvent(event, db, notificationService) {
