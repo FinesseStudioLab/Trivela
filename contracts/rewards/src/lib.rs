@@ -56,6 +56,8 @@ mod poseidon_merkle_tests;
 mod poseidon_vs_sha256_bench;
 #[cfg(test)]
 mod airdrop_test;
+#[cfg(test)]
+mod pool_rebalance_test;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -494,6 +496,9 @@ const CAMPAIGN_CAP: Symbol = symbol_short!("campcap");
 const CAMPAIGN_ISSUED: Symbol = symbol_short!("campiss");
 /// Campaign supply cap set event: topics (campcap, campaign_id), data (cap: u64)
 const CAMPAIGN_CAP_EVENT: Symbol = symbol_short!("campcap");
+/// Reward pool rebalanced event (#1186): topics (poolrbal, from_campaign, to_campaign),
+/// data (amount: u64, from_cap: u64, to_cap: u64) — the caps are post-move values.
+const POOL_REBALANCE_EVENT: Symbol = symbol_short!("poolrbal");
 
 // ── Issue #895: Operator delegation constants ────────────────────────────────
 /// Operator delegation storage: (OP_DELEGATION, operator, campaign_id) -> OperatorDelegation
@@ -2835,6 +2840,74 @@ impl RewardsContract {
             .instance()
             .get(&(CAMPAIGN_ISSUED, campaign_id))
             .unwrap_or(0)
+    }
+
+    /// Unspent reward pool of a capped campaign: `cap - issued` (#1186).
+    ///
+    /// Returns 0 for uncapped campaigns (cap = 0), which have no bounded pool
+    /// to rebalance — check `campaign_supply_cap` to tell the two apart.
+    pub fn campaign_unspent_supply(env: Env, campaign_id: u64) -> u64 {
+        let cap = Self::campaign_supply_cap(env.clone(), campaign_id);
+        if cap == 0 {
+            return 0;
+        }
+        cap.saturating_sub(Self::campaign_issued(env, campaign_id))
+    }
+
+    /// Move `amount` of unspent reward pool from one capped campaign to
+    /// another in the same suite (admin only, #1186).
+    ///
+    /// Reallocates rewards from an underperforming track to a high-demand one
+    /// without touching anything already issued: `from_campaign`'s cap drops by
+    /// `amount` and `to_campaign`'s cap rises by the same amount, so the
+    /// combined pool of the two campaigns is unchanged.
+    ///
+    /// # Errors
+    /// * `Unauthorized` — `admin` is not the stored admin.
+    /// * `ZeroAmount` — `amount` is 0.
+    /// * `InvalidSupplyCap` — the campaigns are the same, or either is uncapped.
+    /// * `CampaignSupplyCapExceeded` — `amount` exceeds `from_campaign`'s
+    ///   unspent pool (`campaign_unspent_supply`).
+    /// * `Overflow` — `to_campaign`'s cap would overflow `u64`.
+    pub fn rebalance_campaign_pool(
+        env: Env,
+        admin: Address,
+        from_campaign: u64,
+        to_campaign: u64,
+        amount: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        if from_campaign == to_campaign {
+            return Err(Error::InvalidSupplyCap);
+        }
+
+        let from_cap = Self::campaign_supply_cap(env.clone(), from_campaign);
+        let to_cap = Self::campaign_supply_cap(env.clone(), to_campaign);
+        if from_cap == 0 || to_cap == 0 {
+            return Err(Error::InvalidSupplyCap);
+        }
+
+        let unspent = Self::campaign_unspent_supply(env.clone(), from_campaign);
+        if amount > unspent {
+            return Err(Error::CampaignSupplyCapExceeded);
+        }
+
+        let new_from_cap = from_cap - amount; // amount <= unspent <= from_cap
+        let new_to_cap = to_cap.checked_add(amount).ok_or(Error::Overflow)?;
+
+        let storage = env.storage().instance();
+        storage.set(&(CAMPAIGN_CAP, from_campaign), &new_from_cap);
+        storage.set(&(CAMPAIGN_CAP, to_campaign), &new_to_cap);
+        storage.extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish(
+            (POOL_REBALANCE_EVENT, from_campaign, to_campaign),
+            (amount, new_from_cap, new_to_cap),
+        );
+        Ok(())
     }
 
     /// Credit points using campaign multiplier with supply cap enforcement.
