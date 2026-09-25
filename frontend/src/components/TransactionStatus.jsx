@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RECOVERY_ACTION, RECOVERY_ACTION_META } from '../lib/errorMapping';
 import { useTransactionRecovery } from '../hooks/useTransactionRecovery';
+import { playSuccessChime } from '../lib/successChime';
 import './TransactionStatus.css';
 
 const VARIANT_ICON = { success: '✓', pending: '⏳', error: '✕' };
@@ -38,6 +39,15 @@ export default function TransactionStatus({
   onTopUp,
 }) {
   const [copied, setCopied] = useState(false);
+  const chimedHashRef = useRef(null);
+
+  // Optional audio cue (#1234) when a transaction turns green. Plays once per
+  // hash and only if the user opted in from Notification settings.
+  useEffect(() => {
+    if (variant !== 'success' || !hash || chimedHashRef.current === hash) return;
+    chimedHashRef.current = hash;
+    playSuccessChime();
+  }, [variant, hash]);
 
   const { handlers, getExplorerUrl, getReportUrl } = useTransactionRecovery({
     onRetry,
