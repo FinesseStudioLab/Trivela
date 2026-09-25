@@ -502,7 +502,7 @@ We welcome contributions, especially from the Stellar and Drip community.
 | **Open Issues** | [GitHub Issues](https://github.com/FinesseStudioLab/Trivela/issues) |
 | **Governance**  | [GOVERNANCE.md](docs/GOVERNANCE.md)                                 |
 
-> Check the open issues for labeled tasks: backend, frontend, smart-contract, good first issue, etc.
+> Check the open issues for labeled tasks: backend, frontend, smart-contract, good-first issue, etc.
 
 ---
 
