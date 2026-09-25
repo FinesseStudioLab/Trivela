@@ -9,6 +9,7 @@ import PageMeta from './components/PageMeta';
 import ErrorBoundary from './ErrorBoundary';
 import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
 import './CampaignDetail.css';
+import EmbedSnippetGenerator from './components/EmbedSnippetGenerator.jsx';
 
 /** Formats a duration in seconds as "2d 4h 15m" (issue #317 countdown). */
 function formatCountdown(totalSeconds) {
@@ -74,7 +75,6 @@ export default function CampaignDetail({
   const { campaign, onChainState, isPolling, isPaused, lastUpdated, stateToast, error, refresh } =
     useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
 
-  const [embedSnippetCopied, setEmbedSnippetCopied] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const countdown = useCampaignCountdown(onChainState?.windowStart, onChainState?.windowEnd);
 
@@ -449,41 +449,9 @@ export default function CampaignDetail({
                       color: 'var(--color-text-secondary, #94a3b8)',
                     }}
                   >
-                    Copy this snippet to embed a live campaign card on any website.
+                    Embed a live campaign widget on any website as an HTML iframe or a React component.
                   </p>
-                  <pre
-                    style={{
-                      background: 'var(--color-bg, #0f172a)',
-                      padding: '12px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      overflowX: 'auto',
-                      margin: '0 0 12px',
-                    }}
-                  >
-                    <code>{`<iframe
-  src="${window.location.origin}/embed/campaign/${id}?theme=dark"
-  width="400"
-  height="280"
-  frameborder="0"
-  style="border:none;border-radius:12px;"
-  title="${campaign.name ?? 'Campaign'} on Trivela"
-></iframe>`}</code>
-                  </pre>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.8rem' }}
-                    onClick={() => {
-                      const snippet = `<iframe\n  src="${window.location.origin}/embed/campaign/${id}?theme=dark"\n  width="400"\n  height="280"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n  title="${campaign.name ?? 'Campaign'} on Trivela"\n></iframe>`;
-                      navigator.clipboard.writeText(snippet).then(() => {
-                        setEmbedSnippetCopied(true);
-                        setTimeout(() => setEmbedSnippetCopied(false), 2000);
-                      });
-                    }}
-                  >
-                    {embedSnippetCopied ? 'Copied!' : 'Copy snippet'}
-                  </button>
+                  <EmbedSnippetGenerator campaignId={id} campaignName={campaign.name} />
                 </section>
               )}
             </article>
