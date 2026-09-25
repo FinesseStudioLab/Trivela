@@ -6,7 +6,7 @@ This document summarizes the changes introduced to implement per-account and glo
 - **Implementation**: We added a tracking mechanism `AccountRedeemVolume(Address, WindowId)` to store the total amount redeemed by each user in a given time window.
 - **Verification**: The `redeem` function now checks this volume against `PER_ACCOUNT_REDEEM_CAP`. If exceeded, it reverts with `Error::PerAccountCapExceeded`.
 
-## 2. Global Circuit Breaker (#723)
+## 2. Global Circuit Breaker (#723).
 - **Implementation**: We track aggregate system-wide redemptions using `GlobalRedeemVolume(WindowId)`. 
 - **Verification**: If a transaction pushes the global volume over `GLOBAL_REDEEM_CAP`, the contract emits a `CircuitBreakerTripped` event, sets the contract state `redeem_paused` to true, and reverts with `Error::GlobalCapExceeded`. 
 - **Resolution**: Only an admin can invoke `unpause_redeem` to resume operations after an investigation.
