@@ -12,7 +12,7 @@ jobs:
     name: Verify mainnet readiness checklist
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Confirm deploy intent
         run: |
@@ -38,6 +38,6 @@ jobs:
     runs-on: ubuntu-latest
     environment: mainnet
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Deploy contracts
         run: echo "Deploy steps go here — gated on readiness-gate passing."
