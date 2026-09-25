@@ -4,6 +4,7 @@ import { apiUrl, getStellarNetwork } from './config';
 import { logSafeEvent } from './lib/safeAnalytics';
 import { initializeCampaignContract, getWalletAddress, isWalletConnected } from './stellar';
 import TransactionStatus from './components/TransactionStatus';
+import { validateCampaignForm } from './lib/validateCampaignForm';
 
 const MAX_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/jpg'];
@@ -40,6 +41,8 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
   const [success, setSuccess] = useState('');
   const [deploymentStatus, setDeploymentStatus] = useState('');
   const [txHash, setTxHash] = useState('');
+  const [touched, setTouched] = useState({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const headingId = useId();
   const nameId = useId();
   const descId = useId();
@@ -61,7 +64,32 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
     : '';
   const effectiveApiKey = apiKeyInput || storedApiKey;
 
-  const isValid = name.trim().length >= 3 && name.trim().length <= 80;
+  const fieldErrors = validateCampaignForm(
+    {
+      name,
+      rewardPerAction,
+      maxParticipants,
+      rewardToken,
+      contractId: contractIdInput,
+      startDate,
+      endDate,
+    },
+    { isEditMode },
+  );
+  const isValid = Object.keys(fieldErrors).length === 0;
+  const markTouched = (field) => setTouched((prev) => ({ ...prev, [field]: true }));
+  const visibleError = (field) =>
+    (touched[field] || submitAttempted) && fieldErrors[field] ? fieldErrors[field] : '';
+  const errorProps = (field, inputId) =>
+    visibleError(field)
+      ? { 'aria-invalid': true, 'aria-describedby': `${inputId}-error` }
+      : {};
+  const renderFieldError = (field, inputId) =>
+    visibleError(field) ? (
+      <small id={`${inputId}-error`} className="create-campaign-field-error" role="alert">
+        {visibleError(field)}
+      </small>
+    ) : null;
 
   const loadCampaignForEdit = (campaignId) => {
     setSelectedId(campaignId);
@@ -131,7 +159,11 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!isValid) return;
+    setSubmitAttempted(true);
+    if (!isValid) {
+      setError('Please fix the highlighted fields before submitting.');
+      return;
+    }
     if (!effectiveApiKey) {
       setError('Admin API key is required. It is stored in session only.');
       return;
@@ -252,6 +284,8 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
       setDeployOnChain(false);
       setImageFile(null);
       setImagePreview('');
+      setTouched({});
+      setSubmitAttempted(false);
 
       if (onCampaignCreated) {
         onCampaignCreated(campaign);
@@ -332,7 +366,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             minLength={3}
             maxLength={80}
             onChange={(e) => setName(e.target.value)}
+            onBlur={() => markTouched('name')}
+            {...errorProps('name', nameId)}
           />
+          {renderFieldError('name', nameId)}
           <small className="create-campaign-hint">3–80 characters</small>
         </div>
 
@@ -363,7 +400,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             value={rewardToken}
             disabled={isSubmitting}
             onChange={(e) => setRewardToken(e.target.value)}
+            onBlur={() => markTouched('rewardToken')}
+            {...errorProps('rewardToken', rewardTokenId)}
           />
+          {renderFieldError('rewardToken', rewardTokenId)}
           <small className="create-campaign-hint">
             Stellar asset contract address. Leave empty to default to native XLM.
           </small>
@@ -383,7 +423,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             value={rewardPerAction}
             disabled={isSubmitting}
             onChange={(e) => setRewardPerAction(e.target.value)}
+            onBlur={() => markTouched('rewardPerAction')}
+            {...errorProps('rewardPerAction', rewardId)}
           />
+          {renderFieldError('rewardPerAction', rewardId)}
           <small className="create-campaign-hint">
             Points or token units awarded per qualifying action.
           </small>
@@ -403,7 +446,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             value={maxParticipants}
             disabled={isSubmitting}
             onChange={(e) => setMaxParticipants(e.target.value)}
+            onBlur={() => markTouched('maxParticipants')}
+            {...errorProps('maxParticipants', maxParticipantsId)}
           />
+          {renderFieldError('maxParticipants', maxParticipantsId)}
           <small className="create-campaign-hint">Set to 0 for unlimited participants.</small>
         </div>
 
@@ -419,7 +465,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
               value={startDate}
               disabled={isSubmitting}
               onChange={(e) => setStartDate(e.target.value)}
+              onBlur={() => markTouched('startDate')}
+              {...errorProps('startDate', startDateId)}
             />
+            {renderFieldError('startDate', startDateId)}
           </div>
 
           <div className="create-campaign-field">
@@ -433,7 +482,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
               value={endDate}
               disabled={isSubmitting}
               onChange={(e) => setEndDate(e.target.value)}
+              onBlur={() => markTouched('endDate')}
+              {...errorProps('endDate', endDateId)}
             />
+            {renderFieldError('endDate', endDateId)}
           </div>
         </div>
 
@@ -487,7 +539,10 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
             value={contractIdInput}
             disabled={isSubmitting}
             onChange={(e) => setContractIdInput(e.target.value)}
+            onBlur={() => markTouched('contractId')}
+            {...errorProps('contractId', contractIdInputId)}
           />
+          {renderFieldError('contractId', contractIdInputId)}
           <small className="create-campaign-hint">
             Enter a deployed campaign contract ID to link this campaign to on-chain state.
           </small>
@@ -515,7 +570,7 @@ export default function CreateCampaign({ onCampaignCreated, campaigns = [], stan
         <button
           type="submit"
           className="btn btn-primary btn-button"
-          disabled={!isValid || isSubmitting || !effectiveApiKey}
+          disabled={isSubmitting || !effectiveApiKey}
         >
           {isSubmitting
             ? isEditMode
