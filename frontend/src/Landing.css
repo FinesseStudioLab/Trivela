@@ -1659,3 +1659,15 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* Issue #1230: inline client-side validation feedback on the campaign form */
+.create-campaign-field-error {
+  display: block;
+  margin-top: 0.25rem;
+  color: var(--danger);
+  font-size: 0.8125rem;
+}
+
+.create-campaign-input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
