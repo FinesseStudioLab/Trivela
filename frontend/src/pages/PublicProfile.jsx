@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import PageMeta from '../components/PageMeta';
 import { apiUrl, SITE_URL } from '../config';
+import { isFederatedAddress, resolveFederatedAddress } from '../lib/federation';
 
 // ── Badge emoji map — extended as NEW-071 types grow ────────────────────────
 const BADGE_ICONS = {
@@ -119,6 +120,26 @@ function EmptyProfile({ address }) {
   );
 }
 
+// ── Federation resolution failed ─────────────────────────────────────────────
+
+function FederationError({ address }) {
+  return (
+    <div className="profile-federation-error" data-testid="profile-federation-error">
+      <span className="profile-not-found-icon" aria-hidden="true">
+        🔗
+      </span>
+      <h2>Couldn&apos;t resolve address</h2>
+      <p>
+        <strong>{address}</strong> doesn&apos;t resolve to a Stellar account. Double-check the
+        federated address, or use the account&apos;s G... address directly.
+      </p>
+      <Link to="/" className="btn btn-primary">
+        Back to campaigns
+      </Link>
+    </div>
+  );
+}
+
 // ── Not-found view ────────────────────────────────────────────────────────────
 
 function NotFound({ address }) {
@@ -207,47 +228,73 @@ function ProfileView({ profile, address }) {
 
 export default function PublicProfile() {
   const { address } = useParams();
-  const [status, setStatus] = useState('loading'); // loading | ok | private | notfound | error
+  // loading | resolving | ok | private | notfound | federation-error | error
+  const [status, setStatus] = useState('loading');
   const [profile, setProfile] = useState(null);
+  // The account ID actually used to fetch the profile — same as `address`
+  // unless it was a federated (`name*domain`) address that got resolved.
+  const [resolvedAddress, setResolvedAddress] = useState(null);
 
   useEffect(() => {
     if (!address) return;
 
     let cancelled = false;
-    setStatus('loading');
     setProfile(null);
+    setResolvedAddress(null);
 
-    fetch(apiUrl(`/api/v1/participants/${encodeURIComponent(address)}/profile`))
-      .then((res) => {
-        if (res.status === 404) return { _notFound: true };
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return res.json();
-      })
-      .then((data) => {
+    async function loadProfile() {
+      let accountId = address;
+
+      // SEP-0002 federated address (#1225), e.g. `alice*trivela.network`.
+      if (isFederatedAddress(address)) {
+        setStatus('resolving');
+        try {
+          accountId = await resolveFederatedAddress(address);
+        } catch {
+          if (!cancelled) setStatus('federation-error');
+          return;
+        }
+      }
+
+      if (cancelled) return;
+      setResolvedAddress(accountId);
+      setStatus('loading');
+
+      try {
+        const res = await fetch(apiUrl(`/api/v1/participants/${encodeURIComponent(accountId)}/profile`));
         if (cancelled) return;
-        if (data._notFound) {
+        if (res.status === 404) {
           setStatus('notfound');
-        } else if (data.isPublic === false) {
+          return;
+        }
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.isPublic === false) {
           setStatus('private');
           setProfile(data);
         } else {
           setStatus('ok');
           setProfile(data);
         }
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setStatus('error');
-      });
+      }
+    }
+
+    loadProfile();
 
     return () => {
       cancelled = true;
     };
   }, [address]);
 
+  const displayAddress = resolvedAddress ?? address;
+
   // ── OG meta ────────────────────────────────────────────────────────────────
   const isPublicProfile = status === 'ok' && profile;
   const metaTitle = isPublicProfile
-    ? `${profile.handle ?? shortenAddress(address)} on Trivela`
+    ? `${profile.handle ?? shortenAddress(displayAddress)} on Trivela`
     : 'Participant Profile — Trivela';
   const metaDescription = isPublicProfile
     ? `${profile.handle ?? shortenAddress(address)} has earned ${profile.reputation ?? 0} reputation, ${profile.badges?.length ?? 0} badge${(profile.badges?.length ?? 0) !== 1 ? 's' : ''}, and joined ${profile.campaigns?.length ?? 0} campaign${(profile.campaigns?.length ?? 0) !== 1 ? 's' : ''} on Trivela.`
@@ -270,6 +317,13 @@ export default function PublicProfile() {
         </header>
 
         <main className="profile-main" aria-live="polite">
+          {status === 'resolving' && (
+            <div className="profile-loading" data-testid="profile-resolving">
+              <div className="spinner" aria-label="Resolving address…" />
+              <p>Resolving {address}…</p>
+            </div>
+          )}
+
           {status === 'loading' && (
             <div className="profile-loading" data-testid="profile-loading">
               <div className="spinner" aria-label="Loading profile…" />
@@ -286,11 +340,15 @@ export default function PublicProfile() {
             </div>
           )}
 
-          {status === 'notfound' && <NotFound address={address} />}
+          {status === 'federation-error' && <FederationError address={address} />}
 
-          {status === 'private' && <PrivateProfile address={address} />}
+          {status === 'notfound' && <NotFound address={displayAddress} />}
 
-          {status === 'ok' && profile && <ProfileView profile={profile} address={address} />}
+          {status === 'private' && <PrivateProfile address={displayAddress} />}
+
+          {status === 'ok' && profile && (
+            <ProfileView profile={profile} address={displayAddress} />
+          )}
         </main>
       </div>
     </>
