@@ -1,8 +1,11 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import TransactionStatus from './TransactionStatus';
 import { RECOVERY_ACTION } from '../lib/errorMapping';
+import { playSuccessChime } from '../lib/successChime';
+
+vi.mock('../lib/successChime', () => ({ playSuccessChime: vi.fn() }));
 
 const HASH = 'abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890';
 
@@ -240,5 +243,23 @@ describe('TransactionStatus — callback wiring', () => {
     );
     await userEvent.click(screen.getByRole('button', { name: /add xlm/i }));
     expect(onTopUp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TransactionStatus success chime (#1234)', () => {
+  beforeEach(() => {
+    playSuccessChime.mockClear();
+  });
+
+  it('plays the chime once per successful hash', () => {
+    const { rerender } = render(<TransactionStatus hash={HASH} variant="success" />);
+    rerender(<TransactionStatus hash={HASH} variant="success" />);
+    expect(playSuccessChime).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not chime for pending or error states', () => {
+    render(<TransactionStatus variant="pending" />);
+    render(<TransactionStatus variant="error" message="boom" />);
+    expect(playSuccessChime).not.toHaveBeenCalled();
   });
 });
