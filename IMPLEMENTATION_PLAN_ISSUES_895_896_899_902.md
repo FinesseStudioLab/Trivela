@@ -32,7 +32,7 @@ key. Scoped, budgeted delegation makes this safe.
 
 **Epic**: Advanced Contract Features  
 **Priority**: Medium  
-**Labels**: area: contracts, financial-safety, type: feature
+**Labels**: area: contracts, financial-safety, type: feature.
 
 **Description**: Allow campaigns to configure more than one redemption asset with independent rates
 and reserves.
