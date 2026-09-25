@@ -58,6 +58,48 @@ function createRedisStore(redisClient) {
   };
 }
 
+// Sliding-window-counter store (#1241). The fixed-window counter above
+// resets hard at each window boundary, so a client can send `maxRequests`
+// at the tail of window N and `maxRequests` again at the head of window
+// N+1 — up to 2x the configured rate in a short burst. This store instead
+// blends the previous window's count into the current one, weighted by how
+// much of the previous window still overlaps the sliding lookback, which
+// is the standard approximation used by most production sliding-window
+// rate limiters (no per-request timestamp log required, so it stays O(1)
+// per key like the fixed-window store above).
+function createSlidingWindowStore() {
+  const windows = new Map();
+
+  return {
+    async increment(key, windowMs, now = Date.now()) {
+      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+      const entry = windows.get(key);
+
+      let previousCount = 0;
+      let currentCount = 0;
+
+      if (entry && entry.windowStart === currentWindowStart) {
+        previousCount = entry.previousCount;
+        currentCount = entry.currentCount;
+      } else if (entry && entry.windowStart === currentWindowStart - windowMs) {
+        previousCount = entry.currentCount;
+      }
+
+      currentCount += 1;
+      windows.set(key, { windowStart: currentWindowStart, previousCount, currentCount });
+
+      const elapsedInCurrent = now - currentWindowStart;
+      const overlapWeight = Math.max(0, (windowMs - elapsedInCurrent) / windowMs);
+      const weightedCount = previousCount * overlapWeight + currentCount;
+
+      return {
+        count: weightedCount,
+        resetAt: currentWindowStart + windowMs,
+      };
+    },
+  };
+}
+
 export function createRateLimiter({
   windowMs = DEFAULT_WINDOW_MS,
   maxRequests = DEFAULT_MAX_REQUESTS,
@@ -169,4 +211,4 @@ export function createRateLimiter({
   };
 }
 
-export { createMemoryStore, createRedisStore };
+export { createMemoryStore, createRedisStore, createSlidingWindowStore };

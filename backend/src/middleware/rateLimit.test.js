@@ -17,7 +17,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRateLimiter, createMemoryStore, createRedisStore } from './rateLimit.js';
+import {
+  createRateLimiter,
+  createMemoryStore,
+  createRedisStore,
+  createSlidingWindowStore,
+} from './rateLimit.js';
 
 /**
  * @param {{ apiKey?: string; ip?: string; method?: string }} [opts]
@@ -416,4 +421,85 @@ test('monthly quota hooks are a no-op when not all three are provided', async ()
 
   assert.equal(called, true);
   assert.equal(res.headersOut['X-Monthly-Quota-Limit'], undefined);
+});
+
+// #1241 — the fixed-window store above resets hard at each window boundary,
+// which lets a client burst up to 2x maxRequests across a boundary (max at
+// the tail of window N, max again at the head of window N+1). The tests
+// below pin the sliding-window-counter store's smoothing behavior directly,
+// independent of the rateLimit() middleware plumbing already covered above.
+test('createSlidingWindowStore blends the previous window in proportion to overlap', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+  let now = 0;
+
+  // Fill window 0 to the boundary (5 requests).
+  for (let i = 0; i < 5; i += 1) {
+    await store.increment('k', windowMs, now);
+  }
+
+  // Halfway into window 1: previous window's count should count for ~50%.
+  now = windowMs + windowMs / 2;
+  const result = await store.increment('k', windowMs, now);
+  // 5 previous * 0.5 overlap + 1 current request = 3.5
+  assert.ok(Math.abs(result.count - 3.5) < 0.001, `expected ~3.5, got ${result.count}`);
+});
+
+test('createSlidingWindowStore rejects a boundary burst that a fixed window would allow', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+  const maxRequests = 5;
+
+  // Exhaust window 0 right at its tail end.
+  let lastResult;
+  for (let i = 0; i < maxRequests; i += 1) {
+    lastResult = await store.increment('k', windowMs, windowMs - 1);
+  }
+  assert.equal(lastResult.count, maxRequests);
+
+  // A fixed-window store resets to 0 the instant window 1 starts, so this
+  // request would be request #1 of a fresh bucket. The sliding-window store
+  // must still weight nearly all of the previous burst in.
+  const justAfterBoundary = await store.increment('k', windowMs, windowMs + 1);
+  assert.ok(
+    justAfterBoundary.count > maxRequests,
+    `expected boundary burst to still read as over the limit, got ${justAfterBoundary.count}`,
+  );
+});
+
+test('createSlidingWindowStore fully forgets a window once it is two windows old', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+
+  await store.increment('k', windowMs, 0);
+  await store.increment('k', windowMs, 0);
+
+  // Three windows later, the old count must no longer influence the result.
+  const result = await store.increment('k', windowMs, windowMs * 3);
+  assert.equal(result.count, 1);
+});
+
+test('createSlidingWindowStore keeps independent counts per key', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+
+  await store.increment('alice', windowMs, 0);
+  const bob = await store.increment('bob', windowMs, 0);
+
+  assert.equal(bob.count, 1);
+});
+
+test('rateLimit middleware accepts createSlidingWindowStore as a drop-in store', async () => {
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 2,
+    store: createSlidingWindowStore(),
+  });
+  const { req, res } = makeReqRes();
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+  assert.equal(called, true);
+  assert.equal(res.headersOut['X-RateLimit-Limit'], '2');
 });
