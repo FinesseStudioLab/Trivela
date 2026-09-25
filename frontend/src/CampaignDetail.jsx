@@ -4,6 +4,7 @@ import { apiUrl, DEFAULT_OG_IMAGE } from './config';
 import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
 import StatusBadge from './components/StatusBadge';
+import TaskProgressBar from './components/TaskProgressBar';
 import PageMeta from './components/PageMeta';
 import ErrorBoundary from './ErrorBoundary';
 import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
@@ -368,6 +369,8 @@ export default function CampaignDetail({
                     <p className="stat-value">{formatDate(campaign.createdAt)}</p>
                   </div>
                 </div>
+
+                <TaskProgressBar tasks={campaign.tasks} />
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
