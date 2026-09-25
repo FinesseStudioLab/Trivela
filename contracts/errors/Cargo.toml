@@ -1,0 +1,11 @@
+[package]
+name = "trivela-contract-errors"
+version = "0.1.0"
+edition = "2021"
+publish = false
+rust-version = "1.75.0"
+description = "Shared numeric error-code ranges for Trivela Soroban contracts"
+license = "Apache-2.0"
+
+[lib]
+doctest = false
