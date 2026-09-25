@@ -15,8 +15,8 @@
 ---
 
 ## Index
-
-- **Epic A — ZK & Privacy** (NEW-001 … NEW-008)
+.
+- **Epic A — ZK & Privacy** (NEW-001 … NEW-008).
 - **Epic B — Token Standards & Payouts (SEP)** (NEW-009 … NEW-018)
 - **Epic C — Account Abstraction & Gasless UX** (NEW-019 … NEW-023)
 - **Epic D — On-chain Indexer & Data Pipeline** (NEW-024 … NEW-030)
