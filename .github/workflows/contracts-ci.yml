@@ -61,6 +61,14 @@ jobs:
           fi
           echo "No literal extend_ttl() TTL values found."
 
+      # #1196: contract event logging standard. Fails if a new publish site
+      # breaks the topic convention (tuple led by a `*_EVENT` symbol const) or
+      # if docs/EVENT_SCHEMA.md's generated event catalog is out of date.
+      - name: Check contract event logging standard
+        run: |
+          node --test scripts/check-contract-events.test.mjs
+          node scripts/check-contract-events.mjs
+
       - name: Run contract tests
         run: cargo test --workspace
 
