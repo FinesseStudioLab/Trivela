@@ -13,6 +13,12 @@ import {
   YAxis,
 } from 'recharts';
 import { apiUrl } from './config';
+import {
+  downloadBlob,
+  downloadParticipantExport,
+  statsToCsv,
+  statsToJson,
+} from './lib/campaignExport';
 import Header from './components/Header';
 import PageMeta from './components/PageMeta';
 import './CampaignAnalytics.css';
@@ -29,20 +35,6 @@ function formatDuration(ms) {
   const hours = Math.floor((ms % 86_400_000) / 3_600_000);
   if (days > 0) return `${days}d ${hours}h`;
   return `${hours}h`;
-}
-
-function statsToCsv(stats) {
-  const lines = ['section,date,credited,claimed,count'];
-  for (const row of stats.registrationsByDay || []) {
-    lines.push(`registrations,${row.date},,,${row.count}`);
-  }
-  for (const row of stats.pointsByDay || []) {
-    lines.push(`points,${row.date},${row.credited},${row.claimed},`);
-  }
-  lines.push(
-    `summary,,,,"participants=${stats.summary?.totalParticipants};points=${stats.summary?.totalPoints};claimRate=${stats.summary?.claimRate}"`,
-  );
-  return lines.join('\n');
 }
 
 export default function CampaignAnalytics({
@@ -63,6 +55,8 @@ export default function CampaignAnalytics({
   const [range, setRange] = useState('7d');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
+  const [exportError, setExportError] = useState('');
+  const [exporting, setExporting] = useState('');
 
   const loadStats = useCallback(async () => {
     setLoading(true);
@@ -99,15 +93,30 @@ export default function CampaignAnalytics({
   const registrationSeries = useMemo(() => stats?.registrationsByDay ?? [], [stats]);
   const pointsSeries = useMemo(() => stats?.pointsByDay ?? [], [stats]);
 
-  const handleExportCsv = () => {
+  const handleExportStats = (format) => {
     if (!stats) return;
-    const blob = new Blob([statsToCsv(stats)], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = `campaign-${id}-stats.csv`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    setExportError('');
+    if (format === 'json') {
+      downloadBlob(
+        statsToJson(stats, { campaignId: id, campaignName, range }),
+        `campaign-${id}-stats.json`,
+        'application/json',
+      );
+    } else {
+      downloadBlob(statsToCsv(stats), `campaign-${id}-stats.csv`, 'text/csv;charset=utf-8');
+    }
+  };
+
+  const handleExportParticipants = async (format) => {
+    setExportError('');
+    setExporting(format);
+    try {
+      await downloadParticipantExport({ campaignId: id, format });
+    } catch (err) {
+      setExportError(err.message || 'Export failed.');
+    } finally {
+      setExporting('');
+    }
   };
 
   return (
@@ -155,16 +164,48 @@ export default function CampaignAnalytics({
                   </button>
                 ))}
               </div>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleExportCsv}
-                disabled={!stats}
-              >
-                Export CSV
-              </button>
+              <div className="analytics-export" role="group" aria-label="Export analytics">
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => handleExportStats('csv')}
+                  disabled={!stats}
+                >
+                  Export CSV
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => handleExportStats('json')}
+                  disabled={!stats}
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => handleExportParticipants('csv')}
+                  disabled={exporting !== ''}
+                >
+                  {exporting === 'csv' ? 'Exporting…' : 'Participants CSV'}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => handleExportParticipants('json')}
+                  disabled={exporting !== ''}
+                >
+                  {exporting === 'json' ? 'Exporting…' : 'Participants JSON'}
+                </button>
+              </div>
             </div>
           </header>
+
+          {exportError ? (
+            <p className="analytics-export-error" role="alert">
+              {exportError}
+            </p>
+          ) : null}
 
           {loading ? <p className="analytics-status">Loading analytics...</p> : null}
           {!loading && error ? (
