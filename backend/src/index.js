@@ -105,6 +105,8 @@ import { createPathPaymentRoutes } from './routes/pathPayment.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
+import { createSocialTaskRoutes } from './routes/socialTasks.js';
+import { createTwitterVerificationService } from './services/twitterVerificationService.js';
 import {
   createNotificationRoutes,
   createNotificationPreferencesRoutes,
@@ -3207,6 +3209,16 @@ export async function createApp(options = {}) {
       fetchImpl,
     });
     app.use(`${prefix}/payment-paths`, rateLimiter, pathPaymentRouter);
+
+    // #1243 — Twitter/X social task verification (tweet/like/retweet/follow)
+    // via the official API v2, before any points are awarded.
+    const socialTaskRouter = createSocialTaskRoutes({
+      twitterVerificationService: createTwitterVerificationService({
+        bearerToken: process.env.TWITTER_BEARER_TOKEN,
+        fetch: fetchImpl,
+      }),
+    });
+    app.use(`${prefix}/social-tasks`, rateLimiter, ...guard, socialTaskRouter);
   }
 
   // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
