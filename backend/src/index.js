@@ -112,6 +112,17 @@ import {
   createNotificationPreferencesRoutes,
 } from './routes/notifications.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createSqliteExportJobRepository } from './dal/sqliteExportJobRepository.js';
+import {
+  CAMPAIGN_EXPORT_JOB_TYPE,
+  createCampaignExportWorker,
+} from './jobs/campaignExportWorker.js';
+import { createCampaignExportJobRoutes } from './routes/campaignExportJobs.js';
+import { createFraudDetector } from './services/fraudDetection.js';
+import { createFraudFlagRoutes } from './routes/fraudFlags.js';
+import { createHorizonDepositWatcher } from './services/horizonDepositWatcher.js';
+import { createOperatorDepositRoutes } from './routes/operatorDeposits.js';
+import { createApiDocsRouter } from './routes/apiDocs.js';
 import { createPruningJob } from './jobs/pruningJob.js';
 import {
   purgePiiForUser,
@@ -845,10 +856,21 @@ export async function createApp(options = {}) {
     setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
   }
 
+  // #1260 — asynchronous campaign exports, processed off the request path
+  const campaignExportJobRepository = createSqliteExportJobRepository({ db: dal.db });
+  const campaignExportWorker = createCampaignExportWorker({
+    db: dal.db,
+    repository: campaignExportJobRepository,
+    campaignRepository,
+    storage: storageAdapter,
+    logger: log,
+  });
+
   // Durable job queue — starts poll loop and recovers stale jobs from prior crashes (#565)
   const durableJobQueue = createDurableJobQueue({
     store: jobQueueStore,
     handlers: {
+      [CAMPAIGN_EXPORT_JOB_TYPE]: campaignExportWorker.handle,
       // #922 — end-of-campaign claimable balance creation, enqueued from
       // POST /campaigns/:id/claimable-balances instead of running inline.
       [CLAIMABLE_BALANCES_JOB_TYPE]: createClaimableBalancesJobHandler({
@@ -895,6 +917,49 @@ export async function createApp(options = {}) {
   });
   if (!options.disableJobs) {
     operatorBalanceJob.start();
+  }
+
+  // #1258 — IP-cluster fraud detection for multi-account signups
+  const parseList = (/** @type {unknown} */ value) =>
+    String(value ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+  const fraudDetector = createFraudDetector({
+    db: dal.db,
+    subnetThreshold: normalizePositiveInteger(
+      /** @type {any} */ (options.fraudSubnetThreshold) ?? process.env.FRAUD_SUBNET_THRESHOLD,
+      3,
+    ),
+    windowMs:
+      normalizePositiveInteger(
+        /** @type {any} */ (options.fraudWindowHours) ?? process.env.FRAUD_WINDOW_HOURS,
+        24,
+      ) *
+      60 *
+      60 *
+      1000,
+    proxyList: parseList(options.fraudProxyExitList ?? process.env.FRAUD_PROXY_EXIT_LIST),
+    logger: log,
+  });
+
+  // #1261 — Horizon watcher for operator reward-token deposits
+  const depositWatchAccounts = parseList(
+    options.operatorDepositAccounts ?? process.env.OPERATOR_DEPOSIT_ACCOUNTS,
+  );
+  const depositWatcher = createHorizonDepositWatcher({
+    db: dal.db,
+    horizonUrl: stellarConfig.horizonUrl,
+    accounts: depositWatchAccounts,
+    asset: {
+      code: process.env.REWARD_TOKEN_CODE || 'XLM',
+      issuer: process.env.REWARD_TOKEN_ISSUER || null,
+    },
+    allowHttp: !String(stellarConfig.horizonUrl ?? '').startsWith('https'),
+    logger: log,
+  });
+  if (!options.disableJobs && depositWatchAccounts.length > 0 && stellarConfig.horizonUrl) {
+    depositWatcher.start();
   }
 
   async function buildHealthPayload() {
@@ -1034,6 +1099,8 @@ export async function createApp(options = {}) {
         paths: {},
       };
     }
+    // #1259 — generated OpenAPI 3.0 document + Swagger UI at /docs/api
+    app.use('/docs/api', createApiDocsRouter({ baseSpec: swaggerSpec }));
     app.use('/docs', swaggerUi.serve);
     app.get(
       '/docs',
@@ -2889,6 +2956,18 @@ export async function createApp(options = {}) {
         });
       }
 
+      // #1258 — flag clusters of signups from one IP subnet / proxy exit node.
+      // Detection is advisory: a failure here must never fail the signup.
+      try {
+        fraudDetector.recordSignup({
+          campaignId: String(campaign.id),
+          account: refereeAddress.trim(),
+          ip: req.ip,
+        });
+      } catch (err) {
+        log.warn({ err }, 'fraud detection failed');
+      }
+
       // Live-update anyone watching this campaign's referral leaderboard stream.
       broadcastCampaignEvent(`${req.params.id}:leaderboard`, 'referral', {
         campaignId: String(campaign.id),
@@ -3126,6 +3205,22 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, auditRouter);
 
+    // #1258 — fraud flag review (master key)
+    app.use(
+      `${prefix}/admin/fraud`,
+      rateLimiter,
+      requireMasterKey,
+      createFraudFlagRoutes({ fraudDetector, recordAudit: recordAuditEntry }),
+    );
+
+    // #1261 — operator deposit verification (master key)
+    app.use(
+      `${prefix}/operator`,
+      rateLimiter,
+      requireMasterKey,
+      createOperatorDepositRoutes({ watcher: depositWatcher }),
+    );
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
@@ -3183,6 +3278,20 @@ export async function createApp(options = {}) {
       env: process.env,
     });
     app.use(`${prefix}/sponsored-accounts`, rateLimiter, ...guard, sponsoredAccountRouter);
+
+    // #1260 — asynchronous campaign exports (queued, polled by job id)
+    app.use(
+      prefix,
+      rateLimiter,
+      createCampaignExportJobRoutes({
+        repository: campaignExportJobRepository,
+        campaignRepository,
+        jobQueue: durableJobQueue,
+        guard,
+        recordAudit: recordAuditEntry,
+        logger: log,
+      }),
+    );
 
     // #548 — Claimable balances for unclaimed/expired rewards
     // #922 — submission runs via durableJobQueue; idempotencyMiddleware
@@ -3298,6 +3407,7 @@ export async function createApp(options = {}) {
 
   app._close = () => {
     isShuttingDown = true;
+    depositWatcher.stop();
     try {
       dal.db.close();
     } catch (_) {

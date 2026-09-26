@@ -9,6 +9,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Backend: asynchronous campaign export worker (`POST /campaigns/:id/exports`) on the durable job
+  queue (#1260), Horizon deposit watcher for operator reward-token deposits (#1261), IP-cluster
+  fraud detection with an admin review API (#1258), and a generated OpenAPI reference with Swagger
+  UI at `/docs/api` (#1259). See `docs/BACKEND_ANALYTICS_AND_GROWTH.md`.
 - Production deployment guide with environment matrix
 - Error codes documentation with frontend-friendly message mapping
 - Release process documentation with semantic versioning policy
