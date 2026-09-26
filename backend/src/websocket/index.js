@@ -16,6 +16,7 @@ function initializeWebSocket(httpServer, options = {}) {
   wsServerInstance = new WebSocketServer(httpServer, {
     path: options.path || '/ws',
     verifyClient: options.verifyClient,
+    leaderboardSnapshot: options.leaderboardSnapshot,
   });
 
   return wsServerInstance;

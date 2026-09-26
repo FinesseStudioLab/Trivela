@@ -112,6 +112,11 @@ import {
   createNotificationPreferencesRoutes,
 } from './routes/notifications.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createGithubTaskStore } from './services/githubWebhook.js';
+import { createGithubTaskRoutes, createGithubWebhookRoutes } from './routes/githubWebhook.js';
+import { createIpfsPinService, createPinataProvider } from './services/ipfsPinService.js';
+import { IPFS_PIN_JOB_TYPE, createIpfsPinRoutes } from './routes/ipfsPins.js';
+import { createLeaderboardGateway, leaderboardRoom } from './websocket/leaderboardGateway.js';
 import { createPruningJob } from './jobs/pruningJob.js';
 import {
   purgePiiForUser,
@@ -366,6 +371,25 @@ export async function createApp(options = {}) {
   const auditLogRepository = dal.auditLogs;
   const webhookRepository = dal.webhooks;
   const referralRepository = dal.referrals;
+
+  // #1257 — live leaderboard pushes over the WebSocket gateway
+  const leaderboardGateway = createLeaderboardGateway({
+    getLeaderboard: (campaignId) =>
+      referralRepository
+        .getLeaderboard(campaignId, { limit: 10 })
+        .rows.map((/** @type {any} */ r) => ({
+          wallet: r.referrerAddress,
+          rank: r.rank,
+          points: r.referralCount,
+        })),
+    publish: (campaignId, message) =>
+      getWebSocketServer()?.broadcast(leaderboardRoom(campaignId), message) ?? 0,
+    debounceMs: normalizePositiveInteger(
+      /** @type {any} */ (options.leaderboardDebounceMs) ?? process.env.LEADERBOARD_DEBOUNCE_MS,
+      200,
+    ),
+    logger: log,
+  });
   const variantRepository = dal.variants;
   const cohortRepository = dal.cohorts;
   const pushSubscriptionRepository = dal.pushSubscriptions;
@@ -693,6 +717,19 @@ export async function createApp(options = {}) {
   app.use(createDeprecationMiddleware({ log }));
   app.use(traceparentMiddleware());
   app.use(requestLogger);
+  // #1256 — GitHub webhook. Mounted before express.json(): the HMAC signature is
+  // computed over the raw request bytes.
+  const githubTaskStore = createGithubTaskStore({ db: dal.db, logger: log });
+  app.use(
+    API_V1_PREFIX,
+    createGithubWebhookRoutes({
+      store: githubTaskStore,
+      getSecret: () =>
+        String(options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET ?? ''),
+      logger: log,
+    }),
+  );
+
   app.use(express.json({ limit: jsonBodyLimit }));
 
   const uploadDir = process.env.UPLOAD_DIR ?? './uploads';
@@ -845,10 +882,31 @@ export async function createApp(options = {}) {
     setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
   }
 
+  // #1255 — IPFS pinning of campaign assets (enabled when PINATA_JWT is set)
+  const ipfsPinService =
+    /** @type {any} */ (options.ipfsPinService) ??
+    (process.env.PINATA_JWT
+      ? createIpfsPinService({
+          db: dal.db,
+          provider: createPinataProvider({
+            jwt: process.env.PINATA_JWT,
+            baseUrl: process.env.PINATA_API_URL,
+            fetchImpl,
+          }),
+          fetchImpl,
+          logger: log,
+        })
+      : null);
+
   // Durable job queue — starts poll loop and recovers stale jobs from prior crashes (#565)
   const durableJobQueue = createDurableJobQueue({
     store: jobQueueStore,
     handlers: {
+      // #1255 — background pinning, enqueued when a campaign is created
+      [IPFS_PIN_JOB_TYPE]: async (/** @type {any} */ payload) => {
+        const target = campaignRepository.getById(String(payload?.campaignId));
+        if (target && ipfsPinService) await ipfsPinService.pinCampaign(target);
+      },
       // #922 — end-of-campaign claimable balance creation, enqueued from
       // POST /campaigns/:id/claimable-balances instead of running inline.
       [CLAIMABLE_BALANCES_JOB_TYPE]: createClaimableBalancesJobHandler({
@@ -963,12 +1021,53 @@ export async function createApp(options = {}) {
     res.json(payload);
   });
 
-  const probeHandlers = createProbeHandlers({ getIsShuttingDown: () => isShuttingDown });
+  // #1251 — readiness verifies the database, Redis (when configured) and the
+  // Soroban RPC. The RPC is reported but only fails readiness when
+  // READINESS_REQUIRE_RPC=true, so an RPC blip does not evict every pod.
+  const readinessRequireRpc = ['1', 'true'].includes(
+    String(options.readinessRequireRpc ?? process.env.READINESS_REQUIRE_RPC ?? '').toLowerCase(),
+  );
+  const probeHandlers = createProbeHandlers({
+    getIsShuttingDown: () => isShuttingDown,
+    timeoutMs: normalizePositiveInteger(
+      /** @type {any} */ (options.readinessTimeoutMs) ?? process.env.READINESS_TIMEOUT_MS,
+      2000,
+    ),
+    checks: {
+      database: {
+        run: () => {
+          dal.db.prepare('SELECT 1 AS ok').get();
+        },
+      },
+      redis: usageRedisClient
+        ? {
+            run: async () => {
+              const pong = await usageRedisClient.ping();
+              if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`);
+            },
+          }
+        : null,
+      rpc: {
+        required: readinessRequireRpc,
+        run: async () => {
+          const result = await checkSorobanRpcHealth({
+            rpcUrl: rpcPool.getHealthyRpcUrl(),
+            fetchImpl,
+          });
+          if (/** @type {any} */ (result).status !== 'ok') {
+            throw new Error(`Soroban RPC is ${/** @type {any} */ (result).status}`);
+          }
+          return { pool: rpcPool.getStatus() };
+        },
+      },
+    },
+    healthDetails: () => ({ rpc: rpcPool.getStatus() }),
+  });
   app.get('/health/live', probeHandlers.livenessHandler);
   app.get('/health/ready', probeHandlers.readinessHandler);
   app.get('/livez', probeHandlers.livenessHandler);
   app.get('/readyz', probeHandlers.readinessHandler);
-  app.get('/healthz', probeHandlers.livenessHandler);
+  app.get('/healthz', probeHandlers.healthHandler);
 
   app.get('/ready', (_req, res) => {
     if (isShuttingDown) {
@@ -1478,6 +1577,10 @@ export async function createApp(options = {}) {
           campaign,
           timestamp: new Date().toISOString(),
         });
+      }
+
+      if (ipfsPinService && !options.disableJobs) {
+        durableJobQueue.enqueue(IPFS_PIN_JOB_TYPE, { campaignId: campaign.id }, { maxAttempts: 3 });
       }
 
       shortCache.clear();
@@ -2889,6 +2992,9 @@ export async function createApp(options = {}) {
         });
       }
 
+      // Points were awarded to the referrer: push new standings to WebSocket subscribers (#1257).
+      leaderboardGateway.trigger(campaign.id);
+
       // Live-update anyone watching this campaign's referral leaderboard stream.
       broadcastCampaignEvent(`${req.params.id}:leaderboard`, 'referral', {
         campaignId: String(campaign.id),
@@ -3126,6 +3232,21 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, auditRouter);
 
+    // #1256 — verified GitHub tasks (master key)
+    app.use(
+      `${prefix}/admin/github-tasks`,
+      rateLimiter,
+      requireMasterKey,
+      createGithubTaskRoutes({ store: githubTaskStore }),
+    );
+
+    // #1255 — IPFS pinning of campaign assets (API key; the router applies the guard itself)
+    app.use(
+      prefix,
+      rateLimiter,
+      createIpfsPinRoutes({ getService: () => ipfsPinService, campaignRepository, guard }),
+    );
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
@@ -3296,8 +3417,11 @@ export async function createApp(options = {}) {
   // Central error handler — must be registered after all routes
   app.use(errorHandler);
 
+  app._leaderboardGateway = leaderboardGateway;
+
   app._close = () => {
     isShuttingDown = true;
+    leaderboardGateway.stop();
     try {
       dal.db.close();
     } catch (_) {
@@ -3334,6 +3458,8 @@ export async function startServer(options = {}) {
     try {
       initializeWebSocket(server, {
         path: process.env.WEBSOCKET_PATH || '/ws',
+        leaderboardSnapshot: (/** @type {string} */ campaignId) =>
+          app._leaderboardGateway.snapshot(campaignId),
       });
       log.info('WebSocket server initialized on /ws');
     } catch (error) {

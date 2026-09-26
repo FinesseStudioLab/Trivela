@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer as WsServer } from 'ws';
 import { EventEmitter } from 'events';
 import { log as logger } from '../middleware/logger.js';
 
@@ -18,11 +18,14 @@ class WebSocketServer extends EventEmitter {
   constructor(httpServer, options = {}) {
     super();
 
-    this.wss = new WebSocket.Server({
+    this.wss = new WsServer({
       server: httpServer,
       path: options.path || '/ws',
       verifyClient: options.verifyClient,
     });
+
+    /** @type {((campaignId: string) => object) | null} */
+    this.leaderboardSnapshot = options.leaderboardSnapshot ?? null;
 
     this.clients = new Map(); // clientId -> { ws, subscriptions, metadata }
     this.rooms = new Map(); // roomId -> Set of clientIds
@@ -148,6 +151,15 @@ class WebSocketServer extends EventEmitter {
       channel: roomId,
       timestamp: new Date().toISOString(),
     });
+
+    // Greet leaderboard subscribers with the current standings (#1257).
+    if (channel === 'leaderboard' && campaignId && this.leaderboardSnapshot) {
+      try {
+        this.send(clientId, this.leaderboardSnapshot(String(campaignId)));
+      } catch (error) {
+        logger.error(`Failed to send leaderboard snapshot to ${clientId}:`, error);
+      }
+    }
   }
 
   handleUnsubscribe(clientId, message) {

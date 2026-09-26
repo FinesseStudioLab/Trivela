@@ -9,6 +9,14 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- Backend: `/readyz` now verifies the database, Redis and Soroban RPC (RPC is `degraded` unless
+  `READINESS_REQUIRE_RPC=true`), and `/healthz` reports uptime and RPC pool state (#1251).
+- Backend: IPFS pin service for campaign images, rules, badge and metadata via Pinata, with
+  `POST /campaigns/:id/ipfs-pins` and background pinning on campaign creation (#1255).
+- Backend: GitHub webhook listener (`POST /webhooks/github`, HMAC-verified) that records merged PRs
+  and completed issues for developer-bounty task verification (#1256).
+- Backend: real-time campaign leaderboard over WebSocket (`leaderboard` channel) with rank-change
+  diffs (#1257). Fixes the WebSocket server constructor for `ws` 8.
 - Production deployment guide with environment matrix
 - Error codes documentation with frontend-friendly message mapping
 - Release process documentation with semantic versioning policy
