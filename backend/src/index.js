@@ -129,6 +129,9 @@ import { createHorizonDepositWatcher } from './services/horizonDepositWatcher.js
 import { createOperatorDepositRoutes } from './routes/operatorDeposits.js';
 import { createApiDocsRouter } from './routes/apiDocs.js';
 import { createPruningJob } from './jobs/pruningJob.js';
+import { createSessionTokenCleanupJob } from './jobs/sessionTokenCleanupJob.js';
+import { createCampaignRewardNotificationJob } from './jobs/campaignRewardNotificationJob.js';
+import { setupSentry, captureException } from './services/sentryIntegration.js';
 import {
   purgePiiForUser,
   purgePiiForCampaign,
@@ -476,6 +479,10 @@ export async function createApp(options = {}) {
   };
 
   const app = express();
+
+  // Initialize Sentry error monitoring (#1263)
+  await setupSentry();
+
   const metrics = {
     requestTotal: 0,
     requestErrors: 0,
@@ -828,6 +835,8 @@ export async function createApp(options = {}) {
   );
 
   const pruningJob = createPruningJob({ dal });
+  const sessionTokenCleanupJob = createSessionTokenCleanupJob({ dal });
+  const campaignRewardNotificationJob = createCampaignRewardNotificationJob({ dal, emailService });
 
   const jobRunner = createJobRunner({
     handlers: {
@@ -853,6 +862,12 @@ export async function createApp(options = {}) {
       },
       async storage_pruning() {
         await pruningJob();
+      },
+      async session_token_cleanup() {
+        await sessionTokenCleanupJob();
+      },
+      async campaign_reward_notifications() {
+        await campaignRewardNotificationJob();
       },
     },
     logger: log,
@@ -891,6 +906,26 @@ export async function createApp(options = {}) {
       jobRunner.enqueue('data_export', { date: new Date().toISOString().slice(0, 10) });
     doExport();
     setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
+  }
+
+  // Hourly session token cleanup (#1262)
+  if (!options.disableJobs) {
+    const sessionTokenCleanupIntervalMs = 60 * 60 * 1000; // 1 hour
+    jobRunner.enqueue('session_token_cleanup', null);
+    setInterval(
+      () => jobRunner.enqueue('session_token_cleanup', null),
+      sessionTokenCleanupIntervalMs,
+    ).unref?.();
+  }
+
+  // Twice daily campaign reward notifications (#1246)
+  if (!options.disableJobs) {
+    const campaignRewardNotifIntervalMs = 12 * 60 * 60 * 1000; // 12 hours
+    jobRunner.enqueue('campaign_reward_notifications', null);
+    setInterval(
+      () => jobRunner.enqueue('campaign_reward_notifications', null),
+      campaignRewardNotifIntervalMs,
+    ).unref?.();
   }
 
   // #1255 — IPFS pinning of campaign assets (enabled when PINATA_JWT is set)
