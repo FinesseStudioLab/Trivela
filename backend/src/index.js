@@ -131,6 +131,7 @@ import { createApiDocsRouter } from './routes/apiDocs.js';
 import { createPruningJob } from './jobs/pruningJob.js';
 import { createSessionTokenCleanupJob } from './jobs/sessionTokenCleanupJob.js';
 import { createCampaignRewardNotificationJob } from './jobs/campaignRewardNotificationJob.js';
+import { createAchievementBadgesJob } from './jobs/achievementBadgesJob.js';
 import { setupSentry, captureException } from './services/sentryIntegration.js';
 import {
   purgePiiForUser,
@@ -837,6 +838,11 @@ export async function createApp(options = {}) {
   const pruningJob = createPruningJob({ dal });
   const sessionTokenCleanupJob = createSessionTokenCleanupJob({ dal });
   const campaignRewardNotificationJob = createCampaignRewardNotificationJob({ dal, emailService });
+  const achievementBadgesJob = createAchievementBadgesJob({
+    repository: dal.userBadges,
+    batchSize: normalizePositiveInteger(process.env.BADGE_CALCULATOR_BATCH_SIZE, 500),
+    logger: log,
+  });
 
   const jobRunner = createJobRunner({
     handlers: {
@@ -868,6 +874,9 @@ export async function createApp(options = {}) {
       },
       async campaign_reward_notifications() {
         await campaignRewardNotificationJob();
+      },
+      async achievement_badges() {
+        await achievementBadgesJob();
       },
     },
     logger: log,
@@ -925,6 +934,19 @@ export async function createApp(options = {}) {
     setInterval(
       () => jobRunner.enqueue('campaign_reward_notifications', null),
       campaignRewardNotifIntervalMs,
+    ).unref?.();
+  }
+
+  // Hourly achievement badge calculation (#1247)
+  if (!options.disableJobs) {
+    const badgeCalculatorIntervalMs = normalizePositiveInteger(
+      process.env.BADGE_CALCULATOR_INTERVAL_MS,
+      60 * 60 * 1000, // 1 hour
+    );
+    jobRunner.enqueue('achievement_badges', null);
+    setInterval(
+      () => jobRunner.enqueue('achievement_badges', null),
+      badgeCalculatorIntervalMs,
     ).unref?.();
   }
 

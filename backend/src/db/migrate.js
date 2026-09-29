@@ -65,6 +65,28 @@ async function loadSqlMigration(file) {
 }
 
 /**
+ * Some migrations export a single `migration = { name, description, up }`
+ * object instead of the documented `version` / `description` / `up` exports.
+ * Adapt them the same way as `.sql` files — version from the NNN_ prefix — so
+ * one off-convention file cannot halt every migration after it.
+ *
+ * @param {string} file
+ * @param {any} mod
+ */
+function normalizeModuleMigration(file, mod) {
+  if (typeof mod.version === 'number' || !mod.migration) return mod;
+
+  const version = Number.parseInt(file.slice(0, 3), 10);
+  if (!Number.isInteger(version) || typeof mod.migration.up !== 'function') return mod;
+
+  return {
+    version,
+    description: mod.migration.description ?? mod.migration.name ?? file,
+    up: mod.migration.up,
+  };
+}
+
+/**
  * Run all pending migrations against the given database.
  * @param {InstanceType<typeof Database>} db
  * @returns {Promise<{ applied: number[] }>}
@@ -80,7 +102,10 @@ export async function runMigrations(db) {
   for (const file of files) {
     const mod = file.endsWith('.sql')
       ? await loadSqlMigration(file)
-      : await import(pathToFileURL(join(MIGRATIONS_DIR, file)).href);
+      : normalizeModuleMigration(
+          file,
+          await import(pathToFileURL(join(MIGRATIONS_DIR, file)).href),
+        );
 
     if (typeof mod.version !== 'number') {
       throw new Error(`Migration ${file} must export a numeric "version"`);
