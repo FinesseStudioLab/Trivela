@@ -127,6 +127,9 @@ import { createFraudDetector } from './services/fraudDetection.js';
 import { createFraudFlagRoutes } from './routes/fraudFlags.js';
 import { createHorizonDepositWatcher } from './services/horizonDepositWatcher.js';
 import { createOperatorDepositRoutes } from './routes/operatorDeposits.js';
+import { createGasCostMonitor } from './services/gasCostMonitor.js';
+import { createGasCostRoutes } from './routes/gasCosts.js';
+import { resolveOperatorAddresses } from './services/operatorBalanceService.js';
 import { createApiDocsRouter } from './routes/apiDocs.js';
 import { createPruningJob } from './jobs/pruningJob.js';
 import { createSessionTokenCleanupJob } from './jobs/sessionTokenCleanupJob.js';
@@ -1054,6 +1057,28 @@ export async function createApp(options = {}) {
     depositWatcher.start();
   }
 
+  // #1266 — gas cost monitoring for submitted contract interactions
+  const gasMonitorAccounts = parseList(
+    options.gasMonitorAccounts ?? process.env.GAS_MONITOR_ACCOUNTS,
+  );
+  const gasCostMonitor = createGasCostMonitor({
+    db: dal.db,
+    horizonUrl: stellarConfig.horizonUrl,
+    networkPassphrase: stellarConfig.networkPassphrase,
+    // Default to the backend's own submitter accounts.
+    accounts: gasMonitorAccounts.length ? gasMonitorAccounts : resolveOperatorAddresses(process.env),
+    contracts: parseList(options.gasMonitorContracts ?? process.env.GAS_MONITOR_CONTRACTS),
+    pollIntervalMs: normalizePositiveInteger(
+      /** @type {any} */ (options.gasMonitorPollMs) ?? process.env.GAS_MONITOR_POLL_MS,
+      60_000,
+    ),
+    allowHttp: !String(stellarConfig.horizonUrl ?? '').startsWith('https'),
+    logger: log,
+  });
+  if (!options.disableJobs && stellarConfig.horizonUrl) {
+    gasCostMonitor.start();
+  }
+
   async function buildHealthPayload() {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
     const rpc = rpcHealthCache.payload ?? (await checkSorobanRpcHealth({ rpcUrl, fetchImpl }));
@@ -1290,6 +1315,7 @@ export async function createApp(options = {}) {
     const poolStatus = rpcPool.getStatus();
     const jobRunnerStatus = jobRunner.getStatus();
     const durableJobQueueStatus = durableJobQueue.getStatus();
+    const gasSnapshot = gasCostMonitor.getMetricsSnapshot();
 
     const payload = [
       '# HELP trivela_requests_total Total HTTP requests handled.',
@@ -1348,6 +1374,13 @@ export async function createApp(options = {}) {
       '# HELP trivela_dlq_size_total Total jobs (across all queues) in the dead-letter store.',
       '# TYPE trivela_dlq_size_total gauge',
       `trivela_dlq_size_total ${failedJobRepository.count()}`,
+      // Contract interaction fees (#1266).
+      '# HELP trivela_contract_tx_total Contract interactions with a recorded fee.',
+      '# TYPE trivela_contract_tx_total counter',
+      `trivela_contract_tx_total ${gasSnapshot.txCount}`,
+      '# HELP trivela_contract_tx_fee_stroops_total XLM fees charged for contract interactions, in stroops.',
+      '# TYPE trivela_contract_tx_fee_stroops_total counter',
+      `trivela_contract_tx_fee_stroops_total ${gasSnapshot.feeStroopsTotal}`,
       // Indexer metrics (#532).
       ...Object.entries(eventIndexer?.getMetrics?.() ?? {})
         .map(([key, value]) => [
@@ -3373,6 +3406,14 @@ export async function createApp(options = {}) {
       createOperatorDepositRoutes({ watcher: depositWatcher }),
     );
 
+    // #1266 — contract interaction gas cost metrics (master key)
+    app.use(
+      `${prefix}/admin/gas`,
+      rateLimiter,
+      requireMasterKey,
+      createGasCostRoutes({ monitor: gasCostMonitor }),
+    );
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
@@ -3563,6 +3604,7 @@ export async function createApp(options = {}) {
     isShuttingDown = true;
     leaderboardGateway.stop();
     depositWatcher.stop();
+    gasCostMonitor.stop();
     try {
       dal.db.close();
     } catch (_) {
