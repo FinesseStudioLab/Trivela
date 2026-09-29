@@ -26,6 +26,7 @@ import { createSqliteNotificationRepository } from './sqliteNotificationReposito
 import { createSqliteNotificationPreferencesRepository } from './sqliteNotificationPreferencesRepository.js';
 import { createSqliteSessionTokenRepository } from './sqliteSessionTokenRepository.js';
 import { createSqliteCampaignRewardNotificationRepository } from './sqliteCampaignRewardNotificationRepository.js';
+import { createSqliteUserBadgeRepository } from './sqliteUserBadgeRepository.js';
 
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
@@ -104,6 +105,7 @@ export async function createDal({
     notificationPreferences: createSqliteNotificationPreferencesRepository({ db }),
     sessionTokens: createSqliteSessionTokenRepository({ db }),
     campaignRewardNotifications: createSqliteCampaignRewardNotificationRepository({ db }),
+    userBadges: createSqliteUserBadgeRepository({ db }),
     db,
     pgPool,
   };
