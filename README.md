@@ -80,6 +80,7 @@ VITE_CAMPAIGN_CONTRACT_ID=CDDVJVHP6PUYWB42VQJ6YC7GEUQR622JEE5MY65ZIKUETGDT33QZPB
 | **Backend API**       | REST API for campaign metadata, health checks, and integration             |
 | **Frontend**          | React app to list campaigns and connect wallets to interact with contracts |
 | **Embed widgets**     | Sandboxed iframe and script-tag embeds for partners to show campaigns on third-party sites |
+| **Contract Cheatsheet** | [Interactive Soroban Smart Contract Cheat Sheet](docs/SOROBAN_PARAMETER_CHEATSHEET.md) mapping entrypoints, storage keys, and host functions |
 
 ### Use Cases
 
