@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
+    "dev:docker": "nodemon --legacy-watch --exec node src/server.js",
     "start": "node src/server.js",
     "test": "node --test src/**/*.test.js",
     "test:integration": "node --test src/integration/*.test.js",

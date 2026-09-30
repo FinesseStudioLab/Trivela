@@ -1770,3 +1770,60 @@ fn test_high_volume_registration_stress() {
         STRESS_PARTICIPANT_COUNT as u64
     );
 }
+
+// ── participation fee (issue #1371) ──────────────────────────────────────────
+
+use soroban_sdk::token::{StellarAssetClient, TokenClient as FeeTokenClient};
+
+fn fee_setup() -> (Env, CampaignContractClient<'static>, Address, Address, Address, Address) {
+    let (env, _id, client) = setup();
+    env.mock_all_auths();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    client.set_active(&admin, &0, &true);
+    let issuer = Address::generate(&env);
+    let token = env.register_stellar_asset_contract_v2(issuer).address();
+    let pool = Address::generate(&env);
+    let user = Address::generate(&env);
+    (env, client, admin, token, pool, user)
+}
+
+#[test]
+fn test_fee_charged_and_sent_to_pool() {
+    let (env, client, admin, token, pool, user) = fee_setup();
+    StellarAssetClient::new(&env, &token).mint(&user, &100);
+    client.set_participation_fee(&admin, &1, &token, &10, &pool);
+    assert_eq!(client.get_participation_fee().unwrap().amount, 10);
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&user, &leaf, &proof, &None, &None));
+    let t = FeeTokenClient::new(&env, &token);
+    assert_eq!(t.balance(&user), 90);
+    assert_eq!(t.balance(&pool), 10);
+    // A repeat registration is rejected and is not charged again.
+    assert!(client.try_register(&user, &leaf, &proof, &None, &None).is_err());
+    assert_eq!(t.balance(&pool), 10);
+}
+
+#[test]
+fn test_fee_insufficient_balance_reverts_registration() {
+    let (env, client, admin, token, pool, user) = fee_setup();
+    client.set_participation_fee(&admin, &1, &token, &10, &pool);
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.try_register(&user, &leaf, &proof, &None, &None).is_err());
+    assert!(!client.is_participant(&user));
+    assert_eq!(client.get_participant_count(), 0);
+}
+
+#[test]
+fn test_fee_invalid_amount_and_clear() {
+    let (env, client, admin, token, pool, user) = fee_setup();
+    assert_eq!(
+        client.try_set_participation_fee(&admin, &1, &token, &0, &pool),
+        Err(Ok(Error::InvalidFee))
+    );
+    client.set_participation_fee(&admin, &1, &token, &5, &pool);
+    client.clear_participation_fee(&admin, &2);
+    assert!(client.get_participation_fee().is_none());
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&user, &leaf, &proof, &None, &None));
+}

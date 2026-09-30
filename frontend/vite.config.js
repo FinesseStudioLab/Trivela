@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { getWatchOptions } from './src/lib/viteWatchConfig.js';
 
 export default defineConfig({
   plugins: [
@@ -94,6 +95,7 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    watch: getWatchOptions(),
     proxy: {
       '/api/v1': { target: 'http://localhost:3001', changeOrigin: true },
       '/api': { target: 'http://localhost:3001', changeOrigin: true },

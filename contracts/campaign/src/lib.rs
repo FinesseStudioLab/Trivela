@@ -63,6 +63,7 @@ use soroban_sdk::{
     contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, vec, Address,
     Bytes, BytesN, Env, Symbol, Vec,
 };
+use soroban_sdk::token::TokenClient;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -103,6 +104,8 @@ pub enum Error {
     NotInAddressAllowlist = 125,
     /// Address is in the address blocklist when blocklist is enabled.
     InAddressBlocklist = 126,
+    /// Participation fee amount must be positive.
+    InvalidFee = 127,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -296,6 +299,24 @@ pub enum UniquenessMode {
     None = 0,
     /// Nullifier-based uniqueness — one entry per unique identity.
     Nullifier = 1,
+}
+
+// ── Participation fee ────────────────────────────────────────────────────────
+// Optional entry fee charged on first registration in a custom token and
+// forwarded to the reward pool address.
+const FEE_CONFIG: Symbol = symbol_short!("feecfg");
+const SET_FEE_EVENT: Symbol = symbol_short!("feeset");
+const FEE_PAID_EVENT: Symbol = symbol_short!("feepaid");
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ParticipationFee {
+    /// SEP-41 token the fee is denominated in.
+    pub token: Address,
+    /// Fee per new registration, in the token's smallest unit (> 0).
+    pub amount: i128,
+    /// Reward pool address that receives the fee.
+    pub pool: Address,
 }
 
 #[contract]
@@ -657,6 +678,45 @@ impl CampaignContract {
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
+    }
+
+    /// Configure the participation fee (admin only). The fee is charged from
+    /// each new participant in `token` and transferred to `pool`.
+    pub fn set_participation_fee(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        token: Address,
+        amount: i128,
+        pool: Address,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        if amount <= 0 {
+            return Err(Error::InvalidFee);
+        }
+        let fee = ParticipationFee { token, amount, pool };
+        env.storage().instance().set(&FEE_CONFIG, &fee);
+        env.events().publish((SET_FEE_EVENT,), fee);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove the participation fee (admin only); registration becomes free.
+    pub fn clear_participation_fee(env: Env, admin: Address, nonce: u64) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().remove(&FEE_CONFIG);
+        env.events().publish((SET_FEE_EVENT,), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Current participation fee, if configured.
+    pub fn get_participation_fee(env: Env) -> Option<ParticipationFee> {
+        env.storage().instance().get(&FEE_CONFIG)
     }
 
     /// Set maximum participant cap (admin only). Set to 0 for unlimited.
@@ -2042,8 +2102,20 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
             );
 
             env.events()
-                .publish((REFERRED_EVENT, participant, referrer), ());
+                .publish((REFERRED_EVENT, participant.clone(), referrer), ());
         }
+    }
+
+    // Charge the participation fee (if configured). A failed transfer traps
+    // and rolls back the whole registration.
+    if let Some(fee) = env
+        .storage()
+        .instance()
+        .get::<_, ParticipationFee>(&FEE_CONFIG)
+    {
+        TokenClient::new(env, &fee.token).transfer(&participant, &fee.pool, &fee.amount);
+        env.events()
+            .publish((FEE_PAID_EVENT, participant.clone()), fee.amount);
     }
 
     env.storage()
