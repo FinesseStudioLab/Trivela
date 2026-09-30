@@ -1,5 +1,6 @@
 import Database from 'better-sqlite3';
 import { runMigrations } from '../db/migrate.js';
+import { instrumentSqlite } from '../lib/slowQueryLogger.js';
 import { assertCampaignRepository } from './campaignRepository.js';
 import {
   createSqliteCampaignRepository,
@@ -55,7 +56,7 @@ export async function createDal({
   allowedCategories,
   allowlistRepository,
 } = {}) {
-  const db = new Database(dbPath);
+  const db = instrumentSqlite(new Database(dbPath));
   await runMigrations(db);
 
   const categories = allowedCategories ?? parseCategoriesConfig(process.env.TRIVELA_CATEGORIES);
