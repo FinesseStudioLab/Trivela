@@ -713,3 +713,7 @@ Accept: application/vnd.trivela.v2+json
 ```
 
 Endpoints that honour this header document it in their section below. All others ignore it.
+
+## Synthetic user bot
+
+`npm run bot:synthetic` runs a long-lived bot that repeatedly exercises the health, campaign list, campaign detail and stats endpoints of a running backend (e.g. Testnet) and tracks per-step success/failure. Configure with `BOT_BASE_URL`, `BOT_API_KEY`, `BOT_INTERVAL_MS`, `BOT_TIMEOUT_MS` and `BOT_FAILURE_THRESHOLD`. See `src/testing/syntheticBot.js`.
