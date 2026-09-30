@@ -1,0 +1,42 @@
+name: TLS Certificate Expiry Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      endpoints:
+        description: 'Comma-separated host[:port] list (overrides repository variable)'
+        required: false
+  pull_request:
+    paths:
+      - 'backend/src/security/**'
+      - 'backend/scripts/check-tls-certs.js'
+      - '.github/workflows/tls-cert-check.yml'
+
+jobs:
+  tls-cert-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install backend dependencies
+        run: npm ci --workspace=backend
+
+      - name: Run unit tests
+        run: node --test src/security/*.test.js
+        working-directory: backend
+
+      # Fails (and so notifies maintainers) when any cert expires within 30 days.
+      # Configure endpoints via the TLS_CHECK_ENDPOINTS repository variable.
+      - name: Check certificate expiry
+        if: github.event_name != 'pull_request'
+        run: node scripts/check-tls-certs.js --warn-days=30
+        working-directory: backend
+        env:
+          TLS_CHECK_ENDPOINTS: ${{ github.event.inputs.endpoints || vars.TLS_CHECK_ENDPOINTS }}
