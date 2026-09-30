@@ -14,6 +14,7 @@
     "test:snapshots:update": "UPDATE_SNAPSHOTS=1 node --test src/tests/api-snapshot.test.js",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit --project jsconfig.json",
+    "bot:synthetic": "node src/testing/syntheticBot.js",
     "db:migrate": "node src/db/migrate.js",
     "openapi:validate": "node scripts/validateOpenApi.js",
     "docs:build": "node scripts/build-redoc.js",
