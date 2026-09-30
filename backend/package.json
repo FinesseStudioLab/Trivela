@@ -6,8 +6,10 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch src/server.js",
+    "dev:docker": "node scripts/dev-watch.js",
     "start": "node src/server.js",
     "test": "node --test src/**/*.test.js",
+    "test:scripts": "node --test scripts/*.test.js",
     "test:integration": "node --test src/integration/*.test.js",
     "test:contract": "node --test src/integration/openapi-contract.test.js",
     "test:snapshots": "node --test src/tests/api-snapshot.test.js",
