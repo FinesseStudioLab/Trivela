@@ -19,7 +19,8 @@
     "docs:build": "node scripts/build-redoc.js",
     "openapi:lint": "redocly lint openapi.yaml",
     "security:xss": "node scripts/security-audit.js",
-    "security-headers-check": "curl -s -I ${CHECK_URL:-http://localhost:3001/health} | grep -iE '(x-content-type|x-frame|strict-transport|content-security|referrer|permissions)'"
+    "security-headers-check": "curl -s -I ${CHECK_URL:-http://localhost:3001/health} | grep -iE '(x-content-type|x-frame|strict-transport|content-security|referrer|permissions)'",
+    "security:tls": "node scripts/check-tls-certs.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1057.0",
