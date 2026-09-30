@@ -94,6 +94,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    // File events do not propagate through Docker bind mounts on all hosts;
+    // compose.yaml sets VITE_USE_POLLING so HMR still picks up edits.
+    watch: process.env.VITE_USE_POLLING === 'true' ? { usePolling: true, interval: 300 } : undefined,
     proxy: {
       '/api/v1': { target: 'http://localhost:3001', changeOrigin: true },
       '/api': { target: 'http://localhost:3001', changeOrigin: true },

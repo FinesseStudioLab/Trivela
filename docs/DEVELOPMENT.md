@@ -129,3 +129,13 @@ k6 prints a summary block after each run. The two gating metrics:
 A non-zero exit means a threshold was breached. The CI workflow (`.github/workflows/load-test.yml`)
 is `workflow_dispatch`-only — run it from the Actions tab against staging when you need a
 higher-fidelity report than your local machine can produce.
+
+## Docker Compose Hot Reload
+
+`docker compose up backend frontend` bind-mounts the repo into the containers and reloads on save:
+
+- **Backend** runs `npm run dev:docker` (`backend/scripts/dev-watch.js`), a polling watcher that restarts the server when `.js/.mjs/.cjs/.json` files under `backend/src` change. Polling is used because inotify events are unreliable on Docker bind mounts (macOS/Windows). Tune with `WATCH_POLL_INTERVAL_MS` (default `500`, minimum `50`).
+- **Frontend** runs Vite with `VITE_USE_POLLING=true`, enabling polling-based HMR.
+- The `devnet` profile services use the same setup.
+
+Test the watcher with `npm run test:scripts --workspace=backend`.
