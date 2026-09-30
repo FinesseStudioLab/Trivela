@@ -1,4 +1,4 @@
-import { logger } from '../lib/logger.js';
+import { log as logger } from '../middleware/logger.js';
 
 let sentryClient = null;
 

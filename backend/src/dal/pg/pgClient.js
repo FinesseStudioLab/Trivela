@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { createSlowQueryMonitor, instrumentPg } from '../../lib/slowQueryLogger.js';
 
 const { Pool } = pg;
 
@@ -14,11 +15,12 @@ export function createPool(connectionString) {
   if (!connectionString) {
     throw new Error('createPool requires a DATABASE_URL');
   }
-  return new Pool({
+  const pool = new Pool({
     connectionString,
     application_name: 'trivela-backend',
     max: Number(process.env.PG_POOL_MAX ?? 10),
   });
+  return instrumentPg(pool, createSlowQueryMonitor({ driver: 'postgres' }));
 }
 
 /**
