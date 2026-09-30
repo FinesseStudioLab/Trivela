@@ -4,7 +4,7 @@
 > Trivela terminology? See the [Glossary](../docs/GLOSSARY.md).
 
 This guide covers environment setup, coding standards, testing patterns, and common pitfalls for the
-Soroban smart contracts in `contracts/`. It supplements the main
+Soroban smart contracts in `contracts/`. For a complete mapping of host functions, entrypoint arguments, storage keys, and error codes across all contracts, see the [Soroban Parameter Cheat Sheet](../docs/SOROBAN_PARAMETER_CHEATSHEET.md). It supplements the main
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ---
