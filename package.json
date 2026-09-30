@@ -32,6 +32,7 @@
     "check:bundle": "node scripts/check-bundle-size.mjs",
     "dev:devnet": "docker compose --profile devnet up --build",
     "dev:devnet:down": "docker compose --profile devnet down -v",
+    "dev:watch": "docker compose watch",
     "codegen": "cd sdk/client && npm install && npm run generate",
     "codegen:check": "cd sdk/client && npm install && npm run check-drift"
   },
