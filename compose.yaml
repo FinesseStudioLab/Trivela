@@ -15,6 +15,13 @@ services:
     volumes:
       - ./:/app
       - backend_node_modules:/app/backend/node_modules
+    develop:
+      watch:
+        - action: sync
+          path: ./backend/src
+          target: /app/backend/src
+        - action: rebuild
+          path: ./backend/package.json
 
   # Blue environment — serves production traffic by default.
   # In a blue/green deployment this is the currently live backend.
@@ -68,6 +75,7 @@ services:
     environment:
       VITE_API_URL: http://backend:3001
       VITE_STELLAR_NETWORK: testnet
+      CHOKIDAR_USEPOLLING: 'true'
     depends_on:
       - backend
     ports:
@@ -75,6 +83,16 @@ services:
     volumes:
       - ./:/app
       - frontend_node_modules:/app/frontend/node_modules
+    develop:
+      watch:
+        - action: sync
+          path: ./frontend/src
+          target: /app/frontend/src
+        - action: sync
+          path: ./frontend/public
+          target: /app/frontend/public
+        - action: rebuild
+          path: ./frontend/package.json
 
   redis:
     image: redis:7-alpine

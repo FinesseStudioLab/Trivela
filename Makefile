@@ -1,5 +1,5 @@
 # Trivela development helpers
-.PHONY: dev dev-down codegen codegen-check
+.PHONY: dev dev-down dev-watch codegen codegen-check
 
 # Issue #616: one-command local devnet (contracts + backend + frontend)
 dev:
@@ -7,6 +7,10 @@ dev:
 
 dev-down:
 	docker compose --profile devnet down -v
+
+# Issue #1366: Docker Compose auto-reload file watcher
+dev-watch:
+	docker compose watch
 
 # Issue #615: regenerate TypeScript client from openapi.yaml
 codegen:

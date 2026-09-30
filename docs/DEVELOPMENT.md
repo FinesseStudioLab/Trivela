@@ -1,5 +1,20 @@
 # Development Guide
 
+## Docker Compose File Watching & Auto-Reload
+
+For containerized development with automated file synchronization and Hot Module Replacement (HMR),
+Trivela configures native Docker Compose file watching. See the full
+[Docker Compose Watch Guide](./DOCKER_COMPOSE_WATCH.md) for details.
+
+Quick start:
+
+```bash
+# Run watcher on active compose stack
+npm run dev:watch
+# Or with make
+make dev-watch
+```
+
 ## Running Without Contracts
 
 Both frontend and backend can run without deployed contracts. This allows development and testing
