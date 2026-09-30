@@ -43,9 +43,14 @@ jobs:
         run: npx playwright install --with-deps chromium
 
       - name: Run visual regression tests
+        id: visual
         working-directory: frontend
         run: npm run test:visual
         continue-on-error: true
+
+      - name: Publish visual diff summary
+        if: always()
+        run: node scripts/visual-diff-summary.mjs frontend/test-results
 
       - name: Upload test report
         if: always()
@@ -56,12 +61,17 @@ jobs:
           retention-days: 30
 
       - name: Upload diff images
-        if: failure()
+        if: always() && steps.visual.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
           name: visual-regression-diffs
           path: |
-            frontend/tests/visual/__snapshots__/**/*-diff.png
-            frontend/tests/visual/__snapshots__/**/*-actual.png
+            frontend/test-results/**/*-diff.png
+            frontend/test-results/**/*-actual.png
+            frontend/test-results/**/*-expected.png
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Fail if visual tests failed
+        if: steps.visual.outcome == 'failure'
+        run: exit 1
