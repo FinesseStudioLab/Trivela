@@ -141,6 +141,24 @@ Partners can embed Trivela campaign widgets on third-party sites using either an
 ></script>
 ```
 
+### Leaderboard embed
+
+Show a live top-participants table for a campaign. `data-limit` (1–50, default 10) sets the row
+count and `data-refresh` (seconds, minimum 30) reloads the board periodically. Wallet addresses are
+shortened; no full account ids are exposed.
+
+```html
+<script
+  src="https://trivela.app/embed.js"
+  data-campaign="CAMPAIGN_ID"
+  data-widget="leaderboard"
+  data-limit="10"
+  data-refresh="60"
+></script>
+```
+
+Or as a plain iframe: `https://trivela.app/embed/v1/leaderboard/CAMPAIGN_ID?limit=10&theme=light`.
+
 ### Programmatic usage
 
 After the script loads, you can also mount widgets manually:

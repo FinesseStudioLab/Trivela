@@ -1208,6 +1208,12 @@ export async function createApp(options = {}) {
     embedRateLimiter,
     createEmbedWidgetRoute(campaignRepository, siteOrigin, {
       embedSecret: process.env.EMBED_ATTRIBUTION_SECRET,
+      getLeaderboard: (/** @type {string} */ campaignId, /** @type {number} */ limit) =>
+        referralRepository.getLeaderboard(campaignId, { limit }).rows.map((/** @type {any} */ r) => ({
+          address: r.referrerAddress,
+          rank: r.rank,
+          points: r.referralCount,
+        })),
     }),
   );
   // Developer portal (#807)

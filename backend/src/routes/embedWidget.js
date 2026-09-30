@@ -42,6 +42,17 @@ function sanitiseText(raw, maxLen) {
     .replace(/'/g, '&#39;');
 }
 
+/**
+ * Shorten a wallet address so the public widget never shows a full account id.
+ * @param {unknown} raw
+ * @returns {string|null}
+ */
+function shortenAddress(raw) {
+  if (!raw) return null;
+  const s = String(raw);
+  return s.length > 12 ? `${s.slice(0, 5)}…${s.slice(-4)}` : s;
+}
+
 function statusLabel(campaign) {
   if (!campaign.active) return 'Ended';
   if (campaign.endDate && new Date(campaign.endDate) < new Date()) return 'Ended';
@@ -128,9 +139,12 @@ function renderLeaderboardWidget(campaign, entries, params) {
   const rows = (entries ?? [])
     .slice(0, limit)
     .map((entry, i) => {
-      const rank = i + 1;
-      const displayName = sanitiseText(entry.displayName ?? entry.address ?? 'Anonymous', 32);
-      const points = entry.points ?? entry.score ?? 0;
+      const displayName = sanitiseText(
+        entry.displayName ?? shortenAddress(entry.address ?? entry.walletAddress) ?? 'Anonymous',
+        32,
+      );
+      const points = Number(entry.points ?? entry.score ?? 0) || 0;
+      const rank = Number.isInteger(entry.rank) && entry.rank > 0 ? entry.rank : i + 1;
       const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`;
       return `<tr><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};font-weight:${rank <= 3 ? 700 : 400}">${medal}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};color:${textPrimary}">${displayName}</td><td style="padding:8px 12px;border-bottom:1px solid ${borderColor};text-align:right;color:${accent};font-weight:600">${points}</td></tr>`;
     })
@@ -211,7 +225,11 @@ body{font-family:system-ui,-apple-system,sans-serif;background:${bg};padding:12p
  * @param {object} options
  * @returns {import('express').RequestHandler}
  */
-export function createEmbedWidgetRoute(campaignRepository, siteOrigin, { embedSecret = '' } = {}) {
+export function createEmbedWidgetRoute(
+  campaignRepository,
+  siteOrigin,
+  { embedSecret = '', getLeaderboard } = {},
+) {
   return function embedWidget(req, res) {
     const { widgetType, campaignId } = req.params;
 
@@ -248,7 +266,7 @@ export function createEmbedWidgetRoute(campaignRepository, siteOrigin, { embedSe
     // Set CSP headers
     res.setHeader('Content-Security-Policy', buildCspHeader(siteOrigin));
     res.setHeader('X-Frame-Options', 'ALLOWALL');
-    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.setHeader('Cache-Control', 'public, max-age=30');
 
     const params = { theme, color, partner, org, siteOrigin, limit };
 
@@ -258,7 +276,14 @@ export function createEmbedWidgetRoute(campaignRepository, siteOrigin, { embedSe
         html = renderCardWidget(campaign, params);
         break;
       case 'leaderboard': {
-        const entries = campaignRepository.getLeaderboard?.(campaignId, limit) ?? [];
+        let entries = [];
+        try {
+          const source = getLeaderboard ?? campaignRepository.getLeaderboard;
+          entries = source?.(campaignId, limit) ?? [];
+        } catch {
+          // Fail soft: an empty board beats a broken widget on a partner's page.
+          entries = [];
+        }
         html = renderLeaderboardWidget(campaign, entries, params);
         break;
       }

@@ -13,6 +13,14 @@
  *           data-color="#3b82f6">
  *   </script>
  *
+ * Leaderboard widget (live top participants, auto-refreshing):
+ *   <script src="https://trivela.app/embed.js"
+ *           data-campaign="<campaign-id>"
+ *           data-widget="leaderboard"
+ *           data-limit="10"
+ *           data-refresh="60">
+ *   </script>
+ *
  * Programmatic usage (after the script loads):
  *   const widget = new TrivelaWidget({ campaign: 'id', partner: 'pid' });
  *   widget.on('trivela:ready',          (e) => console.log('loaded', e))
@@ -56,6 +64,9 @@
 
   // Default iframe dimensions per size preset.
   var SIZE_HEIGHTS = { sm: '260px', md: '320px', lg: '380px' };
+  var WIDGET_TYPES = { card: 1, leaderboard: 1, progress: 1 };
+  var MIN_REFRESH_SECONDS = 30;
+  var MAX_LIMIT = 50;
 
   /**
    * Validate and sanitise a partner ID.
@@ -89,6 +100,9 @@
    * @param {string}  [config.size]       'sm' | 'md' | 'lg'
    * @param {string}  [config.org]        Partner org display name
    * @param {string}  [config.color]      Button hex colour override
+   * @param {string}  [config.widget]     'card' (default) | 'leaderboard' | 'progress'
+   * @param {number}  [config.limit]      Leaderboard rows (1-50)
+   * @param {number}  [config.refresh]    Reload interval in seconds (min 30); 0/omitted disables
    * @param {string}  [config.origin]     Override Trivela origin (testing only)
    */
   function TrivelaWidget(config) {
@@ -169,8 +183,15 @@
     if (cfg.size && SIZE_HEIGHTS[cfg.size]) params.set('size', cfg.size);
     if (cfg.org) params.set('org', String(cfg.org).slice(0, 48));
 
+    var widget = WIDGET_TYPES[cfg.widget] ? cfg.widget : 'card';
+    if (widget === 'leaderboard') {
+      var limit = parseInt(cfg.limit, 10);
+      if (limit > 0) params.set('limit', String(Math.min(limit, MAX_LIMIT)));
+    }
+
     var qs = params.toString();
-    return origin + '/embed/campaign/' + encodeURIComponent(cfg.campaign) + (qs ? '?' + qs : '');
+    var path = widget === 'card' ? '/embed/campaign/' : '/embed/v1/' + widget + '/';
+    return origin + path + encodeURIComponent(cfg.campaign) + (qs ? '?' + qs : '');
   };
 
   /**
@@ -190,7 +211,8 @@
 
     var iframe = document.createElement('iframe');
     iframe.src = this._buildSrc();
-    iframe.title = 'Trivela Campaign Widget';
+    iframe.title =
+      cfg.widget === 'leaderboard' ? 'Trivela Campaign Leaderboard' : 'Trivela Campaign Widget';
     iframe.setAttribute('loading', 'lazy');
     iframe.setAttribute('allow', 'payment');
     // Sandbox: minimal permissions required for the widget to function.
@@ -225,6 +247,14 @@
     };
 
     global.addEventListener('message', this._messageHandler);
+
+    var refresh = parseInt(cfg.refresh, 10);
+    if (refresh > 0) {
+      var ms = Math.max(refresh, MIN_REFRESH_SECONDS) * 1000;
+      this._refreshTimer = setInterval(function () {
+        if (self._iframe) self._iframe.src = self._buildSrc();
+      }, ms);
+    }
     return this;
   };
 
@@ -235,6 +265,10 @@
     if (this._messageHandler) {
       global.removeEventListener('message', this._messageHandler);
       this._messageHandler = null;
+    }
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
     }
     if (this._iframe && this._iframe.parentNode) {
       this._iframe.parentNode.removeChild(this._iframe);
@@ -268,6 +302,9 @@
         size: script.getAttribute('data-size') || 'md',
         org: script.getAttribute('data-org') || '',
         color: script.getAttribute('data-color') || '',
+        widget: script.getAttribute('data-widget') || 'card',
+        limit: script.getAttribute('data-limit') || '',
+        refresh: script.getAttribute('data-refresh') || '',
       });
 
       // Insert a container div immediately after the script tag.
