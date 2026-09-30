@@ -108,6 +108,47 @@ Trivela/
 
 ## 🔧 Architecture
 
+The Trivela platform connects frontend users and campaign managers with off-chain metadata caching and on-chain Soroban escrow smart contracts on the Stellar network:
+
+```mermaid
+flowchart TD
+    subgraph Clients["Client Layer"]
+        U["👤 User / Wallet (Freighter)"]
+        O["🏢 Campaign Operator"]
+        W["🧩 Embed Widgets (Iframe/Script)"]
+    end
+
+    subgraph FrontendApp["Frontend Layer (React + Vite)"]
+        F["Trivela Web App"]
+    end
+
+    subgraph BackendAPI["Backend Service (Node.js + Express)"]
+        API["REST API (/api/v1)"]
+        DB[("Campaign Metadata Store")]
+        Obs["Telemetry / OpenTelemetry"]
+    end
+
+    subgraph Blockchain["Stellar Network (Soroban)"]
+        RPC[("Soroban RPC Node")]
+        C1["🎁 Rewards Contract\n(Points, Claims, Balances)"]
+        C2["📢 Campaign Contract\n(Participants, Constraints)"]
+    end
+
+    U -->|Browse / Connect| F
+    O -->|Manage Campaigns| F
+    W -->|Partner Displays| F
+    
+    F -->|Fetch Metadata & Health| API
+    API <--> DB
+    API -.-> Obs
+    
+    F -->|Sign & Submit Transactions| RPC
+    API -->|Read & Verify State| RPC
+    
+    RPC <--> C1
+    RPC <--> C2
+```
+
 For detailed system architecture documentation:
 
 - **System Map** – Diagram, trust boundaries, and end-to-end data flows:
