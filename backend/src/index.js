@@ -106,6 +106,11 @@ import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
 import { createSocialTaskRoutes } from './routes/socialTasks.js';
+import { createInfluencerReferralRoutes } from './routes/influencerReferralCodes.js';
+import {
+  createInfluencerReferralRepository,
+  createInfluencerReferralService,
+} from './services/influencerReferralCodes.js';
 import { createTwitterVerificationService } from './services/twitterVerificationService.js';
 import {
   createNotificationRoutes,
@@ -836,7 +841,7 @@ export async function createApp(options = {}) {
 
   const pruningJob = createPruningJob({ dal });
   const sessionTokenCleanupJob = createSessionTokenCleanupJob({ dal });
-  const campaignRewardNotificationJob = createCampaignRewardNotificationJob({ dal, emailService });
+  const campaignRewardNotificationJob = createCampaignRewardNotificationJob({ dal, emailService: /** @type {any} */ (options).emailService });
 
   const jobRunner = createJobRunner({
     handlers: {
@@ -3325,6 +3330,18 @@ export async function createApp(options = {}) {
       });
     });
 
+    // #1369 — influencer referral code generator (trivela.network/ref/<name>).
+    // Generation/listing require an API key; resolving a code is public, so this
+    // is registered before the prefix-level API-key mounts below.
+    const influencerReferralRouter = createInfluencerReferralRoutes({
+      service: createInfluencerReferralService({
+        repository: createInfluencerReferralRepository({ db: dal.db }),
+        baseUrl: process.env.REFERRAL_BASE_URL ?? process.env.FRONTEND_URL ?? 'https://trivela.network',
+      }),
+      requireApiKey,
+    });
+    app.use(prefix, rateLimiter, influencerReferralRouter);
+
     // Org + RBAC member management routes (Issue #608)
     // Registered BEFORE the app.use(prefix, requireApiKey, ...) mounts so that
     // master-key-only routes (POST /orgs) are not intercepted by the API-key
@@ -3357,6 +3374,8 @@ export async function createApp(options = {}) {
       prefix,
       rateLimiter,
       createIpfsPinRoutes({ getService: () => ipfsPinService, campaignRepository, guard }),
+    );
+
     // #1258 — fraud flag review (master key)
     app.use(
       `${prefix}/admin/fraud`,
