@@ -23,6 +23,7 @@ const TransactionHistory = lazy(() => import('./TransactionHistory'));
 const ProofOfReserves = lazy(() => import('./ProofOfReserves'));
 const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
+const InfluencerReferralRedirect = lazy(() => import('./pages/InfluencerReferralRedirect'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const WebhookManagement = lazy(() => import('./pages/WebhookManagement'));
 import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
@@ -427,6 +428,7 @@ export default function App() {
           <Route path="/proof-of-reserves" element={<ProofOfReserves theme={theme} />} />
           <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
           <Route path="/u/:address" element={<PublicProfile />} />
+          <Route path="/ref/:code" element={<InfluencerReferralRedirect />} />
           <Route
             path="/profile"
             element={

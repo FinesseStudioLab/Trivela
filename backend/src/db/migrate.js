@@ -78,9 +78,15 @@ export async function runMigrations(db) {
   const ran = [];
 
   for (const file of files) {
-    const mod = file.endsWith('.sql')
+    const loaded = file.endsWith('.sql')
       ? await loadSqlMigration(file)
       : await import(pathToFileURL(join(MIGRATIONS_DIR, file)).href);
+    // Some migrations export `{ migration: { name, description, up } }` instead of
+    // top-level `version`/`up`; their version is the NNN_ filename prefix.
+    const mod =
+      typeof loaded.version !== 'number' && loaded.migration
+        ? { ...loaded.migration, version: Number.parseInt(file.slice(0, 3), 10) }
+        : loaded;
 
     if (typeof mod.version !== 'number') {
       throw new Error(`Migration ${file} must export a numeric "version"`);
