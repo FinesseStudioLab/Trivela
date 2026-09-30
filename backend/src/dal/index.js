@@ -30,6 +30,10 @@ import { createSqliteCampaignRewardNotificationRepository } from './sqliteCampai
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
 import { createPgAuditLogRepository } from './pg/pgAuditLogRepository.js';
+import {
+  wrapDatabaseWithQueryLogger,
+  wrapPoolWithQueryLogger,
+} from '../db/queryLogger.js';
 
 /**
  * Build the DAL.
@@ -55,8 +59,9 @@ export async function createDal({
   allowedCategories,
   allowlistRepository,
 } = {}) {
-  const db = new Database(dbPath);
-  await runMigrations(db);
+  const rawDb = new Database(dbPath);
+  await runMigrations(rawDb);
+  const db = wrapDatabaseWithQueryLogger(rawDb);
 
   const categories = allowedCategories ?? parseCategoriesConfig(process.env.TRIVELA_CATEGORIES);
 
@@ -64,8 +69,9 @@ export async function createDal({
   let pgCampaigns;
   let pgAuditLogs;
   if (isPostgresUrl(databaseUrl)) {
-    pgPool = createPool(databaseUrl);
-    await runPgMigrations(pgPool);
+    const rawPgPool = createPool(databaseUrl);
+    await runPgMigrations(rawPgPool);
+    pgPool = wrapPoolWithQueryLogger(rawPgPool);
     pgCampaigns = createPgCampaignRepository({
       pool: pgPool,
       seed: campaigns,
