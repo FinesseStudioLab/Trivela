@@ -1770,3 +1770,94 @@ fn test_high_volume_registration_stress() {
         STRESS_PARTICIPANT_COUNT as u64
     );
 }
+
+// ── State dump & restore tests (issue #1372) ─────────────────────────────────
+
+#[test]
+fn test_dump_and_restore_state_roundtrip() {
+    let (env, _, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    client.set_active(&admin, &0, &true);
+    client.set_window(&admin, &1, &100, &500);
+    client.set_max_cap(&admin, &2, &50);
+    env.ledger().set_timestamp(200);
+
+    let (leaf, proof) = no_proof_args(&env);
+    let user1 = Address::generate(&env);
+    client.register(&user1, &leaf, &proof, &None, &None);
+
+    let dump = client.dump_state();
+    assert_eq!(dump.admin, Some(admin.clone()));
+    assert_eq!(dump.active, true);
+    assert_eq!(dump.start_time, 100);
+    assert_eq!(dump.end_time, 500);
+    assert_eq!(dump.max_cap, 50);
+    assert_eq!(dump.participant_count, 1);
+    assert_eq!(dump.participants.len(), 1);
+    assert_eq!(dump.participants.get(0).unwrap(), user1);
+
+    // Deploy a second contract in same env and restore the state dump onto it
+    let contract2_id = env.register_contract(None, CampaignContract);
+    let client2 = CampaignContractClient::new(&env, &contract2_id);
+    let restore_caller = Address::generate(&env);
+
+    client2.restore_state(&restore_caller, &dump);
+
+    assert_eq!(client2.is_active(), true);
+    assert_eq!(client2.get_max_cap(), 50);
+    assert_eq!(client2.get_participant_count(), 1);
+    assert!(client2.is_participant(&user1));
+}
+
+#[test]
+fn test_restore_state_unauthorized() {
+    let (env, _, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let dump = client.dump_state();
+    let stranger = Address::generate(&env);
+
+    let res = client.try_restore_state(&stranger, &dump);
+    assert_eq!(res, Err(Ok(Error::Unauthorized)));
+}
+
+#[test]
+fn test_restore_state_validates_window() {
+    let (env, _, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let mut dump = client.dump_state();
+    dump.start_time = 1000;
+    dump.end_time = 500; // invalid window: start > end
+
+    let res = client.try_restore_state(&admin, &dump);
+    assert_eq!(res, Err(Ok(Error::InvalidWindow)));
+}
+
+#[test]
+fn test_seed_participants_batch() {
+    let (env, _, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let p1 = Address::generate(&env);
+    let p2 = Address::generate(&env);
+    let p3 = Address::generate(&env);
+    let list = vec![&env, p1.clone(), p2.clone(), p3.clone()];
+
+    let count = client.seed_participants(&admin, &0, &list);
+    assert_eq!(count, 3);
+    assert_eq!(client.get_participant_count(), 3);
+    assert!(client.is_participant(&p1));
+    assert!(client.is_participant(&p2));
+    assert!(client.is_participant(&p3));
+}
+

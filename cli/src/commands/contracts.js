@@ -78,5 +78,64 @@ export function makeContractsCommand() {
       console.log('  campaign:', campaignId);
     });
 
+  cmd
+    .command('dump-state')
+    .description('Export campaign contract persistent and instance state to JSON (issue #1372)')
+    .option('--dry-run', 'Print commands without executing')
+    .option('--campaign-id <id>', 'Campaign contract ID (overrides config)')
+    .option('--output <path>', 'Output JSON file path', '.contract-state-dump.json')
+    .action(async (opts) => {
+      const cfg = getConfig();
+      const campaignId = opts.campaignId ?? cfg.campaignContractId;
+
+      if (!campaignId) {
+        console.error(chalk.red('Campaign contract ID is required. Pass --campaign-id or set it in config.'));
+        process.exit(1);
+      }
+
+      if (opts.dryRun) {
+        console.log(chalk.cyan('[dry-run]'), `Would dump state for contract ${campaignId} to ${opts.output}`);
+        return;
+      }
+
+      try {
+        const cmdStr = `node scripts/contract-state-migration.mjs dump --contract "${campaignId}" --output "${opts.output}"`;
+        execSync(cmdStr, { stdio: 'inherit' });
+      } catch (err) {
+        console.error(chalk.red('Failed to dump contract state:'), err.message);
+        process.exit(1);
+      }
+    });
+
+  cmd
+    .command('restore-state')
+    .description('Restore campaign contract state from a JSON dump (issue #1372)')
+    .option('--dry-run', 'Print commands without executing')
+    .option('--campaign-id <id>', 'Campaign contract ID (overrides config)')
+    .requiredOption('--input <path>', 'Input JSON dump file path')
+    .action(async (opts) => {
+      const cfg = getConfig();
+      const campaignId = opts.campaignId ?? cfg.campaignContractId;
+
+      if (!campaignId) {
+        console.error(chalk.red('Campaign contract ID is required. Pass --campaign-id or set it in config.'));
+        process.exit(1);
+      }
+
+      if (opts.dryRun) {
+        console.log(chalk.cyan('[dry-run]'), `Would restore state from ${opts.input} to contract ${campaignId}`);
+        return;
+      }
+
+      try {
+        const cmdStr = `node scripts/contract-state-migration.mjs restore --contract "${campaignId}" --input "${opts.input}"`;
+        execSync(cmdStr, { stdio: 'inherit' });
+      } catch (err) {
+        console.error(chalk.red('Failed to restore contract state:'), err.message);
+        process.exit(1);
+      }
+    });
+
   return cmd;
 }
+

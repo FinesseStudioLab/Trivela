@@ -61,7 +61,17 @@
         { "name": "caller", "type": "address" },
         { "name": "nonce", "type": "u64" },
         { "name": "new_wasm_hash", "type": "bytes_n<32>" }
-      ], "outputs": [] }
+      ], "outputs": [] },
+    { "name": "dump_state", "inputs": [], "outputs": [{ "type": "CampaignStateDump" }] },
+    { "name": "restore_state", "inputs": [
+        { "name": "caller", "type": "address" },
+        { "name": "dump", "type": "CampaignStateDump" }
+      ], "outputs": [] },
+    { "name": "seed_participants", "inputs": [
+        { "name": "admin", "type": "address" },
+        { "name": "nonce", "type": "u64" },
+        { "name": "participants", "type": "vec<address>" }
+      ], "outputs": [{ "type": "u32" }] }
   ],
   "errors": [
     { "name": "Unauthorized", "value": 100 },

@@ -298,6 +298,31 @@ pub enum UniquenessMode {
     Nullifier = 1,
 }
 
+// ── Contract state migration & dump (issue #1372) ────────────────────────────
+const RESTORE_EVENT: Symbol = symbol_short!("restore");
+
+/// Contract state dump for migration, backup, and local testnet seeding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CampaignStateDump {
+    pub schema_version: u32,
+    pub admin: Option<Address>,
+    pub active: bool,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub max_cap: u64,
+    pub participant_count: u64,
+    pub merkle_root: Option<BytesN<32>>,
+    pub schedule_mode: u32,
+    pub start_ledger: u32,
+    pub end_ledger: u32,
+    pub privacy_mode: u32,
+    pub uniqueness_mode: u32,
+    pub allowlist_enabled: bool,
+    pub blocklist_enabled: bool,
+    pub participants: Vec<Address>,
+}
+
 #[contract]
 pub struct CampaignContract;
 
@@ -1883,6 +1908,210 @@ impl CampaignContract {
             ScheduleMode::Timestamp => Self::is_within_window(env),
             ScheduleMode::Ledger => Self::is_within_ledger_window(env),
         }
+    }
+
+    // ── Contract state dump & restore (issue #1372) ──────────────────────────
+
+    /// Export contract configuration and active persistent participant set.
+    pub fn dump_state(env: Env) -> CampaignStateDump {
+        let admin: Option<Address> = env.storage().instance().get(&ADMIN);
+        let active: bool = env.storage().instance().get(&CAMPAIGN_ACTIVE).unwrap_or(false);
+        let start_time: u64 = env.storage().instance().get(&START_TIME).unwrap_or(0);
+        let end_time: u64 = env.storage().instance().get(&END_TIME).unwrap_or(0);
+        let max_cap: u64 = env.storage().instance().get(&MAX_CAP).unwrap_or(0);
+        let participant_count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
+        let merkle_root: Option<BytesN<32>> = env.storage().instance().get(&MERKLE_ROOT);
+        let schedule_mode: u32 = env.storage().instance().get(&SCHEDULE_MODE).unwrap_or(ScheduleMode::Timestamp) as u32;
+        let start_ledger: u32 = env.storage().instance().get(&START_LEDGER).unwrap_or(0);
+        let end_ledger: u32 = env.storage().instance().get(&END_LEDGER).unwrap_or(0);
+        let privacy_mode: u32 = env.storage().instance().get(&PRIVACY_MODE).unwrap_or(PrivacyMode::None) as u32;
+        let uniqueness_mode: u32 = env.storage().instance().get(&UNIQUENESS_MODE).unwrap_or(UniquenessMode::None) as u32;
+        let allowlist_enabled: bool = env.storage().instance().get(&ALLOWLIST_ENABLED).unwrap_or(false);
+        let blocklist_enabled: bool = env.storage().instance().get(&BLOCKLIST_ENABLED).unwrap_or(false);
+        let schema_version: u32 = env.storage().instance().get(&SCHEMA_VERSION).unwrap_or(CURRENT_SCHEMA_VERSION);
+
+        let registry: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_REGISTRY)
+            .unwrap_or(Vec::new(&env));
+
+        let mut active_participants = Vec::new(&env);
+        for addr in registry.iter() {
+            if env.storage().persistent().has(&(PARTICIPANT, addr.clone())) {
+                active_participants.push_back(addr);
+            }
+        }
+
+        CampaignStateDump {
+            schema_version,
+            admin,
+            active,
+            start_time,
+            end_time,
+            max_cap,
+            participant_count,
+            merkle_root,
+            schedule_mode,
+            start_ledger,
+            end_ledger,
+            privacy_mode,
+            uniqueness_mode,
+            allowlist_enabled,
+            blocklist_enabled,
+            participants: active_participants,
+        }
+    }
+
+    /// Restore contract state from an exported dump.
+    ///
+    /// Callable by current admin (or any authorized caller if contract is uninitialized).
+    /// Validates invariants before updating instance and persistent storage.
+    pub fn restore_state(
+        env: Env,
+        caller: Address,
+        dump: CampaignStateDump,
+    ) -> Result<(), Error> {
+        let current_admin: Option<Address> = env.storage().instance().get(&ADMIN);
+        if let Some(ref admin) = current_admin {
+            if &caller != admin {
+                return Err(Error::Unauthorized);
+            }
+            admin.require_auth();
+        } else {
+            caller.require_auth();
+        }
+
+        if dump.start_time > 0 && dump.end_time > 0 && dump.start_time > dump.end_time {
+            return Err(Error::InvalidWindow);
+        }
+
+        if dump.schedule_mode == ScheduleMode::Ledger as u32
+            && dump.start_ledger > 0
+            && dump.end_ledger > 0
+            && dump.start_ledger > dump.end_ledger
+        {
+            return Err(Error::InvalidWindow);
+        }
+
+        if dump.max_cap > 0 && dump.participant_count > dump.max_cap {
+            return Err(Error::CapReached);
+        }
+
+        let new_admin = dump.admin.unwrap_or(caller.clone());
+        env.storage().instance().set(&ADMIN, &new_admin);
+        env.storage().instance().set(&CAMPAIGN_ACTIVE, &dump.active);
+        env.storage().instance().set(&START_TIME, &dump.start_time);
+        env.storage().instance().set(&END_TIME, &dump.end_time);
+        env.storage().instance().set(&MAX_CAP, &dump.max_cap);
+        env.storage().instance().set(&PARTICIPANT_COUNT, &dump.participant_count);
+
+        if let Some(ref root) = dump.merkle_root {
+            env.storage().instance().set(&MERKLE_ROOT, root);
+        } else {
+            env.storage().instance().remove(&MERKLE_ROOT);
+        }
+
+        let mode = match dump.schedule_mode {
+            1 => ScheduleMode::Ledger,
+            _ => ScheduleMode::Timestamp,
+        };
+        env.storage().instance().set(&SCHEDULE_MODE, &mode);
+        env.storage().instance().set(&START_LEDGER, &dump.start_ledger);
+        env.storage().instance().set(&END_LEDGER, &dump.end_ledger);
+
+        let p_mode = match dump.privacy_mode {
+            1 => PrivacyMode::Merkle,
+            2 => PrivacyMode::Zk,
+            _ => PrivacyMode::None,
+        };
+        env.storage().instance().set(&PRIVACY_MODE, &p_mode);
+
+        let u_mode = match dump.uniqueness_mode {
+            1 => UniquenessMode::Nullifier,
+            _ => UniquenessMode::None,
+        };
+        env.storage().instance().set(&UNIQUENESS_MODE, &u_mode);
+
+        env.storage().instance().set(&ALLOWLIST_ENABLED, &dump.allowlist_enabled);
+        env.storage().instance().set(&BLOCKLIST_ENABLED, &dump.blocklist_enabled);
+        env.storage().instance().set(&SCHEMA_VERSION, &dump.schema_version);
+
+        let mut registry: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_REGISTRY)
+            .unwrap_or(Vec::new(&env));
+
+        for participant in dump.participants.iter() {
+            let p_key = (PARTICIPANT, participant.clone());
+            env.storage().persistent().set(&p_key, &true);
+            env.storage().persistent().extend_ttl(
+                &p_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+
+            let ptc_key = (PARTICIPATED, participant.clone());
+            env.storage().persistent().set(&ptc_key, &true);
+            env.storage().persistent().extend_ttl(
+                &ptc_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+
+            registry.push_back(participant);
+        }
+
+        env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+        env.events().publish((RESTORE_EVENT, caller), dump.schema_version);
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Batch seed participant addresses for migration and testing.
+    pub fn seed_participants(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        participants: Vec<Address>,
+    ) -> Result<u32, Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut seeded = 0u32;
+        let mut registry: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&PARTICIPANT_REGISTRY)
+            .unwrap_or(Vec::new(&env));
+
+        for participant in participants.iter() {
+            let key = (PARTICIPANT, participant.clone());
+            if !env.storage().persistent().has(&key) {
+                env.storage().persistent().set(&key, &true);
+                env.storage().persistent().extend_ttl(
+                    &key,
+                    PARTICIPANT_TTL_THRESHOLD,
+                    PARTICIPANT_TTL_EXTEND_TO,
+                );
+                registry.push_back(participant);
+                seeded += 1;
+            }
+        }
+
+        let count: u64 = env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&PARTICIPANT_COUNT, &(count + seeded as u64));
+        env.storage().instance().set(&PARTICIPANT_REGISTRY, &registry);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(seeded)
     }
 }
 
