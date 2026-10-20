@@ -105,6 +105,8 @@ pub enum Error {
     InAddressBlocklist = 126,
     /// Participation fee configuration is invalid (zero amount or missing token).
     InvalidFeeConfig = 127,
+    /// Admin rotation was requested before the 24-hour cooling period elapsed.
+    AdminCooldownActive = 128,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -307,8 +309,11 @@ const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
 const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
 // ── 2-step admin transfer (issue #281) ───────────────────────────────────────
 const PENDING_ADMIN: Symbol = symbol_short!("padmin");
+const PENDING_ADMIN_AT: Symbol = symbol_short!("padminat");
 const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
 const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
+/// Mandatory cooling period before a proposed admin key takes effect (#1353).
+pub const ADMIN_ROTATION_COOLDOWN_SECS: u64 = 86_400;
 
 // ── Privacy mode (issue #544) ────────────────────────────────────────────────
 // Per-campaign registration mode: open, Merkle-gated, or ZK-gated.
@@ -1863,7 +1868,8 @@ impl CampaignContract {
     }
 
     /// Propose a new admin (current admin only). The transfer does not take
-    /// effect until `accept_admin` is called by the new admin.
+    /// effect until `accept_admin` is called by the new admin, and only after
+    /// the 24-hour emergency-rotation cooling period has elapsed.
     pub fn propose_admin(
         env: Env,
         current_admin: Address,
@@ -1875,6 +1881,9 @@ impl CampaignContract {
             return Err(Error::Unauthorized);
         }
         env.storage().instance().set(&PENDING_ADMIN, &new_admin);
+        env.storage()
+            .instance()
+            .set(&PENDING_ADMIN_AT, &env.ledger().timestamp());
         env.events()
             .publish((ADMIN_PROPOSED_EVENT, current_admin), new_admin);
         env.storage()
@@ -1884,8 +1893,8 @@ impl CampaignContract {
     }
 
     /// Accept admin role. Caller MUST be the address that the current admin
-    /// previously proposed via `propose_admin`. Clears the pending slot on
-    /// success.
+    /// previously proposed via `propose_admin`, and the 24-hour cooling
+    /// period must have elapsed. Clears the pending slot on success.
     pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         new_admin.require_auth();
         let pending: Address = env
@@ -1896,8 +1905,17 @@ impl CampaignContract {
         if pending != new_admin {
             return Err(Error::Unauthorized);
         }
+        let proposed_at: u64 = env
+            .storage()
+            .instance()
+            .get(&PENDING_ADMIN_AT)
+            .unwrap_or(0);
+        if env.ledger().timestamp() < proposed_at + ADMIN_ROTATION_COOLDOWN_SECS {
+            return Err(Error::AdminCooldownActive);
+        }
         env.storage().instance().set(&ADMIN, &new_admin);
         env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().remove(&PENDING_ADMIN_AT);
         env.events().publish((ADMIN_ACCEPTED_EVENT,), new_admin);
         env.storage()
             .instance()
@@ -1913,6 +1931,7 @@ impl CampaignContract {
             return Err(Error::Unauthorized);
         }
         env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().remove(&PENDING_ADMIN_AT);
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);

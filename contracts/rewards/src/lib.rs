@@ -201,6 +201,8 @@ pub enum Error {
     TimelockAlreadyQueued = 68,
     /// No matching timelock entry is queued.
     TimelockNotFound = 69,
+    /// Admin rotation was requested before the 24-hour cooling period elapsed.
+    AdminCooldownActive = 70,
 }
 
 // ── Issue #895: Operator delegation types ─────────────────────────────────────
@@ -476,9 +478,14 @@ const ADMIN_NONCE: Symbol = symbol_short!("anonce");
 // `PENDING_ADMIN` holds an in-flight proposed admin; the new admin must call
 // `accept_admin()` themselves to complete the rotation, eliminating the
 // "wrong address, key now lost" failure mode of a one-step transfer.
+// `PENDING_ADMIN_AT` records the ledger timestamp of the proposal so the
+// emergency rotation path can enforce a mandatory cooling period (#1353).
 const PENDING_ADMIN: Symbol = symbol_short!("padmin");
+const PENDING_ADMIN_AT: Symbol = symbol_short!("padminat");
 const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
 const ADMIN_ACCEPTED_EVENT: Symbol = symbol_short!("aaccepted");
+/// Mandatory cooling period before a proposed admin key takes effect.
+pub const ADMIN_ROTATION_COOLDOWN_SECS: u64 = 86_400;
 
 // ── On-chain referral rewards (issue #656 / #603) ────────────────────────────
 // The referral *graph* (who referred whom) is attributed by the campaign
@@ -1551,7 +1558,8 @@ impl RewardsContract {
     }
 
     /// Propose a new admin (current admin only). The transfer does not take
-    /// effect until `accept_admin` is called by the new admin.
+    /// effect until `accept_admin` is called by the new admin, and only after
+    /// the 24-hour emergency-rotation cooling period has elapsed.
     ///
     /// Calling again overwrites the previous pending admin, so the current
     /// admin can cancel a proposal by calling `cancel_admin_transfer` or by
@@ -1563,6 +1571,9 @@ impl RewardsContract {
     ) -> Result<(), Error> {
         require_admin(&env, &current_admin)?;
         env.storage().instance().set(&PENDING_ADMIN, &new_admin);
+        env.storage()
+            .instance()
+            .set(&PENDING_ADMIN_AT, &env.ledger().timestamp());
         env.events()
             .publish((ADMIN_PROPOSED_EVENT, current_admin), new_admin);
         env.storage()
@@ -1572,8 +1583,8 @@ impl RewardsContract {
     }
 
     /// Accept admin role. Caller MUST be the address that the current admin
-    /// previously proposed via `propose_admin`. Clears the pending slot on
-    /// success.
+    /// previously proposed via `propose_admin`, and the 24-hour cooling
+    /// period must have elapsed. Clears the pending slot on success.
     pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
         new_admin.require_auth();
         let pending: Address = env
@@ -1584,8 +1595,17 @@ impl RewardsContract {
         if pending != new_admin {
             return Err(Error::Unauthorized);
         }
+        let proposed_at: u64 = env
+            .storage()
+            .instance()
+            .get(&PENDING_ADMIN_AT)
+            .unwrap_or(0);
+        if env.ledger().timestamp() < proposed_at + ADMIN_ROTATION_COOLDOWN_SECS {
+            return Err(Error::AdminCooldownActive);
+        }
         env.storage().instance().set(&ADMIN, &new_admin);
         env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().remove(&PENDING_ADMIN_AT);
         env.events().publish((ADMIN_ACCEPTED_EVENT,), new_admin);
         env.storage()
             .instance()
@@ -1597,6 +1617,7 @@ impl RewardsContract {
     pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
         require_admin(&env, &current_admin)?;
         env.storage().instance().remove(&PENDING_ADMIN);
+        env.storage().instance().remove(&PENDING_ADMIN_AT);
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
