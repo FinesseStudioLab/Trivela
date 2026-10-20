@@ -613,8 +613,15 @@ export async function createApp(options = {}) {
       ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
       : createInMemoryLock({ ttlMs: lockTtlMs }));
 
+  // Email service adapter — wraps sendEmail with .send({to, template, data}) interface
+  const emailService = {
+    async send({ to, template, data }) {
+      const { sendEmail } = await import('./services/emailService.js');
+      return sendEmail(template, to, data);
+    },
+  };
+
   // Weekly campaign digest — performance summary emails for operators (#1355)
-  const emailService = createEmailService({ logger: log });
   const digestRecipients = (process.env.CAMPAIGN_DIGEST_RECIPIENTS ?? '')
     .split(',')
     .map((s) => s.trim())

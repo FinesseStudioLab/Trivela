@@ -1,5 +1,6 @@
 // @ts-check
 import { buildCampaignStatsForRange } from '../services/campaignStatsService.js';
+import { sendEmail } from '../services/emailService.js';
 
 /**
  * Weekly campaign performance email digest for operators (#1355).
@@ -11,7 +12,7 @@ import { buildCampaignStatsForRange } from '../services/campaignStatsService.js'
  *
  * @param {Object} params
  * @param {InstanceType<import('better-sqlite3')>} params.db
- * @param {ReturnType<import('../services/emailService.js').createEmailService>} params.emailService
+ * @param {{ send: Function }} [params.emailService]
  * @param {ReturnType<import('../dal/sqliteCampaignRepository.js').createSqliteCampaignRepository>} [params.campaignRepository]
  * @param {ReturnType<import('../dal/sqliteReferralRepository.js').createSqliteReferralRepository>} [params.referralRepository]
  * @param {() => string[]} [params.getRecipients]
@@ -131,8 +132,22 @@ export function createWeeklyDigestJob({
       const digest = buildDigest();
       let sent = 0;
       for (const to of recipients) {
-        const result = await emailService.send({ to, subject: digest.subject, text: digest.text });
-        if (result.sent) sent += 1;
+        try {
+          if (emailService?.send) {
+            await emailService.send({ to, subject: digest.subject, text: digest.text });
+          } else {
+            await sendEmail('operator-digest-v1', to, {
+              name: to.split('@')[0],
+              totalParticipants: digest.campaignCount,
+              totalClaims: 0,
+              topCampaign: digest.text.split('\n')[3] ?? 'N/A',
+              periodLabel: digest.subject,
+            });
+          }
+          sent += 1;
+        } catch {
+          // skip failed recipients
+        }
       }
 
       checkpointInsert.run(wk, now.toISOString());
