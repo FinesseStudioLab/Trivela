@@ -16,7 +16,7 @@ import compression from 'compression';
 import multer from 'multer';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import Redis from 'ioredis';
+import { createRedisClient } from './config/redis.js';
 import createApiKeyAuth, { createMasterKeyAuth, readProvidedKey } from './middleware/apiKeyAuth.js';
 import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
 import { createAuthLockout } from './middleware/authLockout.js';
@@ -581,23 +581,17 @@ export async function createApp(options = {}) {
 
   let rateLimitStore = null;
   let usageRedisClient = null;
-  const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
-  if (redisUrl && !options.disableRedis) {
+  if (!options.disableRedis) {
     try {
-      const redisClient = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: true,
-        lazyConnect: false,
-      });
-      redisClient.on('error', (err) => {
-        log.error({ err }, 'Redis connection error');
-      });
-      rateLimitStore = createRedisStore(redisClient);
-      usageRedisClient = redisClient;
-      log.info(
-        { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
-        'Rate limiter using Redis store',
-      );
+      const { mode, client: redisClient } = createRedisClient();
+      if (redisClient) {
+        redisClient.on('error', (err) => {
+          log.error({ err }, 'Redis connection error');
+        });
+        rateLimitStore = createRedisStore(redisClient);
+        usageRedisClient = redisClient;
+        log.info({ redisMode: mode }, 'Rate limiter using Redis store');
+      }
     } catch (error) {
       log.warn(
         { err: error },
