@@ -48,13 +48,17 @@ export function validateCampaignForm(values, { isEditMode = false, now = new Dat
 
   const start = values.startDate ? new Date(values.startDate) : null;
   const end = values.endDate ? new Date(values.endDate) : null;
-  if (start && Number.isNaN(start.getTime())) errors.startDate = 'Start date is invalid.';
+  if (start && Number.isNaN(start.getTime())) {
+    errors.startDate = 'Start date is invalid.';
+  } else if (start && !isEditMode && start.getTime() <= now.getTime()) {
+    errors.startDate = 'Start date must be in the future.';
+  }
   if (end && Number.isNaN(end.getTime())) {
     errors.endDate = 'End date is invalid.';
   } else if (end) {
     if (!isEditMode && end.getTime() <= now.getTime()) {
       errors.endDate = 'End date must be in the future.';
-    } else if (start && !errors.startDate && end.getTime() <= start.getTime()) {
+    } else if (start && !Number.isNaN(start.getTime()) && end.getTime() <= start.getTime()) {
       errors.endDate = 'End date must be after the start date.';
     }
   }
