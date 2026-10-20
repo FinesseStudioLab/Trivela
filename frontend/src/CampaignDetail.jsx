@@ -101,6 +101,7 @@ export default function CampaignDetail({
 
   const incomingRef = searchParams.get('ref');
   const isLoading = !campaign && !error;
+  const isMissingCampaign = !isLoading && !error && !campaign;
 
   const handleRegistered = useCallback(() => {
     if (!incomingRef || !walletAddress || !id) return;
@@ -251,10 +252,10 @@ export default function CampaignDetail({
           ) : (
             <article className="detail-content">
               <header className="detail-header">
-                <p className="detail-eyebrow">Campaign #{campaign.id}</p>
+                <p className="detail-eyebrow">Campaign #{campaign?.id ?? id}</p>
                 <div className="detail-title-row">
-                  <h1 className="detail-title">{campaign.name}</h1>
-                  <StatusBadge status={campaign.status} />
+                  <h1 className="detail-title">{campaign?.name ?? 'Untitled Campaign'}</h1>
+                  <StatusBadge status={campaign?.status} />
                 </div>
                 {lastUpdated ? (
                   <p className="detail-updated">Last updated {lastUpdated.toLocaleTimeString()}</p>
@@ -355,22 +356,22 @@ export default function CampaignDetail({
                 <section className="detail-section">
                   <h2>Description</h2>
                   <p className="detail-description">
-                    {campaign.description || 'No description provided.'}
+                    {campaign?.description || 'No description provided.'}
                   </p>
                 </section>
 
                 <div className="detail-grid">
                   <div className="detail-stat">
                     <h3>Reward per Action</h3>
-                    <p className="stat-value">{campaign.rewardPerAction ?? 0} pts</p>
+                    <p className="stat-value">{campaign?.rewardPerAction ?? 0} pts</p>
                   </div>
                   <div className="detail-stat">
                     <h3>Created On</h3>
-                    <p className="stat-value">{formatDate(campaign.createdAt)}</p>
+                    <p className="stat-value">{formatDate(campaign?.createdAt)}</p>
                   </div>
                 </div>
 
-                <TaskProgressBar tasks={campaign.tasks} />
+                <TaskProgressBar tasks={campaign?.tasks ?? []} />
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
@@ -404,9 +405,9 @@ export default function CampaignDetail({
                   <section className="referral-section" aria-label="Invite friends">
                     <div className="referral-header">
                       <h3 className="referral-title">Invite Friends</h3>
-                      {campaign.referralBonusPoints > 0 ? (
+                      {(campaign?.referralBonusPoints ?? 0) > 0 ? (
                         <p className="referral-bonus-note">
-                          Earn <strong>+{campaign.referralBonusPoints} bonus pts</strong> per friend
+                          Earn <strong>+{campaign?.referralBonusPoints ?? 0} bonus pts</strong> per friend
                           who registers
                         </p>
                       ) : null}
