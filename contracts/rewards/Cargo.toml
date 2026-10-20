@@ -20,11 +20,11 @@ testutils = ["soroban-sdk/testutils"]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }
 
 [dependencies]
-soroban-sdk = "25.1"
+soroban-sdk = "29.0"
 
 [dev-dependencies]
 trivela-contract-errors = { path = "../errors" }
-soroban-sdk = { version = "25.1", features = ["testutils"] }
+soroban-sdk = { version = "29.0", features = ["testutils"] }
 trivela-campaign-contract = { path = "../campaign" }
 ed25519-dalek = "2"
 proptest = "1.4"
