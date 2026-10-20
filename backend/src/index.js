@@ -96,6 +96,8 @@ import { createIdempotencyMiddleware } from './middleware/idempotency.js';
 import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
 import { createExportJob } from './jobs/exportJob.js';
 import { createEventIndexer } from './jobs/eventIndexer.js';
+import { createWeeklyDigestJob } from './jobs/weeklyDigestJob.js';
+import { createEmailService } from './services/emailService.js';
 import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
 import { createDurableJobQueue } from './jobs/durableJobQueue.js';
 import {
@@ -611,6 +613,21 @@ export async function createApp(options = {}) {
       ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
       : createInMemoryLock({ ttlMs: lockTtlMs }));
 
+  // Weekly campaign digest — performance summary emails for operators (#1355)
+  const emailService = createEmailService({ logger: log });
+  const digestRecipients = (process.env.CAMPAIGN_DIGEST_RECIPIENTS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const weeklyDigestJob = createWeeklyDigestJob({
+    db: dal.db,
+    emailService,
+    campaignRepository,
+    referralRepository,
+    getRecipients: () => digestRecipients,
+    logger: log,
+  });
+
   // Data export job — daily CSV export to object storage (#562)
   const exportRetentionDays = normalizePositiveInteger(
     /** @type {any} */ (options.exportRetentionDays) ?? process.env.EXPORT_RETENTION_DAYS,
@@ -880,6 +897,9 @@ export async function createApp(options = {}) {
       async campaign_reward_notifications() {
         await campaignRewardNotificationJob();
       },
+      async weekly_digest() {
+        await weeklyDigestJob.run();
+      },
     },
     logger: log,
     deadLetter: failedJobRepository,
@@ -937,6 +957,13 @@ export async function createApp(options = {}) {
       () => jobRunner.enqueue('campaign_reward_notifications', null),
       campaignRewardNotifIntervalMs,
     ).unref?.();
+  }
+
+  // Weekly campaign digest — fires on startup (idempotent per ISO week) and weekly (#1355)
+  if (!options.disableJobs) {
+    const runDigest = () => jobRunner.enqueue('weekly_digest', null);
+    runDigest();
+    setInterval(runDigest, 7 * 24 * 60 * 60 * 1_000).unref?.();
   }
 
   // #1255 — IPFS pinning of campaign assets (enabled when PINATA_JWT is set)

@@ -169,3 +169,36 @@ export async function sendEmail(templateId, to, vars = {}) {
 }
 
 export { TEMPLATES };
+
+/**
+ * Lightweight factory used by background jobs (e.g. weekly digest).
+ * Returns `{ send, isConfigured }` matching the job-runner contract.
+ *
+ * @param {Object} [params]
+ * @param {Object} [params.logger]
+ */
+export function createEmailService({ logger = console } = {}) {
+  return {
+    isConfigured() {
+      return Boolean(process.env.EMAIL_PROVIDER && process.env.EMAIL_FROM);
+    },
+    /**
+     * @param {{ to: string, subject: string, text: string }} message
+     * @returns {Promise<{ sent: boolean, skipped?: boolean }>}
+     */
+    async send(message) {
+      if (!process.env.EMAIL_PROVIDER) {
+        logger.debug?.('email:send skipped — no EMAIL_PROVIDER configured', { to: message.to });
+        return { sent: false, skipped: true };
+      }
+      await sendWithRetry({
+        from: process.env.EMAIL_FROM ?? 'noreply@trivela.io',
+        to: message.to,
+        subject: message.subject,
+        html: `<pre>${escHtml(message.text)}</pre>`,
+        text: message.text,
+      });
+      return { sent: true };
+    },
+  };
+}
