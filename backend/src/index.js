@@ -16,7 +16,7 @@ import compression from 'compression';
 import multer from 'multer';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import Redis from 'ioredis';
+import { createRedisClient } from './config/redis.js';
 import createApiKeyAuth, { createMasterKeyAuth, readProvidedKey } from './middleware/apiKeyAuth.js';
 import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
 import { createAuthLockout } from './middleware/authLockout.js';
@@ -96,6 +96,8 @@ import { createIdempotencyMiddleware } from './middleware/idempotency.js';
 import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
 import { createExportJob } from './jobs/exportJob.js';
 import { createEventIndexer } from './jobs/eventIndexer.js';
+import { createWeeklyDigestJob } from './jobs/weeklyDigestJob.js';
+import { createEmailService } from './services/emailService.js';
 import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
 import { createDurableJobQueue } from './jobs/durableJobQueue.js';
 import {
@@ -581,23 +583,17 @@ export async function createApp(options = {}) {
 
   let rateLimitStore = null;
   let usageRedisClient = null;
-  const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
-  if (redisUrl && !options.disableRedis) {
+  if (!options.disableRedis) {
     try {
-      const redisClient = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: true,
-        lazyConnect: false,
-      });
-      redisClient.on('error', (err) => {
-        log.error({ err }, 'Redis connection error');
-      });
-      rateLimitStore = createRedisStore(redisClient);
-      usageRedisClient = redisClient;
-      log.info(
-        { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
-        'Rate limiter using Redis store',
-      );
+      const { mode, client: redisClient } = createRedisClient();
+      if (redisClient) {
+        redisClient.on('error', (err) => {
+          log.error({ err }, 'Redis connection error');
+        });
+        rateLimitStore = createRedisStore(redisClient);
+        usageRedisClient = redisClient;
+        log.info({ redisMode: mode }, 'Rate limiter using Redis store');
+      }
     } catch (error) {
       log.warn(
         { err: error },
@@ -616,6 +612,28 @@ export async function createApp(options = {}) {
     (usageRedisClient
       ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
       : createInMemoryLock({ ttlMs: lockTtlMs }));
+
+  // Email service adapter — wraps sendEmail with .send({to, template, data}) interface
+  const emailService = {
+    async send({ to, template, data }) {
+      const { sendEmail } = await import('./services/emailService.js');
+      return sendEmail(template, to, data);
+    },
+  };
+
+  // Weekly campaign digest — performance summary emails for operators (#1355)
+  const digestRecipients = (process.env.CAMPAIGN_DIGEST_RECIPIENTS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const weeklyDigestJob = createWeeklyDigestJob({
+    db: dal.db,
+    emailService,
+    campaignRepository,
+    referralRepository,
+    getRecipients: () => digestRecipients,
+    logger: log,
+  });
 
   // Data export job — daily CSV export to object storage (#562)
   const exportRetentionDays = normalizePositiveInteger(
@@ -886,6 +904,9 @@ export async function createApp(options = {}) {
       async campaign_reward_notifications() {
         await campaignRewardNotificationJob();
       },
+      async weekly_digest() {
+        await weeklyDigestJob.run();
+      },
     },
     logger: log,
     deadLetter: failedJobRepository,
@@ -943,6 +964,13 @@ export async function createApp(options = {}) {
       () => jobRunner.enqueue('campaign_reward_notifications', null),
       campaignRewardNotifIntervalMs,
     ).unref?.();
+  }
+
+  // Weekly campaign digest — fires on startup (idempotent per ISO week) and weekly (#1355)
+  if (!options.disableJobs) {
+    const runDigest = () => jobRunner.enqueue('weekly_digest', null);
+    runDigest();
+    setInterval(runDigest, 7 * 24 * 60 * 60 * 1_000).unref?.();
   }
 
   // #1255 — IPFS pinning of campaign assets (enabled when PINATA_JWT is set)

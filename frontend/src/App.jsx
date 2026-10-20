@@ -29,8 +29,11 @@ import {
   applyTheme,
   getPreferredTheme,
   getStoredTheme,
+  getThemePreference,
   persistTheme,
+  resolveAutoTheme,
   subscribeToSystemTheme,
+  THEME_AUTO,
 } from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
@@ -46,6 +49,9 @@ import { useToast } from './lib/toast/ToastProvider';
 
 export default function App() {
   const toast = useToast();
+  const [themePreference, setThemePreference] = useState(
+    () => getThemePreference() ?? THEME_AUTO,
+  );
   const [theme, setTheme] = useState(() => getPreferredTheme());
   const [runtimeConfig, setRuntimeConfig] = useState(() => getRuntimeConfig());
   const [walletAddress, setWalletAddress] = useState('');
@@ -57,6 +63,18 @@ export default function App() {
   const [walletError, setWalletError] = useState('');
   const [showWalletModal, setShowWalletModal] = useState(false);
   const { showHelpModal, setShowHelpModal, announcement } = useKeyboardShortcuts(true);
+
+  useEffect(() => {
+    if (themePreference === THEME_AUTO) {
+      setTheme(resolveAutoTheme());
+      persistTheme(THEME_AUTO);
+      const interval = setInterval(() => setTheme(resolveAutoTheme()), 60_000);
+      return () => clearInterval(interval);
+    }
+    persistTheme(themePreference);
+    setTheme(themePreference);
+    return undefined;
+  }, [themePreference]);
 
   useEffect(() => {
     applyTheme(theme);
@@ -95,9 +113,11 @@ export default function App() {
   }, []);
 
   const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    persistTheme(nextTheme);
-    setTheme(nextTheme);
+    setThemePreference((current) => {
+      if (current === 'dark') return 'light';
+      if (current === 'light') return THEME_AUTO;
+      return 'dark';
+    });
   };
 
   const loadWalletBalance = async (address) => {

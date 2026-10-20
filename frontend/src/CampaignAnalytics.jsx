@@ -21,6 +21,7 @@ import {
 } from './lib/campaignExport';
 import Header from './components/Header';
 import PageMeta from './components/PageMeta';
+import CampaignMap from './components/CampaignMap';
 import './CampaignAnalytics.css';
 
 const RANGE_OPTIONS = [
@@ -285,6 +286,11 @@ export default function CampaignAnalytics({
               </section>
             </>
           ) : null}
+
+          <section className="analytics-chart-section">
+            <h2>Participation hotspots</h2>
+            <CampaignMap hotspots={stats?.geo ?? []} />
+          </section>
         </div>
       </main>
     </div>
