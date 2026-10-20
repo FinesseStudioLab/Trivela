@@ -68,13 +68,40 @@ export default function ReferralLinkGenerator({
   }, [id, walletAddress]);
 
   const handleCopy = async () => {
+    const link = buildInviteLink();
     try {
-      await navigator.clipboard.writeText(buildInviteLink());
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(link);
+        setCopied(true);
+        setError('');
+        setTimeout(() => setCopied(false), 2000);
+        return;
+      }
+    } catch {
+      // Fall through to execCommand fallback below (#1481)
     }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = link;
+      textarea.setAttribute('readonly', '');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      const succeeded = typeof document.execCommand === 'function' && document.execCommand('copy');
+      document.body.removeChild(textarea);
+      if (succeeded) {
+        setCopied(true);
+        setError('');
+        setTimeout(() => setCopied(false), 2000);
+        return;
+      }
+    } catch {
+      // Ignore and show manual copy prompt
+    }
+
+    setError('Clipboard unavailable — please select and copy the referral link manually.');
   };
 
   const buildShareText = () => {
