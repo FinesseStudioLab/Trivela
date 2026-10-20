@@ -115,3 +115,37 @@ https://github.com/FinesseStudioLab/Trivela/discussions/categories/rfc
 - [Architecture Decision Records (ADRs)](adr/) - For architectural choices
 - [CONTRIBUTING.md](../CONTRIBUTING.md) - General contribution guidelines
 - [README.md](../README.md) - Project overview and setup
+
+## Quorum Requirements & Veto Rules
+
+### Quorum Thresholds
+
+All on-chain and off-chain governance proposals require a minimum participation quorum calculated as a percentage of the active circulating governance supply (`total_eligible_voting_weight`) at the proposal snapshot ledger:
+
+| Proposal Category | Minimum Quorum (% of Circulating Supply) | Approval Threshold | Voting Window |
+| :--- | :--- | :--- | :--- |
+| **Standard Parameter Update** | **10%** (`1,000 bps`) | **> 50%** (`5,001 bps`) of cast votes | 7 days (`120,960` ledgers) |
+| **Treasury / Reward Pool Allocation** | **20%** (`2,000 bps`) | **>= 60%** (`6,000 bps`) of cast votes | 7 days (`120,960` ledgers) |
+| **Protocol Upgrade / Contract Migration** | **30%** (`3,000 bps`) | **>= 66.7%** (`6,667 bps`) supermajority | 10 days (`172,800` ledgers) |
+| **Emergency Security Patch** | **15%** (`1,500 bps`) or Guardian Multisig | **>= 75%** (`7,500 bps`) supermajority | 48 hours (`34,560` ledgers) |
+
+- **Abstentions**: Count toward **quorum participation** (`for_votes + against_votes + abstain_votes >= quorum_bps`), but are excluded from the approval ratio (`for_votes / (for_votes + against_votes)`).
+
+### Veto Rules & Time-Lock Periods
+
+1. **Mandatory Time-Lock Delay (`timelock_delay_ledgers`)**:
+   - Every approved proposal enters a mandatory **48-hour time-lock window** (`34,560` ledgers at ~5s/ledger) before execution is permitted on-chain (`ProposalStatus::Queued -> ProposalStatus::Executed`).
+   - Protocol upgrades and contract migrations require an extended **72-hour time-lock window** (`51,840` ledgers).
+2. **Community & Security Veto Threshold (`veto_threshold_bps`)**:
+   - If **>= 33.4% (`3,334 bps`)** of participating voting weight casts a `NoWithVeto` vote—or if the Security Council verifies a critical invariant violation during the time-lock window—the proposal is immediately transitioned to `ProposalStatus::Vetoed` and permanently cancelled before execution.
+   - Proposals vetoed due to malicious behaviour or invariant violations forfeit their proposal deposit into the protocol reward reserve.
+
+### On-Chain Voting Contract Parameters Cross-Reference
+
+These governance rules map directly to the Soroban governance and campaign administration contract parameters:
+
+- `quorum_bps: u32` — Minimum participation basis points (`1_000`–`3_000`, out of `10_000`).
+- `approval_threshold_bps: u32` — Minimum affirmative vote basis points (`5_001`–`7_500`).
+- `veto_threshold_bps: u32` — Veto trigger basis points (`3_334` = 33.34%).
+- `voting_period_ledgers: u32` — Duration of active voting in Stellar ledgers.
+- `timelock_delay_ledgers: u32` — Mandatory delay between proposal passage and on-chain execution.
