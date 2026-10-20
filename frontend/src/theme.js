@@ -1,8 +1,17 @@
 export const THEME_STORAGE_KEY = 'trivela-theme';
+export const THEME_AUTO = 'auto';
 
-const isTheme = (value) => value === 'light' || value === 'dark';
+const DAY_START_HOUR = 6;
+const DAY_END_HOUR = 18;
 
-/** Returns the theme the user explicitly chose, or null if they never did (or storage is unavailable). */
+export function resolveAutoTheme(date = new Date()) {
+  const hour = date.getHours();
+  return hour >= DAY_START_HOUR && hour < DAY_END_HOUR ? 'light' : 'dark';
+}
+
+const isTheme = (value) => value === 'light' || value === 'dark' || value === THEME_AUTO;
+
+/** Returns the theme the user explicitly chose (including 'auto'), or null. */
 export function getStoredTheme() {
   if (typeof window === 'undefined') {
     return null;
@@ -16,18 +25,27 @@ export function getStoredTheme() {
   }
 }
 
+/** Alias kept for callers that use the preference-shaped name. */
+export function getThemePreference() {
+  return getStoredTheme();
+}
+
 /** Returns the operating-system preference (`prefers-color-scheme`), defaulting to dark. */
 export function getSystemTheme() {
   if (typeof window === 'undefined') {
     return 'dark';
   }
 
-  return window.matchMedia?.('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  return window.matchMedia?.('(prefers-color-scheme: light)')?.matches ? 'light' : 'dark';
 }
 
-/** Stored choice first, then the system preference. */
+/** Stored choice first (auto resolves by local time), then the system preference. */
 export function getPreferredTheme() {
-  return getStoredTheme() ?? getSystemTheme();
+  const stored = getStoredTheme();
+  if (stored === THEME_AUTO) {
+    return resolveAutoTheme();
+  }
+  return stored ?? getSystemTheme();
 }
 
 /** Saves an explicit user choice. Storage failures (private mode, quota) are ignored. */

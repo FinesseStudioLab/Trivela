@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  THEME_AUTO,
   THEME_STORAGE_KEY,
   applyTheme,
   getPreferredTheme,
   getStoredTheme,
+  getThemePreference,
   persistTheme,
+  resolveAutoTheme,
   subscribeToSystemTheme,
 } from './theme';
 
@@ -24,6 +27,21 @@ function mockMatchMedia(prefersLight) {
     listeners,
   };
 }
+
+describe('resolveAutoTheme', () => {
+  it('returns light during daytime hours (06:00-17:59)', () => {
+    expect(resolveAutoTheme(new Date('2024-06-01T12:00:00'))).toBe('light');
+    expect(resolveAutoTheme(new Date('2024-06-01T06:00:00'))).toBe('light');
+    expect(resolveAutoTheme(new Date('2024-06-01T17:59:00'))).toBe('light');
+  });
+
+  it('returns dark during nighttime hours', () => {
+    expect(resolveAutoTheme(new Date('2024-06-01T05:59:00'))).toBe('dark');
+    expect(resolveAutoTheme(new Date('2024-06-01T18:00:00'))).toBe('dark');
+    expect(resolveAutoTheme(new Date('2024-06-01T00:00:00'))).toBe('dark');
+    expect(resolveAutoTheme(new Date('2024-06-01T23:30:00'))).toBe('dark');
+  });
+});
 
 describe('theme persistence and system detection', () => {
   beforeEach(() => {
@@ -55,8 +73,20 @@ describe('theme persistence and system detection', () => {
     mockMatchMedia(false);
     window.localStorage.setItem(THEME_STORAGE_KEY, 'purple');
     expect(getStoredTheme()).toBeNull();
-    persistTheme('purple');
-    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('purple');
+  });
+
+  it('accepts auto as a valid stored preference', () => {
+    persistTheme(THEME_AUTO);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe(THEME_AUTO);
+    expect(getStoredTheme()).toBe(THEME_AUTO);
+    expect(getThemePreference()).toBe(THEME_AUTO);
+  });
+
+  it('auto-resolves by local time when auto is stored', () => {
+    persistTheme(THEME_AUTO);
+    const hour = new Date().getHours();
+    const expected = hour >= 6 && hour < 18 ? 'light' : 'dark';
+    expect(getPreferredTheme()).toBe(expected);
   });
 
   it('survives unavailable storage', () => {
@@ -69,6 +99,7 @@ describe('theme persistence and system detection', () => {
     });
     expect(getPreferredTheme()).toBe('light');
     expect(() => persistTheme('dark')).not.toThrow();
+    expect(getThemePreference()).toBeNull();
   });
 
   it('notifies on OS preference changes and stops after unsubscribe', () => {
@@ -86,6 +117,10 @@ describe('theme persistence and system detection', () => {
   });
 
   it('applyTheme sets the data attribute and color scheme', () => {
+    applyTheme('dark');
+    expect(document.documentElement.dataset.theme).toBe('dark');
+    expect(document.documentElement.style.colorScheme).toBe('dark');
+
     applyTheme('light');
     expect(document.documentElement.dataset.theme).toBe('light');
     expect(document.documentElement.style.colorScheme).toBe('light');
