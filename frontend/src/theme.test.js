@@ -99,7 +99,7 @@ describe('theme persistence and system detection', () => {
     });
     expect(getPreferredTheme()).toBe('light');
     expect(() => persistTheme('dark')).not.toThrow();
-    expect(getThemePreference()).toBeNull();
+    expect(getStoredTheme()).toBeNull();
   });
 
   it('notifies on OS preference changes and stops after unsubscribe', () => {
