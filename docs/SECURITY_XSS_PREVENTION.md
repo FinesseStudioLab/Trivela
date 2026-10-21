@@ -174,6 +174,28 @@ CSP with inline script nonces (issue #40 referenced) is a separate concern:
 - Recommended for future hardening
 - Would work alongside these sanitization measures
 
+### 7. CSP `connect-src` Restriction (#1488)
+
+The frontend Nginx config (`frontend/nginx.conf`) now restricts `connect-src` to known API and
+RPC origins to prevent data exfiltration by compromised third-party code:
+
+```
+connect-src 'self' https://soroban-testnet.stellar.org https://horizon-testnet.stellar.org https://soroban-mainnet.stellar.org https://horizon.stellar.org
+```
+
+**Allowed origins:**
+
+| Origin | Purpose |
+|--------|---------|
+| `'self'` | Backend API (same-origin) |
+| `https://soroban-testnet.stellar.org` | Soroban RPC (testnet) |
+| `https://horizon-testnet.stellar.org` | Horizon API (testnet) |
+| `https://soroban-mainnet.stellar.org` | Soroban RPC (mainnet) |
+| `https://horizon.stellar.org` | Horizon API (mainnet) |
+
+**Wallet extensions** (Freighter, Rabet, xBull) communicate via browser extension messaging
+(`window.postMessage` / `chrome.runtime`) and are not affected by `connect-src`.
+
 ## Security Checklist
 
 ### Frontend ✅
