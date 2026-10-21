@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { QRCodeCanvas } from 'qrcode.react';
 import { apiUrl } from './config';
 import Header from './components/Header';
+import { useToast } from './lib/toast/ToastProvider';
 import './ReferralLinkGenerator.css';
 
 export default function ReferralLinkGenerator({
@@ -18,6 +19,7 @@ export default function ReferralLinkGenerator({
   onDisconnectWallet,
 }) {
   const { id } = useParams();
+  const toast = useToast();
   const [campaign, setCampaign] = useState(null);
   const [referralCount, setReferralCount] = useState(0);
   const [bonusEarned, setBonusEarned] = useState(0);
@@ -68,12 +70,46 @@ export default function ReferralLinkGenerator({
   }, [id, walletAddress]);
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(buildInviteLink());
+    const link = buildInviteLink();
+    let copiedSuccessfully = false;
+
+    // Try modern Clipboard API if available
+    if (
+      typeof navigator !== 'undefined' &&
+      navigator.clipboard &&
+      typeof navigator.clipboard.writeText === 'function'
+    ) {
+      try {
+        await navigator.clipboard.writeText(link);
+        copiedSuccessfully = true;
+      } catch {
+        // Fall back to execCommand
+      }
+    }
+
+    // Fallback using execCommand for non-HTTPS contexts or older browsers
+    if (!copiedSuccessfully && typeof document !== 'undefined') {
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = link;
+        textArea.style.position = 'fixed';
+        textArea.style.left = '-9999px';
+        textArea.style.top = '-9999px';
+        textArea.setAttribute('readonly', '');
+        document.body.appendChild(textArea);
+        textArea.select();
+        copiedSuccessfully = document.execCommand('copy');
+        document.body.removeChild(textArea);
+      } catch {
+        copiedSuccessfully = false;
+      }
+    }
+
+    if (copiedSuccessfully) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    } else {
+      toast.error('Unable to copy automatically. Please copy the link manually.');
     }
   };
 

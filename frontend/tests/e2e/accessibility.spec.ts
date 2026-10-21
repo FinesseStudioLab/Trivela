@@ -347,4 +347,22 @@ test.describe('Mobile Accessibility', () => {
     // This is a warning, not a hard failure
     expect(smallTargets.length, 'Touch targets should be at least 44x44px').toBeLessThan(5);
   });
+
+  test('Campaign filter dropdowns - axe-core accessibility and keyboard navigation', async ({
+    page,
+  }) => {
+    await page.goto(`${FRONTEND_URL}/`);
+    await page.waitForLoadState('networkidle');
+
+    // Run axe-core specifically on the campaign filter dropdown section
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .include('.campaign-filters')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+
+    const critical = accessibilityScanResults.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(critical, 'Campaign filter dropdowns have critical/serious a11y violations').toHaveLength(0);
+  });
 });

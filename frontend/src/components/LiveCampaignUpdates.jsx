@@ -90,6 +90,12 @@ export default function LiveCampaignUpdates({ campaignId }) {
               Connected
             </>
           )}
+          {connectionStatus === 'reconnecting' && (
+            <>
+              <span className="status-indicator reconnecting"></span>
+              Reconnecting…
+            </>
+          )}
           {connectionStatus === 'disconnected' && 'Disconnected'}
           {connectionStatus === 'error' && 'Connection Error'}
         </div>
