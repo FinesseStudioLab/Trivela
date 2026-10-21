@@ -146,4 +146,32 @@ test.describe('Primary Screens Visual Regression', () => {
       maxDiffPixelRatio: 0.02,
     });
   });
+
+  test('Initial load in dark mode - no flash', async ({ page }) => {
+    // Set stored theme to dark prior to navigation
+    await page.addInitScript(() => {
+      window.localStorage.setItem('trivela-theme', 'dark');
+    });
+    await page.goto(`${APP_URL}/`);
+    await page.waitForLoadState('domcontentloaded');
+
+    // Verify document has dark theme applied before or right at render
+    const themeApplied = await page.evaluate(() => {
+      const el = document.documentElement;
+      return (
+        el.dataset.theme === 'dark' ||
+        el.classList.contains('dark') ||
+        el.style.colorScheme === 'dark'
+      );
+    });
+    expect(themeApplied).toBeTruthy();
+
+    await page.waitForLoadState('networkidle');
+    await page.waitForTimeout(300);
+    await expect(page).toHaveScreenshot('initial-dark-mode.png', {
+      fullPage: true,
+      animations: 'disabled',
+      maxDiffPixelRatio: 0.02,
+    });
+  });
 });

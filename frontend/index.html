@@ -11,10 +11,6 @@
     <link
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap"
       rel="stylesheet"
-    />
-  </head>
-  <body>
-    <div id="root"></div>
     <script>
       // Apply the saved (or OS-preferred) theme before first paint to avoid a flash of the wrong theme.
       (function () {
@@ -28,9 +24,18 @@
                 : 'dark';
           document.documentElement.dataset.theme = theme;
           document.documentElement.style.colorScheme = theme;
+          document.documentElement.classList.add(theme);
+          if (theme === 'dark') {
+            document.documentElement.style.backgroundColor = '#071018';
+          } else {
+            document.documentElement.style.backgroundColor = '#f3f6fb';
+          }
         } catch (e) {}
       })();
     </script>
+  </head>
+  <body>
+    <div id="root"></div>
     <script src="https://cdn.jsdelivr.net/npm/@stellar/freighter-api@6.0.1/build/index.min.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>
