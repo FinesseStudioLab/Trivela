@@ -30,6 +30,7 @@ import { createSqliteCampaignRewardNotificationRepository } from './sqliteCampai
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
 import { createPgAuditLogRepository } from './pg/pgAuditLogRepository.js';
+import { instrumentDatabase } from '../db/slowQueryLog.js';
 
 /**
  * Build the DAL.
@@ -57,6 +58,9 @@ export async function createDal({
 } = {}) {
   const db = new Database(dbPath);
   await runMigrations(db);
+  instrumentDatabase(db, {
+    thresholdMs: Number(process.env.DB_SLOW_QUERY_MS ?? 200),
+  });
 
   const categories = allowedCategories ?? parseCategoriesConfig(process.env.TRIVELA_CATEGORIES);
 
