@@ -114,6 +114,10 @@ import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
 import { createSocialTaskRoutes } from './routes/socialTasks.js';
 import { createTwitterVerificationService } from './services/twitterVerificationService.js';
+import { createDiscordBotService } from './services/discordBotService.js';
+import { createDiscordBotRoutes } from './routes/discordBot.js';
+import { createTelegramBotService } from './services/telegramBotService.js';
+import { createTelegramBotRoutes } from './routes/telegramBot.js';
 import {
   createNotificationRoutes,
   createNotificationPreferencesRoutes,
@@ -3569,6 +3573,31 @@ export async function createApp(options = {}) {
       }),
     });
     app.use(`${prefix}/social-tasks`, rateLimiter, ...guard, socialTaskRouter);
+
+    // #1349 — Discord bot slash-command `/trivela-stats`
+    const discordBotRouter = createDiscordBotRoutes({
+      discordBotService: createDiscordBotService({ campaignRepository }),
+    });
+    app.use(`${prefix}/discord`, rateLimiter, discordBotRouter);
+
+    // #1350 — Telegram bot `/claim` command
+    const telegramBotRouter = createTelegramBotRoutes({
+      telegramBotService: createTelegramBotService({
+        claimableBalanceRepository: {
+          listByRecipient: (identity) => {
+            try {
+              return dal.db
+                .prepare('SELECT * FROM claimable_balances WHERE recipient = ?')
+                .all(identity);
+            } catch {
+              return [];
+            }
+          },
+        },
+        identityResolver: (id) => id,
+      }),
+    });
+    app.use(`${prefix}/telegram`, rateLimiter, telegramBotRouter);
   }
 
   // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
