@@ -325,10 +325,48 @@ export type IndexerCursorUpdate = {
 export type ApiKeyMetadata = {
     id?: string;
     label?: string;
+    /**
+     * Organization the key is scoped to, if any.
+     */
+    orgId?: string;
+    /**
+     * Granular permissions granted to the key.
+     */
+    scopes?: Array<ApiKeyScope>;
+    rateTier?: ApiKeyRateTier;
     createdAt?: string;
     expiresAt?: string;
     lastUsedAt?: string;
     active?: boolean;
+};
+
+export type ApiKeyScope = 'campaigns:read' | 'campaigns:write' | 'allowlist:write' | 'admin';
+
+/**
+ * Per-key rate-limit tier enforced by the rate limiter (#924). `standard` is 60 req/min, `pro` is 300 req/min, `enterprise` is 1000 req/min.
+ */
+export type ApiKeyRateTier = 'standard' | 'pro' | 'enterprise';
+
+export type PiiExportResponse = {
+    success?: boolean;
+    identifier?: string;
+    exportedAt?: string;
+    /**
+     * One key per off-chain table with at least one matching row (empty tables are omitted). Values are arrays of the raw rows, except push_subscriptions.p256dh/auth which are redacted.
+     */
+    data?: {
+        [key: string]: Array<{
+            [key: string]: unknown;
+        }>;
+    };
+};
+
+export type PiiPurgeResponse = {
+    success?: boolean;
+    purged?: Array<{
+        table?: string;
+        count?: number;
+    }>;
 };
 
 export type Error = {
@@ -989,6 +1027,18 @@ export type CreateApiKeyData = {
     body?: {
         label?: string;
         expiresAt?: string;
+        /**
+         * Scope the key to an organization.
+         */
+        orgId?: string;
+        /**
+         * Defaults to the full legacy scope set if omitted.
+         */
+        scopes?: Array<ApiKeyScope>;
+        /**
+         * Defaults to `standard` if omitted.
+         */
+        rateTier?: ApiKeyRateTier;
     };
     path?: never;
     query?: never;
@@ -1054,6 +1104,140 @@ export type RotateApiKeyResponses = {
 };
 
 export type RotateApiKeyResponse = RotateApiKeyResponses[keyof RotateApiKeyResponses];
+
+export type UpdateApiKeyRateTierData = {
+    body: {
+        rateTier: ApiKeyRateTier;
+    };
+    path: {
+        id: string;
+    };
+    query?: never;
+    url: '/api/v1/admin/api-keys/{id}/rate-tier';
+};
+
+export type UpdateApiKeyRateTierErrors = {
+    /**
+     * Invalid rate tier value
+     */
+    400: ValidationError;
+    /**
+     * Key not found
+     */
+    404: Error;
+};
+
+export type UpdateApiKeyRateTierError = UpdateApiKeyRateTierErrors[keyof UpdateApiKeyRateTierErrors];
+
+export type UpdateApiKeyRateTierResponses = {
+    /**
+     * Rate tier updated
+     */
+    200: {
+        metadata?: ApiKeyMetadata;
+    };
+};
+
+export type UpdateApiKeyRateTierResponse = UpdateApiKeyRateTierResponses[keyof UpdateApiKeyRateTierResponses];
+
+export type ExportPiiForUserData = {
+    body: {
+        /**
+         * Wallet address (G...) or email to export data for.
+         */
+        identifier: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/pii/export-user';
+};
+
+export type ExportPiiForUserErrors = {
+    /**
+     * Missing identifier
+     */
+    400: Error;
+    /**
+     * Unauthorized
+     */
+    401: Error;
+};
+
+export type ExportPiiForUserError = ExportPiiForUserErrors[keyof ExportPiiForUserErrors];
+
+export type ExportPiiForUserResponses = {
+    /**
+     * Export payload
+     */
+    200: PiiExportResponse;
+};
+
+export type ExportPiiForUserResponse = ExportPiiForUserResponses[keyof ExportPiiForUserResponses];
+
+export type PurgePiiForUserData = {
+    body: {
+        /**
+         * Wallet address (G...) or email to purge data for.
+         */
+        identifier: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/pii/purge-user';
+};
+
+export type PurgePiiForUserErrors = {
+    /**
+     * Missing identifier
+     */
+    400: Error;
+    /**
+     * Unauthorized
+     */
+    401: Error;
+};
+
+export type PurgePiiForUserError = PurgePiiForUserErrors[keyof PurgePiiForUserErrors];
+
+export type PurgePiiForUserResponses = {
+    /**
+     * Purge result
+     */
+    200: PiiPurgeResponse;
+};
+
+export type PurgePiiForUserResponse = PurgePiiForUserResponses[keyof PurgePiiForUserResponses];
+
+export type PurgePiiForCampaignData = {
+    body: {
+        campaignId: string;
+    };
+    path?: never;
+    query?: never;
+    url: '/api/v1/pii/purge-campaign';
+};
+
+export type PurgePiiForCampaignErrors = {
+    /**
+     * Missing campaignId
+     */
+    400: Error;
+    /**
+     * Unauthorized
+     */
+    401: Error;
+};
+
+export type PurgePiiForCampaignError = PurgePiiForCampaignErrors[keyof PurgePiiForCampaignErrors];
+
+export type PurgePiiForCampaignResponses = {
+    /**
+     * Purge result
+     */
+    200: PiiPurgeResponse;
+};
+
+export type PurgePiiForCampaignResponse = PurgePiiForCampaignResponses[keyof PurgePiiForCampaignResponses];
 
 export type ListAuditLogsData = {
     body?: never;

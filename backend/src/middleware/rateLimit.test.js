@@ -17,7 +17,12 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRateLimiter, createMemoryStore, createRedisStore } from './rateLimit.js';
+import {
+  createRateLimiter,
+  createMemoryStore,
+  createRedisStore,
+  createSlidingWindowStore,
+} from './rateLimit.js';
 
 /**
  * @param {{ apiKey?: string; ip?: string; method?: string }} [opts]
@@ -174,9 +179,7 @@ test('rateLimit resolveLimits can override windowMs too, and falls back to defau
     windowMs: 60_000,
     maxRequests: 1,
     resolveLimits: (req) =>
-      req.headers['x-api-key'] === 'enterprise-key'
-        ? { maxRequests: 1000, windowMs: 1_000 }
-        : null,
+      req.headers['x-api-key'] === 'enterprise-key' ? { maxRequests: 1000, windowMs: 1_000 } : null,
   });
 
   const entReq = makeReqRes({ apiKey: 'enterprise-key' });
@@ -294,4 +297,209 @@ test('createRedisStore: throws when the multi() pipeline reports an error', asyn
   };
   const store = createRedisStore(failingRedis);
   await assert.rejects(() => store.increment('k', 5000), /Redis rate limit increment failed/);
+});
+
+// ── Monthly quota (#759) ─────────────────────────────────────────────────────
+//
+// Separate from the windowed maxRequests/windowMs check above: caps total
+// volume over a calendar month regardless of burst pattern. A fake in-memory
+// usage store below stands in for sqliteApiKeyRepository's
+// getMonthlyUsage/incrementMonthlyUsage in these unit tests.
+
+function makeUsageStore(initial = {}) {
+  const usage = { ...initial };
+  return {
+    usage,
+    getMonthlyUsage: (req) => usage[req.headers['x-api-key']] ?? 0,
+    incrementMonthlyUsage: (req) => {
+      const key = req.headers['x-api-key'];
+      usage[key] = (usage[key] ?? 0) + 1;
+      return usage[key];
+    },
+  };
+}
+
+test('monthly quota: request passes and increments usage when under quota', async () => {
+  const store = makeUsageStore({ 'key-a': 5 });
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000, // high enough that the window check never fires here
+    resolveMonthlyQuota: () => 10,
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, true);
+  assert.equal(store.usage['key-a'], 6);
+  assert.equal(res.headersOut['X-Monthly-Quota-Limit'], '10');
+  assert.equal(res.headersOut['X-Monthly-Quota-Remaining'], '4');
+});
+
+test('monthly quota: request rejected with 429 once quota is reached, usage not incremented further', async () => {
+  const store = makeUsageStore({ 'key-a': 10 });
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: () => 10,
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, false);
+  assert.equal(res.statusCode, 429);
+  assert.equal(res.body.code, 'MONTHLY_QUOTA_EXCEEDED');
+  assert.equal(res.body.quota, 10);
+  assert.equal(res.body.used, 10);
+  assert.ok(Number(res.headersOut['Retry-After']) > 0);
+  // Usage must not have incremented past the quota — a rejected request
+  // doesn't consume additional quota.
+  assert.equal(store.usage['key-a'], 10);
+});
+
+test('monthly quota: two keys with different quotas are enforced independently', async () => {
+  const store = makeUsageStore({ 'key-standard': 99, 'key-enterprise': 99 });
+  const quotas = { 'key-standard': 100, 'key-enterprise': null }; // enterprise = unlimited
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: (req) => quotas[req.headers['x-api-key']],
+    getMonthlyUsage: store.getMonthlyUsage,
+    incrementMonthlyUsage: store.incrementMonthlyUsage,
+  });
+
+  const standard = makeReqRes({ apiKey: 'key-standard' });
+  let standardCalled = false;
+  await limiter(standard.req, standard.res, () => {
+    standardCalled = true;
+  });
+  assert.equal(standardCalled, true); // 99 -> 100, exactly at quota, still allowed
+  assert.equal(store.usage['key-standard'], 100);
+
+  // Next standard-tier request is now over quota.
+  const standardOver = makeReqRes({ apiKey: 'key-standard' });
+  let standardOverCalled = false;
+  await limiter(standardOver.req, standardOver.res, () => {
+    standardOverCalled = true;
+  });
+  assert.equal(standardOverCalled, false);
+  assert.equal(standardOver.res.statusCode, 429);
+
+  // Enterprise key (null quota = unlimited) is unaffected regardless of usage.
+  const enterprise = makeReqRes({ apiKey: 'key-enterprise' });
+  let enterpriseCalled = false;
+  await limiter(enterprise.req, enterprise.res, () => {
+    enterpriseCalled = true;
+  });
+  assert.equal(enterpriseCalled, true);
+  assert.equal(enterprise.res.headersOut['X-Monthly-Quota-Limit'], undefined);
+});
+
+test('monthly quota hooks are a no-op when not all three are provided', async () => {
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 1000,
+    resolveMonthlyQuota: () => 10, // getMonthlyUsage/incrementMonthlyUsage omitted
+  });
+  const { req, res } = makeReqRes({ apiKey: 'key-a' });
+
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+
+  assert.equal(called, true);
+  assert.equal(res.headersOut['X-Monthly-Quota-Limit'], undefined);
+});
+
+// #1241 — the fixed-window store above resets hard at each window boundary,
+// which lets a client burst up to 2x maxRequests across a boundary (max at
+// the tail of window N, max again at the head of window N+1). The tests
+// below pin the sliding-window-counter store's smoothing behavior directly,
+// independent of the rateLimit() middleware plumbing already covered above.
+test('createSlidingWindowStore blends the previous window in proportion to overlap', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+  let now = 0;
+
+  // Fill window 0 to the boundary (5 requests).
+  for (let i = 0; i < 5; i += 1) {
+    await store.increment('k', windowMs, now);
+  }
+
+  // Halfway into window 1: previous window's count should count for ~50%.
+  now = windowMs + windowMs / 2;
+  const result = await store.increment('k', windowMs, now);
+  // 5 previous * 0.5 overlap + 1 current request = 3.5
+  assert.ok(Math.abs(result.count - 3.5) < 0.001, `expected ~3.5, got ${result.count}`);
+});
+
+test('createSlidingWindowStore rejects a boundary burst that a fixed window would allow', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+  const maxRequests = 5;
+
+  // Exhaust window 0 right at its tail end.
+  let lastResult;
+  for (let i = 0; i < maxRequests; i += 1) {
+    lastResult = await store.increment('k', windowMs, windowMs - 1);
+  }
+  assert.equal(lastResult.count, maxRequests);
+
+  // A fixed-window store resets to 0 the instant window 1 starts, so this
+  // request would be request #1 of a fresh bucket. The sliding-window store
+  // must still weight nearly all of the previous burst in.
+  const justAfterBoundary = await store.increment('k', windowMs, windowMs + 1);
+  assert.ok(
+    justAfterBoundary.count > maxRequests,
+    `expected boundary burst to still read as over the limit, got ${justAfterBoundary.count}`,
+  );
+});
+
+test('createSlidingWindowStore fully forgets a window once it is two windows old', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+
+  await store.increment('k', windowMs, 0);
+  await store.increment('k', windowMs, 0);
+
+  // Three windows later, the old count must no longer influence the result.
+  const result = await store.increment('k', windowMs, windowMs * 3);
+  assert.equal(result.count, 1);
+});
+
+test('createSlidingWindowStore keeps independent counts per key', async () => {
+  const store = createSlidingWindowStore();
+  const windowMs = 60_000;
+
+  await store.increment('alice', windowMs, 0);
+  const bob = await store.increment('bob', windowMs, 0);
+
+  assert.equal(bob.count, 1);
+});
+
+test('rateLimit middleware accepts createSlidingWindowStore as a drop-in store', async () => {
+  const limiter = createRateLimiter({
+    windowMs: 60_000,
+    maxRequests: 2,
+    store: createSlidingWindowStore(),
+  });
+  const { req, res } = makeReqRes();
+  let called = false;
+  await limiter(req, res, () => {
+    called = true;
+  });
+  assert.equal(called, true);
+  assert.equal(res.headersOut['X-RateLimit-Limit'], '2');
 });

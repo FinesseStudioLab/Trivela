@@ -8,6 +8,7 @@ import {
 import TransactionStatus from './components/TransactionStatus';
 import { useOptimisticAction } from './hooks/useOptimisticAction';
 import { analytics } from './lib/analytics';
+import { getContractErrorMessage, extractContractErrorCode } from './lib/contractErrors';
 
 /**
  * ClaimRewards — lets the user enter a points amount and either claim
@@ -176,7 +177,13 @@ export default function ClaimRewards({ walletAddress, hasPayoutAsset = false, on
 
       {isError && error && (
         <p id={feedbackId} className="claim-error" role="alert">
-          {error.message}
+          {(() => {
+            const contractErrorCode = extractContractErrorCode(error);
+            if (contractErrorCode !== null) {
+              return getContractErrorMessage(contractErrorCode);
+            }
+            return error.message || 'An error occurred. Please try again.';
+          })()}
           {error.recovery ? ` ${error.recovery}.` : ''}
         </p>
       )}

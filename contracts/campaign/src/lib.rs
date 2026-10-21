@@ -94,6 +94,17 @@ pub enum Error {
     NonceReused = 120,
     DuplicateSigner = 121,
     UnknownSigner = 122,
+    /// Referral would create a direct cycle or chain cycle (A→B where B already refers A).
+    ReferralLoop = 123,
+    /// Participant already has a locked referral record from a prior registration
+    /// and cannot adopt a different referrer on re-registration (sybil guard).
+    ReferralLocked = 124,
+    /// Address is not in the address allowlist when allowlist is enabled.
+    NotInAddressAllowlist = 125,
+    /// Address is in the address blocklist when blocklist is enabled.
+    InAddressBlocklist = 126,
+    /// Participation fee configuration is invalid (zero amount or missing token).
+    InvalidFeeConfig = 127,
 }
 
 contractmeta!(key = "Description", val = "Trivela campaign configuration");
@@ -112,6 +123,8 @@ pub const TTL_THRESHOLD: u32 = 100_000;
 pub const TTL_EXTEND_TO: u32 = 518_400;
 
 #[cfg(test)]
+mod error_codes_test;
+#[cfg(test)]
 pub const TTL_THRESHOLD: u32 = 50;
 #[cfg(test)]
 pub const TTL_EXTEND_TO: u32 = 100;
@@ -119,11 +132,18 @@ pub const TTL_EXTEND_TO: u32 = 100;
 const ADMIN: Symbol = symbol_short!("admin");
 const CAMPAIGN_ACTIVE: Symbol = symbol_short!("active");
 const PARTICIPANT: Symbol = symbol_short!("partic");
+// Participation history marker (issue #740): persists across deregistration
+// and merkle root rotations so the same identity cannot double-register or
+// inflate referral counts by cycling de/re-register.
+const PARTICIPATED: Symbol = symbol_short!("ptcipd");
 const START_TIME: Symbol = symbol_short!("start");
 const END_TIME: Symbol = symbol_short!("end");
 const MAX_CAP: Symbol = symbol_short!("maxcap");
 const PARTICIPANT_COUNT: Symbol = symbol_short!("count");
 const MERKLE_ROOT: Symbol = symbol_short!("mkroot");
+const FEE_CONFIG: Symbol = symbol_short!("feecfg");
+const FEE_COLLECTED_EVENT: Symbol = symbol_short!("feepaid");
+const SET_FEE_EVENT: Symbol = symbol_short!("feeset");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const ADMIN_NONCE: Symbol = symbol_short!("anonce");
@@ -133,6 +153,24 @@ const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
 const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
 const PRUNED_EVENT: Symbol = symbol_short!("pruned");
+
+// ── Issue #902: Scheduled campaign activation ─────────────────────────────────
+// Ledger-based activation window support for automated campaign lifecycle
+const START_LEDGER: Symbol = symbol_short!("strtldg");
+const END_LEDGER: Symbol = symbol_short!("endldg");
+const SCHEDULE_MODE: Symbol = symbol_short!("scdmode");
+const SET_LEDGER_WINDOW_EVENT: Symbol = symbol_short!("ldg_win");
+const SET_SCHEDULE_MODE_EVENT: Symbol = symbol_short!("scdmode");
+
+/// Campaign activation schedule mode
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum ScheduleMode {
+    /// Uses env.ledger().timestamp() - existing behavior
+    Timestamp = 0,
+    /// Uses env.ledger().sequence() - new ledger-based scheduling
+    Ledger = 1,
+}
 
 // ── pruning ──────────────────────────────────────────────────────────────────
 // Participant records live in PERSISTENT storage (#280) with their own TTL,
@@ -158,7 +196,7 @@ const REVOKE_INVITE_EVENT: Symbol = symbol_short!("invrevk");
 // ── co-admin multisig ────────────────────────────────────────────────────────
 const CO_ADMINS: Symbol = symbol_short!("coadmin");
 const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
-const OP_SET_MERKLE_ROOT: u32 = 1;
+pub const OP_SET_MERKLE_ROOT: u32 = 1;
 
 // ── On-chain referral tracking (issue #455) ──────────────────────────────────
 //
@@ -168,8 +206,28 @@ const OP_SET_MERKLE_ROOT: u32 = 1;
 // scanning every referee. Both live in PERSISTENT storage alongside the
 // per-participant records they mirror (see #280).
 const REFERRAL: Symbol = symbol_short!("referral");
+/// Permanent record of the first referrer for a participant. Written on the
+/// first successful referral and never deleted — survives deregister — so a
+/// participant cannot re-register with a different referrer to farm the count.
+const REFERRAL_LOCK: Symbol = symbol_short!("reflock");
 const REFERRAL_COUNT: Symbol = symbol_short!("refcnt");
 const REFERRED_EVENT: Symbol = symbol_short!("referred");
+// Set to `true` on first registration so re-registration cannot switch to a
+// different referrer (sybil guard — issue #743). Persists through deregister.
+const REFERRAL_LOCKED: Symbol = symbol_short!("reflck");
+/// Maximum referral chain depth checked for cycles (issue #743).
+const MAX_REFERRAL_DEPTH: u32 = 10;
+
+// ── Allowlist/Blocklist for compliance & anti-abuse ──────────────────────────
+// Per-campaign address restrictions for participation and crediting.
+const ALLOWLIST_ENABLED: Symbol = symbol_short!("allowen");
+const BLOCKLIST_ENABLED: Symbol = symbol_short!("blocken");
+const ALLOWLIST: Symbol = symbol_short!("allow");
+const BLOCKLIST: Symbol = symbol_short!("block");
+const SET_ALLOWLIST_EVENT: Symbol = symbol_short!("allowset");
+const SET_BLOCKLIST_EVENT: Symbol = symbol_short!("blockset");
+const SET_ALLOWLIST_ENABLED_EVENT: Symbol = symbol_short!("allowen");
+const SET_BLOCKLIST_ENABLED_EVENT: Symbol = symbol_short!("blocken");
 
 // ── Activity log ring buffer (issue #453) ────────────────────────────────────
 //
@@ -197,6 +255,45 @@ pub struct ActivityEntry {
     pub actor: Address,
     pub amount: Option<u64>,
     pub ledger: u32,
+}
+
+/// Per-campaign participation fee (issue #1371).
+///
+/// When configured, every successful new registration transfers `amount`
+/// of `token` from the participant to `recipient` (the reward pool).
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct ParticipationFee {
+    /// SEP-41 / SAC token used to charge the fee.
+    pub token: Address,
+    /// Fee amount in token units (smallest denomination).
+    pub amount: u64,
+    /// Where the fee is forwarded — the campaign reward pool.
+    pub recipient: Address,
+}
+
+/// Instance-storage configuration snapshot (issue #1372).
+///
+/// Exported via `export_state` for offline inspection and restored via
+/// `import_state` for local testnet seeding. Participant records are
+/// deliberately out of scope.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub struct CampaignStateDump {
+    pub admin: Address,
+    pub active: bool,
+    pub start_time: u64,
+    pub end_time: u64,
+    pub max_cap: u64,
+    pub participant_count: u64,
+    pub merkle_root: Option<BytesN<32>>,
+    /// 0 = None, 1 = Merkle, 2 = Zk.
+    pub privacy_mode: u32,
+    pub invite_only: bool,
+    pub fee_token: Option<Address>,
+    pub fee_amount: u64,
+    pub fee_recipient: Option<Address>,
+    pub schema_version: u32,
 }
 
 // #280 — TTL thresholds for the per-participant persistent storage
@@ -306,7 +403,7 @@ fn log_activity(env: &Env, kind: ActivityKind, actor: Address, amount: Option<u6
 
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<(), Error> {
     admin.require_auth();
-    let stored: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
     if &stored != admin {
         return Err(Error::Unauthorized);
     }
@@ -321,7 +418,7 @@ fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<()
 /// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
 /// `op` is a stable per-function discriminant used in place of the function
 /// name string (Symbol byte access is not available in `no_std`).
-fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
+pub fn multisig_message(env: &Env, op: u32, nonce: u64, args_hash: &BytesN<32>) -> Bytes {
     let mut buf = [0u8; 44];
     buf[0..4].copy_from_slice(&op.to_be_bytes());
     buf[4..12].copy_from_slice(&nonce.to_be_bytes());
@@ -390,6 +487,90 @@ fn verify_multisig(
     Ok(())
 }
 
+/// Check if an address is allowed based on allowlist/blocklist settings.
+/// Returns `Ok(())` if allowed, `Err(Error)` if not allowed.
+fn check_address_restrictions(env: &Env, address: &Address) -> Result<(), Error> {
+    // Check blocklist first - if address is blocked, reject regardless of allowlist
+    let blocklist_enabled: bool = env
+        .storage()
+        .instance()
+        .get(&BLOCKLIST_ENABLED)
+        .unwrap_or(false);
+    if blocklist_enabled {
+        let blocklist_key = (BLOCKLIST, address.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&blocklist_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::InAddressBlocklist);
+        }
+    }
+
+    // Check allowlist - if enabled, address must be in allowlist
+    let allowlist_enabled: bool = env
+        .storage()
+        .instance()
+        .get(&ALLOWLIST_ENABLED)
+        .unwrap_or(false);
+    if allowlist_enabled {
+        let allowlist_key = (ALLOWLIST, address.clone());
+        if !env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&allowlist_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::NotInAddressAllowlist);
+        }
+    }
+
+    Ok(())
+}
+
+/// Add addresses to allowlist (admin only).
+fn add_to_allowlist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (ALLOWLIST, address.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+    }
+}
+
+/// Remove addresses from allowlist (admin only).
+fn remove_from_allowlist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (ALLOWLIST, address.clone());
+        env.storage().persistent().remove(&key);
+    }
+}
+
+/// Add addresses to blocklist (admin only).
+fn add_to_blocklist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (BLOCKLIST, address.clone());
+        env.storage().persistent().set(&key, &true);
+        env.storage().persistent().extend_ttl(
+            &key,
+            PARTICIPANT_TTL_THRESHOLD,
+            PARTICIPANT_TTL_EXTEND_TO,
+        );
+    }
+}
+
+/// Remove addresses from blocklist (admin only).
+fn remove_from_blocklist(env: &Env, addresses: &Vec<Address>) {
+    for address in addresses.iter() {
+        let key = (BLOCKLIST, address.clone());
+        env.storage().persistent().remove(&key);
+    }
+}
+
 #[contractimpl]
 impl CampaignContract {
     /// Initialize campaign contract with an admin.
@@ -423,7 +604,7 @@ impl CampaignContract {
     /// serves as an idempotent migration hook for upgrade workflows.
     pub fn migrate(env: Env, admin: Address, target_version: u32) -> Result<u32, Error> {
         admin.require_auth();
-        let stored: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored != admin {
             return Err(Error::Unauthorized);
         }
@@ -576,6 +757,138 @@ impl CampaignContract {
     /// Return the current Merkle root, or `None` when open registration is active.
     pub fn get_merkle_root(env: Env) -> Option<BytesN<32>> {
         env.storage().instance().get(&MERKLE_ROOT)
+    }
+
+    /// Configure a participation fee charged on every new registration
+    /// (admin only). The fee is transferred from the participant to
+    /// `recipient` (reward pool) in `token` units of `amount`.
+    ///
+    /// Pass `amount = 0` to clear the fee and restore free registration.
+    pub fn set_participation_fee(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        token: Address,
+        amount: u64,
+        recipient: Address,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        if amount == 0 {
+            env.storage().instance().remove(&FEE_CONFIG);
+            env.events().publish((SET_FEE_EVENT,), 0u64);
+            env.storage()
+                .instance()
+                .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+            return Ok(());
+        }
+        let fee = ParticipationFee {
+            token,
+            amount,
+            recipient,
+        };
+        env.storage().instance().set(&FEE_CONFIG, &fee);
+        env.events().publish((SET_FEE_EVENT,), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Return the configured participation fee, or `None` when registration is free.
+    pub fn participation_fee(env: Env) -> Option<ParticipationFee> {
+        env.storage().instance().get(&FEE_CONFIG)
+    }
+
+    /// Export the campaign's instance-storage configuration for offline
+    /// inspection and local testnet seeding (issue #1372).
+    pub fn export_state(env: Env) -> CampaignStateDump {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .unwrap_or_else(|| Self::admin(env.clone()));
+        let privacy_mode = match env
+            .storage()
+            .instance()
+            .get::<_, PrivacyMode>(&PRIVACY_MODE)
+            .unwrap_or(PrivacyMode::None)
+        {
+            PrivacyMode::Merkle => 1u32,
+            PrivacyMode::Zk => 2u32,
+            PrivacyMode::None => 0u32,
+        };
+        let fee = env.storage().instance().get::<_, ParticipationFee>(&FEE_CONFIG);
+        CampaignStateDump {
+            admin,
+            active: env.storage().instance().get(&CAMPAIGN_ACTIVE).unwrap_or(false),
+            start_time: env.storage().instance().get(&START_TIME).unwrap_or(0),
+            end_time: env.storage().instance().get(&END_TIME).unwrap_or(u64::MAX),
+            max_cap: env.storage().instance().get(&MAX_CAP).unwrap_or(0),
+            participant_count: env.storage().instance().get(&PARTICIPANT_COUNT).unwrap_or(0),
+            merkle_root: env.storage().instance().get(&MERKLE_ROOT),
+            privacy_mode,
+            invite_only: env.storage().instance().get(&INVITE_ONLY).unwrap_or(false),
+            fee_token: fee.as_ref().map(|f| f.token.clone()),
+            fee_amount: fee.as_ref().map(|f| f.amount).unwrap_or(0),
+            fee_recipient: fee.as_ref().map(|f| f.recipient.clone()),
+            schema_version: Self::schema_version(env.clone()),
+        }
+    }
+
+    /// Restore a previously exported campaign configuration (admin only).
+    ///
+    /// Intended for local testnet seeding / migration. Participant records are
+    /// not rewritten — only the instance-storage configuration is restored.
+    pub fn import_state(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        state: CampaignStateDump,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        if state.schema_version != CURRENT_SCHEMA_VERSION {
+            return Err(Error::UnsupportedMigration);
+        }
+        env.storage().instance().set(&ADMIN, &state.admin);
+        env.storage().instance().set(&CAMPAIGN_ACTIVE, &state.active);
+        env.storage().instance().set(&START_TIME, &state.start_time);
+        env.storage().instance().set(&END_TIME, &state.end_time);
+        env.storage().instance().set(&MAX_CAP, &state.max_cap);
+        env.storage()
+            .instance()
+            .set(&PARTICIPANT_COUNT, &state.participant_count);
+        if let Some(root) = state.merkle_root.clone() {
+            env.storage().instance().set(&MERKLE_ROOT, &root);
+        } else {
+            env.storage().instance().remove(&MERKLE_ROOT);
+        }
+        let mode = match state.privacy_mode {
+            1 => PrivacyMode::Merkle,
+            2 => PrivacyMode::Zk,
+            _ => PrivacyMode::None,
+        };
+        env.storage().instance().set(&PRIVACY_MODE, &mode);
+        env.storage().instance().set(&INVITE_ONLY, &state.invite_only);
+        match (state.fee_token, state.fee_recipient) {
+            (Some(token), Some(recipient)) if state.fee_amount > 0 => {
+                let fee = ParticipationFee {
+                    token,
+                    amount: state.fee_amount,
+                    recipient,
+                };
+                env.storage().instance().set(&FEE_CONFIG, &fee);
+            }
+            _ => {
+                env.storage().instance().remove(&FEE_CONFIG);
+            }
+        }
+        env.storage()
+            .instance()
+            .set(&SCHEMA_VERSION, &state.schema_version);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
     }
 
     /// Set the privacy mode for this campaign (admin only).
@@ -918,9 +1231,29 @@ impl CampaignContract {
             None
         };
 
-        let was_new = do_register(&env, participant, referrer)?;
+        // Participation barrier (issue #740): reject any participant whose
+        // history marker is set, even after deregistration or root rotation.
+        let participation_key = (PARTICIPATED, participant.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&participation_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::NullifierAlreadyUsed);
+        }
+
+        let was_new = do_register(&env, participant.clone(), referrer)?;
 
         if was_new {
+            // Stamp the participation history so this identity cannot
+            // re-register after deregistration or across root rotations.
+            env.storage().persistent().set(&participation_key, &true);
+            env.storage().persistent().extend_ttl(
+                &participation_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
             if let Some(hash) = invite_hash {
                 env.storage().instance().set(&(INVITE_USED, hash), &true);
             }
@@ -967,6 +1300,39 @@ impl CampaignContract {
     ) -> Result<bool, Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
         Ok(do_deregister(&env, participant))
+    }
+
+    /// Explicitly clear the participation history for a participant (issue #740).
+    ///
+    /// Once cleared, the participant may re-register as if they had never
+    /// participated. The admin must decide whether this is appropriate (e.g.
+    /// for an erroneously blocked address). Separate from `admin_deregister`
+    /// so clearing participation is always an explicit, auditable opt-in.
+    pub fn clear_participation(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        participant: Address,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage()
+            .persistent()
+            .remove(&(PARTICIPATED, participant));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Check whether the participation history marker is set for an address.
+    ///
+    /// Returns `true` even if the participant has since deregistered — this
+    /// is intentional: the marker persists to prevent re-registration.
+    pub fn has_participated(env: Env, participant: Address) -> bool {
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&(PARTICIPATED, participant))
+            .unwrap_or(false)
     }
 
     /// Check if a participant is registered. (#280) Reads from
@@ -1050,13 +1416,19 @@ impl CampaignContract {
             if cursor >= len {
                 cursor = 0;
             }
-            let addr = registry.get(cursor).unwrap();
+            let addr = if let Some(a) = registry.get(cursor) {
+                a
+            } else {
+                cursor = 0;
+                continue;
+            };
             let key = (PARTICIPANT, addr);
             if !env.storage().persistent().has(&key) {
                 let last_idx = len - 1;
                 if cursor != last_idx {
-                    let last = registry.get(last_idx).unwrap();
-                    registry.set(cursor, last);
+                    if let Some(last) = registry.get(last_idx) {
+                        registry.set(cursor, last);
+                    }
                 }
                 registry.pop_back();
                 len -= 1;
@@ -1105,12 +1477,13 @@ impl CampaignContract {
         let mut checked = 0u32;
         let mut idx = cursor;
         while checked < len && pruned < max_entries {
-            let nonce = registry.get(idx).unwrap();
-            let key = (NONCE_USED, nonce);
-            if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
-                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
-                    env.storage().instance().remove(&key);
-                    pruned += 1;
+            if let Some(nonce) = registry.get(idx) {
+                let key = (NONCE_USED, nonce);
+                if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
+                    if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                        env.storage().instance().remove(&key);
+                        pruned += 1;
+                    }
                 }
             }
             idx = (idx + 1) % len;
@@ -1237,6 +1610,151 @@ impl CampaignContract {
             .unwrap_or(false)
     }
 
+    // ── Allowlist/Blocklist for compliance & anti-abuse ──────────────────────
+
+    /// Enable or disable allowlist enforcement (admin only).
+    pub fn set_allowlist_enabled(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&ALLOWLIST_ENABLED, &enabled);
+        env.events()
+            .publish((SET_ALLOWLIST_ENABLED_EVENT,), enabled);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Enable or disable blocklist enforcement (admin only).
+    pub fn set_blocklist_enabled(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        enabled: bool,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&BLOCKLIST_ENABLED, &enabled);
+        env.events()
+            .publish((SET_BLOCKLIST_ENABLED_EVENT,), enabled);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Add addresses to allowlist (admin only).
+    pub fn add_to_allowlist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        add_to_allowlist(&env, &addresses);
+        env.events()
+            .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove addresses from allowlist (admin only).
+    pub fn remove_from_allowlist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        remove_from_allowlist(&env, &addresses);
+        env.events()
+            .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Add addresses to blocklist (admin only).
+    pub fn add_to_blocklist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        add_to_blocklist(&env, &addresses);
+        env.events()
+            .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Remove addresses from blocklist (admin only).
+    pub fn remove_from_blocklist(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        addresses: Vec<Address>,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        remove_from_blocklist(&env, &addresses);
+        env.events()
+            .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Check if an address is in the allowlist.
+    pub fn is_in_allowlist(env: Env, address: Address) -> bool {
+        let key = (ALLOWLIST, address);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+    }
+
+    /// Check if an address is in the blocklist.
+    pub fn is_in_blocklist(env: Env, address: Address) -> bool {
+        let key = (BLOCKLIST, address);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&key)
+            .unwrap_or(false)
+    }
+
+    /// Check if allowlist enforcement is enabled.
+    pub fn is_allowlist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&ALLOWLIST_ENABLED)
+            .unwrap_or(false)
+    }
+
+    /// Check if blocklist enforcement is enabled.
+    pub fn is_blocklist_enabled(env: Env) -> bool {
+        env.storage()
+            .instance()
+            .get(&BLOCKLIST_ENABLED)
+            .unwrap_or(false)
+    }
+
+    /// Check if an address is allowed based on allowlist/blocklist settings.
+    /// Returns `Ok(())` if allowed, `Err(Error)` if not allowed.
+    /// This function can be called by other contracts (e.g., rewards contract).
+    pub fn check_address_allowed(env: Env, address: Address) -> Result<(), Error> {
+        check_address_restrictions(&env, &address)
+    }
+
     // ── co-admin multisig (#454) ─────────────────────────────────────────
 
     /// Register a co-admin's ed25519 public key for multisig verification
@@ -1256,11 +1774,12 @@ impl CampaignContract {
             .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
-            let (addr, _) = co_admins.get(i).unwrap();
-            if addr == co_admin {
-                co_admins.set(i, (co_admin.clone(), pubkey.clone()));
-                found = true;
-                break;
+            if let Some((addr, _)) = co_admins.get(i) {
+                if addr == co_admin {
+                    co_admins.set(i, (co_admin.clone(), pubkey.clone()));
+                    found = true;
+                    break;
+                }
             }
         }
         if !found {
@@ -1335,7 +1854,7 @@ impl CampaignContract {
 
     /// Return the current admin address.
     pub fn admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).unwrap()
+        env.storage().instance().get(&ADMIN).unwrap_or_else(|| panic!("Admin not initialized"))
     }
 
     /// Return the pending admin address proposed by the current admin, if any.
@@ -1351,7 +1870,7 @@ impl CampaignContract {
         new_admin: Address,
     ) -> Result<(), Error> {
         current_admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
         }
@@ -1389,7 +1908,7 @@ impl CampaignContract {
     /// Cancel an in-flight admin transfer (current admin only).
     pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
         current_admin.require_auth();
-        let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+        let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
         }
@@ -1449,12 +1968,127 @@ impl CampaignContract {
             .get(&ACTIVITY_LOG_SIZE)
             .unwrap_or(DEFAULT_ACTIVITY_LOG_SIZE)
     }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #902: Scheduled / Automated Campaign Activation
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Set ledger-based activation window (admin only).
+    /// Both bounds are inclusive: registration succeeds when `start_ledger <= current <= end_ledger`.
+    pub fn set_ledger_window(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        start_ledger: u32,
+        end_ledger: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+
+        if start_ledger > end_ledger {
+            return Err(Error::InvalidWindow);
+        }
+
+        env.storage().instance().set(&START_LEDGER, &start_ledger);
+        env.storage().instance().set(&END_LEDGER, &end_ledger);
+
+        env.events()
+            .publish((SET_LEDGER_WINDOW_EVENT,), (start_ledger, end_ledger));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get the configured ledger-based activation window.
+    /// Returns `(start_ledger, end_ledger)`. Defaults to `(0, u32::MAX)` when not set.
+    pub fn get_ledger_window(env: Env) -> (u32, u32) {
+        let start: u32 = env.storage().instance().get(&START_LEDGER).unwrap_or(0);
+        let end: u32 = env.storage().instance().get(&END_LEDGER).unwrap_or(u32::MAX);
+        (start, end)
+    }
+
+    /// Check if current ledger sequence is within the configured window.
+    pub fn is_within_ledger_window(env: Env) -> bool {
+        let now = env.ledger().sequence();
+        let start: u32 = env.storage().instance().get(&START_LEDGER).unwrap_or(0);
+        let end: u32 = env.storage().instance().get(&END_LEDGER).unwrap_or(u32::MAX);
+        now >= start && now <= end
+    }
+
+    /// Set the schedule mode for this campaign (admin only).
+    /// Controls whether activation windows use timestamps or ledger sequences.
+    pub fn set_schedule_mode(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        mode: ScheduleMode,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+
+        env.storage().instance().set(&SCHEDULE_MODE, &mode);
+
+        env.events()
+            .publish((SET_SCHEDULE_MODE_EVENT,), mode as u32);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get the current schedule mode.
+    /// Defaults to `ScheduleMode::Timestamp` (existing behavior) when not set.
+    pub fn get_schedule_mode(env: Env) -> ScheduleMode {
+        env.storage()
+            .instance()
+            .get(&SCHEDULE_MODE)
+            .unwrap_or(ScheduleMode::Timestamp)
+    }
+
+    /// Universal window check that respects the configured schedule mode.
+    /// Returns `true` if within the active window according to the current mode.
+    pub fn is_within_active_window(env: Env) -> bool {
+        let mode: ScheduleMode = env
+            .storage()
+            .instance()
+            .get(&SCHEDULE_MODE)
+            .unwrap_or(ScheduleMode::Timestamp);
+
+        match mode {
+            ScheduleMode::Timestamp => Self::is_within_window(env),
+            ScheduleMode::Ledger => Self::is_within_ledger_window(env),
+        }
+    }
 }
 
 /// Shared registration logic used by both `register` and `register_private`.
 /// Expects auth and pre-condition checks (active, window, merkle) to have
 /// been performed by the caller.
+/// Charge the participation fee (if configured) from `participant` to the
+/// reward pool. Called only for genuinely new registrations.
+fn collect_participation_fee(env: &Env, participant: &Address) -> Result<(), Error> {
+    let fee: ParticipationFee = match env.storage().instance().get(&FEE_CONFIG) {
+        Some(f) => f,
+        None => return Ok(()),
+    };
+    use soroban_sdk::token;
+    let token_client = token::Client::new(env, &fee.token);
+    token_client.transfer(participant, &fee.recipient, &(fee.amount as i128));
+    env.events()
+        .publish((FEE_COLLECTED_EVENT, participant.clone()), fee.amount);
+    Ok(())
+}
+
 fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Result<bool, Error> {
+    // Check address restrictions (allowlist/blocklist)
+    check_address_restrictions(env, &participant)?;
+    
+    // Check referrer restrictions if provided
+    if let Some(ref referrer) = referrer {
+        check_address_restrictions(env, referrer)?;
+    }
+    
     // #280 — Participant records live in PERSISTENT storage.
     let key = (PARTICIPANT, participant.clone());
     if env
@@ -1466,18 +2100,49 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
         return Ok(false);
     }
 
-    // On-chain referral validation (issue #455).
-    if let Some(referrer) = referrer.clone() {
-        if referrer == participant {
+    // On-chain referral validation (issues #455, #743).
+    if let Some(ref referrer) = referrer {
+        if referrer == &participant {
             return Err(Error::SelfReferral);
         }
+
         let referrer_registered: bool = env
             .storage()
             .persistent()
-            .get(&(PARTICIPANT, referrer))
+            .get(&(PARTICIPANT, referrer.clone()))
             .unwrap_or(false);
         if !referrer_registered {
             return Err(Error::ReferrerNotRegistered);
+        }
+
+        // Sybil guard (#743): if participant was ever registered before,
+        // their referral record is locked and cannot be changed.
+        let lock_key = (REFERRAL_LOCKED, participant.clone());
+        if env.storage().persistent().get::<_, bool>(&lock_key).unwrap_or(false) {
+            let existing: Option<Address> = env
+                .storage()
+                .persistent()
+                .get(&(REFERRAL, participant.clone()));
+            // Allow re-registration only if the referrer is identical.
+            if existing.as_ref() != Some(referrer) {
+                return Err(Error::ReferralLocked);
+            }
+        }
+
+        // Loop detection (#743): walk the referral chain up to MAX_REFERRAL_DEPTH
+        // hops. If participant appears anywhere in the chain the new edge would
+        // form a cycle, enabling infinite recursive reward amplification.
+        let mut cursor: Address = referrer.clone();
+        for _ in 0..MAX_REFERRAL_DEPTH {
+            let parent: Option<Address> = env
+                .storage()
+                .persistent()
+                .get(&(REFERRAL, cursor.clone()));
+            match parent {
+                None => break,
+                Some(p) if p == participant => return Err(Error::ReferralLoop),
+                Some(p) => cursor = p,
+            }
         }
     }
 
@@ -1528,6 +2193,16 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
 
     if let Some(referrer) = referrer {
         let referral_key = (REFERRAL, participant.clone());
+
+        // #743: If a REFERRAL record already exists for this participant they
+        // are cycling through a de/re-register. Do not increment the referrer's
+        // count a second time — only update storage TTL so the record stays live.
+        let already_attributed: bool = env
+            .storage()
+            .persistent()
+            .get::<_, Address>(&referral_key)
+            .is_some();
+
         env.storage().persistent().set(&referral_key, &referrer);
         env.storage().persistent().extend_ttl(
             &referral_key,
@@ -1535,20 +2210,34 @@ fn do_register(env: &Env, participant: Address, referrer: Option<Address>) -> Re
             PARTICIPANT_TTL_EXTEND_TO,
         );
 
-        let count_key = (REFERRAL_COUNT, referrer.clone());
-        let referral_total: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
-        env.storage()
-            .persistent()
-            .set(&count_key, &(referral_total + 1));
-        env.storage().persistent().extend_ttl(
-            &count_key,
-            PARTICIPANT_TTL_THRESHOLD,
-            PARTICIPANT_TTL_EXTEND_TO,
-        );
+        if !already_attributed {
+            // Stamp the referral-lock so this participant cannot adopt a different
+            // referrer if they deregister and re-register (#743 sybil guard).
+            let lock_key = (REFERRAL_LOCKED, participant.clone());
+            env.storage().persistent().set(&lock_key, &true);
+            env.storage().persistent().extend_ttl(
+                &lock_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
 
-        env.events()
-            .publish((REFERRED_EVENT, participant, referrer), ());
+            let count_key = (REFERRAL_COUNT, referrer.clone());
+            let referral_total: u64 = env.storage().persistent().get(&count_key).unwrap_or(0);
+            env.storage()
+                .persistent()
+                .set(&count_key, &(referral_total + 1));
+            env.storage().persistent().extend_ttl(
+                &count_key,
+                PARTICIPANT_TTL_THRESHOLD,
+                PARTICIPANT_TTL_EXTEND_TO,
+            );
+
+            env.events()
+                .publish((REFERRED_EVENT, participant.clone(), referrer), ());
+        }
     }
+
+    collect_participation_fee(env, &participant)?;
 
     env.storage()
         .instance()

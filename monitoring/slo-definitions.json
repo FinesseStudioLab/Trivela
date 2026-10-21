@@ -1,0 +1,302 @@
+{
+  "version": "1.0",
+  "slos": [
+    {
+      "id": "campaign-read-availability",
+      "name": "Campaign Read Availability",
+      "description": "Percentage of successful campaign list/detail API requests",
+      "objective": 99.9,
+      "window": "30d",
+      "sli": {
+        "type": "availability",
+        "metric": "http_requests_total",
+        "filters": {
+          "route": "/api/campaigns*",
+          "method": "GET"
+        },
+        "successCriteria": "status < 500"
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty", "slack"]
+      }
+    },
+    {
+      "id": "campaign-read-latency",
+      "name": "Campaign Read Latency",
+      "description": "P95 latency for campaign read requests",
+      "objective": 500,
+      "unit": "ms",
+      "window": "30d",
+      "sli": {
+        "type": "latency",
+        "metric": "http_request_duration_milliseconds",
+        "filters": {
+          "route": "/api/campaigns*",
+          "method": "GET"
+        },
+        "percentile": 95
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty", "slack"]
+      }
+    },
+    {
+      "id": "register-availability",
+      "name": "User Registration Availability",
+      "description": "Percentage of successful registration requests",
+      "objective": 99.5,
+      "window": "30d",
+      "sli": {
+        "type": "availability",
+        "metric": "http_requests_total",
+        "filters": {
+          "route": "/api/auth/register",
+          "method": "POST"
+        },
+        "successCriteria": "status < 500"
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty", "slack"]
+      }
+    },
+    {
+      "id": "redeem-availability",
+      "name": "Reward Redemption Availability",
+      "description": "Percentage of successful reward redemption transactions",
+      "objective": 99.0,
+      "window": "30d",
+      "sli": {
+        "type": "availability",
+        "metric": "http_requests_total",
+        "filters": {
+          "route": "/api/rewards/redeem",
+          "method": "POST"
+        },
+        "successCriteria": "status < 500"
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty", "slack"]
+      }
+    },
+    {
+      "id": "redeem-latency",
+      "name": "Reward Redemption Latency",
+      "description": "P99 latency for reward redemptions (includes chain submission)",
+      "objective": 5000,
+      "unit": "ms",
+      "window": "30d",
+      "sli": {
+        "type": "latency",
+        "metric": "http_request_duration_milliseconds",
+        "filters": {
+          "route": "/api/rewards/redeem",
+          "method": "POST"
+        },
+        "percentile": 99
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty", "slack"]
+      }
+    },
+    {
+      "id": "webhook-delivery",
+      "name": "Webhook Delivery Success Rate",
+      "description": "Percentage of webhooks successfully delivered within 5 attempts",
+      "objective": 95.0,
+      "window": "30d",
+      "sli": {
+        "type": "availability",
+        "metric": "webhook_deliveries_total",
+        "filters": {},
+        "successCriteria": "status = 'delivered'"
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["slack"]
+      }
+    },
+    {
+      "id": "indexer-lag",
+      "name": "Event Indexer Lag",
+      "description": "Time lag between chain event and indexer ingestion",
+      "objective": 30,
+      "unit": "seconds",
+      "window": "7d",
+      "sli": {
+        "type": "latency",
+        "metric": "indexer_lag_seconds",
+        "filters": {},
+        "percentile": 95
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["slack"]
+      }
+    },
+    {
+      "id": "stellar-rpc-availability",
+      "name": "Stellar RPC Availability",
+      "description": "Percentage of successful Soroban RPC calls",
+      "objective": 99.5,
+      "window": "30d",
+      "sli": {
+        "type": "availability",
+        "metric": "stellar_rpc_requests_total",
+        "filters": {},
+        "successCriteria": "status = 'success'"
+      },
+      "errorBudget": {
+        "consumedThreshold": 0.8,
+        "alertChannels": ["pagerduty"]
+      }
+    }
+  ],
+  "burnRateAlerts": [
+    {
+      "name": "Fast Burn (1h)",
+      "description": "Error budget burning at >14.4x rate (exhausted in 2 days)",
+      "windows": [
+        {
+          "duration": "1h",
+          "threshold": 14.4
+        },
+        {
+          "duration": "5m",
+          "threshold": 14.4
+        }
+      ],
+      "severity": "critical",
+      "channels": ["pagerduty"]
+    },
+    {
+      "name": "Medium Burn (6h)",
+      "description": "Error budget burning at >6x rate (exhausted in 5 days)",
+      "windows": [
+        {
+          "duration": "6h",
+          "threshold": 6.0
+        },
+        {
+          "duration": "30m",
+          "threshold": 6.0
+        }
+      ],
+      "severity": "warning",
+      "channels": ["slack", "pagerduty"]
+    },
+    {
+      "name": "Slow Burn (3d)",
+      "description": "Error budget burning at >3x rate (exhausted in 10 days)",
+      "windows": [
+        {
+          "duration": "3d",
+          "threshold": 3.0
+        },
+        {
+          "duration": "6h",
+          "threshold": 3.0
+        }
+      ],
+      "severity": "warning",
+      "channels": ["slack"]
+    }
+  ],
+  "dashboards": {
+    "errorBudgetOverview": {
+      "panels": [
+        {
+          "title": "Error Budget Remaining",
+          "type": "gauge",
+          "query": "1 - (error_budget_consumed / error_budget_total)",
+          "thresholds": [
+            { "value": 0.2, "color": "red" },
+            { "value": 0.5, "color": "yellow" },
+            { "value": 1.0, "color": "green" }
+          ]
+        },
+        {
+          "title": "SLO Compliance (30d)",
+          "type": "stat",
+          "query": "(count(slo_met{window='30d'}) / count(slo_total{window='30d'})) * 100"
+        },
+        {
+          "title": "Burn Rate by SLO",
+          "type": "timeseries",
+          "query": "rate(error_budget_consumed[1h]) / error_budget_rate_limit"
+        },
+        {
+          "title": "SLI Performance",
+          "type": "table",
+          "columns": ["SLO", "Current SLI", "Objective", "Budget Remaining", "Status"]
+        }
+      ]
+    },
+    "journeyDashboards": [
+      {
+        "journey": "Campaign Read",
+        "panels": [
+          {
+            "title": "Availability (30d)",
+            "type": "stat",
+            "sloRef": "campaign-read-availability"
+          },
+          {
+            "title": "P95 Latency",
+            "type": "graph",
+            "sloRef": "campaign-read-latency"
+          },
+          {
+            "title": "Error Budget Trend",
+            "type": "graph",
+            "query": "error_budget_remaining{slo='campaign-read-availability'}"
+          }
+        ]
+      },
+      {
+        "journey": "Reward Redemption",
+        "panels": [
+          {
+            "title": "Success Rate (30d)",
+            "type": "stat",
+            "sloRef": "redeem-availability"
+          },
+          {
+            "title": "P99 Latency",
+            "type": "graph",
+            "sloRef": "redeem-latency"
+          },
+          {
+            "title": "Chain Submission Rate",
+            "type": "graph",
+            "query": "rate(stellar_transactions_submitted[5m])"
+          }
+        ]
+      },
+      {
+        "journey": "Webhook Delivery",
+        "panels": [
+          {
+            "title": "Delivery Success Rate",
+            "type": "stat",
+            "sloRef": "webhook-delivery"
+          },
+          {
+            "title": "Retry Distribution",
+            "type": "histogram",
+            "query": "webhook_delivery_attempts"
+          },
+          {
+            "title": "Failed Webhooks",
+            "type": "table",
+            "query": "webhook_failures{status!='delivered'}"
+          }
+        ]
+      }
+    ]
+  }
+}

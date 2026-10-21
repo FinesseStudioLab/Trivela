@@ -1,5 +1,6 @@
 export const version = 34;
-export const description = 'Backfill notification_preferences skipped by a duplicate version (#1026)';
+export const description =
+  'Backfill notification_preferences skipped by a duplicate version (#1026)';
 
 /**
  * Heals databases where `013_notification_preferences.js` never ran.

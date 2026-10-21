@@ -5,6 +5,7 @@ members = [
   "contracts/campaign",
   "contracts/integration",
   "contracts/nullifiers",
+  "contracts/errors",
 ]
 # Temporarily excluded from the workspace/CI: these contracts are still
 # work-in-progress (do not yet compile / contain incomplete modules) and are

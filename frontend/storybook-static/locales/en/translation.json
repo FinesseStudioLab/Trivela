@@ -1,0 +1,75 @@
+{
+  "nav": {
+    "explore": "Explore",
+    "leaderboard": "Leaderboard",
+    "campaigns": "Campaigns",
+    "myPoints": "My points",
+    "connectWallet": "Connect wallet",
+    "disconnectWallet": "Disconnect wallet"
+  },
+  "hero": {
+    "title": "Campaign & rewards platform",
+    "subtitle": "on Stellar Soroban",
+    "description": "Rust · Node · React"
+  },
+  "campaigns": {
+    "featured": "Featured Campaigns",
+    "all": "All Campaigns",
+    "loading": "Loading campaigns…",
+    "empty": "No campaigns available right now.",
+    "error": "Unable to load campaigns right now.",
+    "register": "Register",
+    "registered": "Registered",
+    "closed": "Closed",
+    "active": "Active",
+    "participants": "participants",
+    "endsIn": "Ends in",
+    "ended": "Ended",
+    "startsIn": "Starts in"
+  },
+  "rewards": {
+    "availablePoints": "Available points",
+    "totalEarned": "Total earned",
+    "claim": "Claim rewards",
+    "claiming": "Claiming…",
+    "claimSuccess": "Rewards claimed successfully!",
+    "claimError": "Failed to claim rewards. Please try again.",
+    "walletRewards": "Wallet rewards",
+    "noRewards": "No rewards available yet."
+  },
+  "wallet": {
+    "connect": "Connect wallet",
+    "connecting": "Connecting…",
+    "connected": "Connected",
+    "disconnect": "Disconnect",
+    "selectWallet": "Select a wallet",
+    "notInstalled": "{{wallet}} is not installed",
+    "installPrompt": "Install {{wallet}} to continue.",
+    "connectionError": "Failed to connect wallet. Please try again."
+  },
+  "errors": {
+    "generic": "Something went wrong. Please try again.",
+    "network": "Network error. Check your connection.",
+    "unauthorized": "You are not authorized to perform this action.",
+    "notFound": "The requested resource was not found."
+  },
+  "common": {
+    "loading": "Loading…",
+    "retry": "Retry",
+    "cancel": "Cancel",
+    "confirm": "Confirm",
+    "close": "Close",
+    "save": "Save",
+    "submit": "Submit",
+    "back": "Back",
+    "next": "Next",
+    "learnMore": "Learn more",
+    "viewAll": "View all",
+    "copyAddress": "Copy address",
+    "copied": "Copied!"
+  },
+  "footer": {
+    "partOfStellar": "Part of the Stellar ecosystem.",
+    "license": "Apache-2.0."
+  }
+}

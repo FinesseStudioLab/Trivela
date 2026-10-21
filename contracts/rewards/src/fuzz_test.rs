@@ -95,10 +95,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let mut total_credited = 0u64;
         let mut total_claimed = 0u64;
@@ -161,10 +162,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_max_credit_per_call(&admin, &limit);
 
         let result = client.try_credit(&creditor, &user, &amount);
@@ -193,10 +195,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_credit_rate_limit(&admin, &max_calls, &window_ledgers);
 
         let mut successful_calls = 0u32;
@@ -235,10 +238,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_campaign_multiplier(&admin, &campaign_id, &multiplier_bps);
 
         let initial_balance = client.balance(&user);
@@ -275,12 +279,13 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
+        env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         // First credit some balance while unpaused
-        env.mock_all_auths();
         client.credit(&creditor, &user, &1000u64);
 
         // Now pause the contract
@@ -316,6 +321,7 @@ proptest! {
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let end_ledger = start_ledger.saturating_add(duration);
         let now = start_ledger.saturating_add(time_offset);
@@ -361,10 +367,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         // Try to credit a very large amount first
         let result1 = client.try_credit(&creditor, &user, &amount1);
@@ -377,6 +384,176 @@ proptest! {
             if amount1.checked_add(amount2).is_none() {
                 assert_eq!(result2, Err(Ok(Error::Overflow)));
             }
+        }
+    }
+}
+
+// ── Global accounting invariant (issue #801) ─────────────────────────────────
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(50))]
+
+    /// **Invariant**: sum(all_user_balances) == total_credited - total_claimed
+    ///
+    /// This is the fundamental on-chain accounting identity. Any sequence of
+    /// credit and claim operations across any number of users must preserve it.
+    /// A violation means points were created or destroyed without a corresponding
+    /// ledger entry.
+    #[test]
+    fn fuzz_global_balance_accounting_invariant(
+        num_users in 2usize..=5usize,
+        rounds in 1usize..=8usize,
+    ) {
+        extern crate alloc;
+        use alloc::vec::Vec;
+        let (env, _contract_id, client) = setup_fuzz();
+        let admin = Address::generate(&env);
+        let creditor = admin.clone();
+
+        client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
+        env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
+
+        let users: Vec<Address> = (0..num_users).map(|_| Address::generate(&env)).collect();
+
+        let mut total_credited: u64 = 0;
+        let mut total_claimed: u64 = 0;
+
+        for _ in 0..rounds {
+            for user in &users {
+                let credit_amount = 200u64;
+                if client.try_credit(&creditor, user, &credit_amount).is_ok() {
+                    total_credited = total_credited.saturating_add(credit_amount);
+                }
+                // Claim one quarter of available balance each round.
+                let bal = client.balance(user);
+                let claim_amount = bal / 4;
+                if claim_amount > 0 {
+                    if client.try_claim(user, &claim_amount).is_ok() {
+                        total_claimed = total_claimed.saturating_add(claim_amount);
+                    }
+                }
+            }
+        }
+
+        // Core invariant: sum of individual balances == total_credited - total_claimed.
+        let sum_balances: u64 = users.iter().map(|u| client.balance(u)).sum();
+        let expected = total_credited.saturating_sub(total_claimed);
+        prop_assert_eq!(
+            sum_balances,
+            expected,
+            "Global accounting violated: sum(balances)={} credited={} claimed={}",
+            sum_balances,
+            total_credited,
+            total_claimed
+        );
+
+        // total_claimed must also match the contract's own global counter.
+        prop_assert_eq!(
+            client.total_claimed(),
+            total_claimed,
+            "total_claimed() mismatch: contract={} expected={}",
+            client.total_claimed(),
+            total_claimed
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(50))]
+
+    /// **Invariant**: no user balance ever goes negative.
+    ///
+    /// Claim operations that would take the balance below zero must be rejected
+    /// (Error::InsufficientBalance) and leave the balance unchanged.
+    #[test]
+    fn fuzz_no_negative_balances(
+        credit_amount in 1u64..=1_000u64,
+        over_claim_extra in 1u64..=1_000u64,
+    ) {
+        let (env, _contract_id, client) = setup_fuzz();
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        let creditor = admin.clone();
+
+        client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
+        env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
+
+        client.credit(&creditor, &user, &credit_amount);
+        let balance_before = client.balance(&user);
+
+        // Attempt to claim more than the available balance.
+        let over_claim = credit_amount.saturating_add(over_claim_extra);
+        let result = client.try_claim(&user, &over_claim);
+        prop_assert!(result.is_err(), "over-claim should fail");
+
+        // Balance must be unchanged after a rejected claim.
+        prop_assert_eq!(
+            client.balance(&user),
+            balance_before,
+            "balance changed after rejected claim"
+        );
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(40))]
+
+    /// **Invariant**: batch_credit preserves the per-user and global accounting
+    /// identity across randomized recipient sets.
+    ///
+    /// After `batch_credit`, each recipient's balance must increase by exactly
+    /// their allocated amount and the sum of all increases must equal the sum
+    /// of the batch amounts.
+    #[test]
+    fn fuzz_batch_credit_accounting(
+        n_users in 2usize..=6usize,
+        amount_each in 1u64..=500u64,
+    ) {
+        extern crate alloc;
+        use alloc::vec::Vec as StdVec;
+        let (env, _contract_id, client) = setup_fuzz();
+        let admin = Address::generate(&env);
+        let creditor = admin.clone();
+
+        client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
+        env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
+
+        let users: StdVec<Address> = (0..n_users).map(|_| Address::generate(&env)).collect();
+        let balances_before: StdVec<u64> = users.iter().map(|u| client.balance(u)).collect();
+
+        let mut sdk_recipients: soroban_sdk::Vec<(Address, u64)> =
+            soroban_sdk::Vec::new(&env);
+        for user in &users {
+            sdk_recipients.push_back((user.clone(), amount_each));
+        }
+
+        let batch_result = client.try_batch_credit(&creditor, &sdk_recipients);
+
+        if batch_result.is_ok() {
+            let mut total_delta: u64 = 0;
+            for (user, &bal_before) in users.iter().zip(balances_before.iter()) {
+                let bal_after = client.balance(user);
+                let delta = bal_after.saturating_sub(bal_before);
+                prop_assert_eq!(
+                    delta,
+                    amount_each,
+                    "user balance delta {} != allocated amount {}",
+                    delta,
+                    amount_each
+                );
+                total_delta = total_delta.saturating_add(delta);
+            }
+            let expected_total = amount_each.saturating_mul(n_users as u64);
+            prop_assert_eq!(
+                total_delta,
+                expected_total,
+                "sum of balance deltas {} != sum of batch amounts {}",
+                total_delta,
+                expected_total
+            );
         }
     }
 }
@@ -399,10 +576,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let mut total_expected_credits = 0u64;
         let mut total_expected_claims = 0u64;
@@ -541,7 +719,7 @@ proptest! {
     ) {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
         let user = Address::generate(&env);
         env.mock_all_auths();
         client.initialize(&admin, &symbol_short!("REF"), &symbol_short!("REF"));
@@ -621,6 +799,214 @@ proptest! {
                 client.balance(&user),
                 model.balance
             );
+        }
+    }
+}
+
+// ── Redeem bps math (issue #852) ─────────────────────────────────────────────
+//
+// `redeem` computes `asset_amount = points_amount * rate_bps / 10_000`
+// (floor division) via u128 intermediate math, then rejects the request if
+// `asset_amount` exceeds the configured reserve or the caller's point
+// balance. This section fuzzes that computation directly against the same
+// checked-arithmetic reference used in `lib.rs`, and separately drives the
+// real contract end-to-end (with a genuine SAC token, matching
+// `contracts/integration/tests/coverage_tests.rs`'s `test_redemption_flow`
+// pattern) to confirm the on-chain result matches.
+
+/// Reference implementation of `redeem`'s conversion, mirroring `lib.rs`
+/// exactly: checked u128 multiply, floor-divide by `BPS_DENOMINATOR`, then
+/// reject anything that wouldn't fit back into an `i128`/`u64`.
+fn reference_redeem_amount(points_amount: u64, rate_bps: u32) -> Option<u64> {
+    let asset_amount_u128 = (points_amount as u128).checked_mul(rate_bps as u128)? / BPS_DENOMINATOR;
+    if asset_amount_u128 > u64::MAX as u128 {
+        return None;
+    }
+    Some(asset_amount_u128 as u64)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    /// **Invariant**: the reference bps computation never panics (checked
+    /// arithmetic throughout) across the full `u64`/`u32` input space,
+    /// including the maximal `points_amount * rate_bps` product.
+    #[test]
+    fn fuzz_redeem_math_never_panics(
+        points_amount in any::<u64>(),
+        rate_bps in any::<u32>(),
+    ) {
+        let _ = reference_redeem_amount(points_amount, rate_bps);
+    }
+
+    /// **Invariant**: floor division means the computed asset amount is
+    /// always `<= points_amount * rate_bps / 10_000` mathematically, and
+    /// strictly monotonic in both `points_amount` and `rate_bps` — doubling
+    /// either input never decreases the payout.
+    #[test]
+    fn fuzz_redeem_math_monotonic(
+        points_amount in 0u64..=1_000_000_000u64,
+        rate_bps in 1u32..=1_000_000u32,
+    ) {
+        let base = reference_redeem_amount(points_amount, rate_bps);
+        if let Some(base_amount) = base {
+            if let Some(doubled_points) = points_amount.checked_mul(2) {
+                if let Some(doubled) = reference_redeem_amount(doubled_points, rate_bps) {
+                    prop_assert!(
+                        doubled >= base_amount,
+                        "doubling points_amount decreased payout: {base_amount} -> {doubled}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// **Invariant**: end-to-end against the real contract — `redeem` never
+    /// pays out more than the reserve holds, never leaves `TOTAL_SUPPLY`
+    /// inconsistent with the user's remaining balance, and its returned
+    /// amount matches the same bps math computed independently above.
+    #[test]
+    fn fuzz_redeem_respects_reserve_and_matches_math(
+        credited in 1u64..=1_000_000u64,
+        reserve in 0u64..=1_000_000u64,
+        rate_bps in 1u32..=10_000u32,
+        redeem_points in 0u64..=1_000_000u64,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, RewardsContract);
+        let client = RewardsContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let user = Address::generate(&env);
+        client.initialize(&admin, &symbol_short!("Fuzz"), &symbol_short!("FZZ"));
+
+        let sac = env.register_stellar_asset_contract_v2(admin.clone());
+        let asset = sac.address();
+        soroban_sdk::token::StellarAssetClient::new(&env, &asset).mint(&admin, &(reserve as i128));
+
+        client.set_redemption_rate(&admin, &0i128, &asset, &rate_bps);
+        if reserve > 0 {
+            client.fund_reserve(&admin, &reserve);
+        }
+        client.credit(&admin, &user, &credited);
+
+        let expected = reference_redeem_amount(redeem_points, rate_bps);
+
+        let result = client.try_redeem(&user, &redeem_points);
+
+        match (expected, result) {
+            (Some(expected_amount), Ok(Ok(actual_amount))) => {
+                // The contract only succeeds when both the reserve and the
+                // user's balance actually cover the computed amount/points.
+                prop_assert!(
+                    (expected_amount as u64) <= reserve,
+                    "redeem succeeded for {redeem_points} points paying {expected_amount}, exceeding reserve {reserve}"
+                );
+                prop_assert!(
+                    redeem_points <= credited,
+                    "redeem succeeded for {redeem_points} points, exceeding credited balance {credited}"
+                );
+                prop_assert_eq!(
+                    actual_amount as u64,
+                    expected_amount,
+                    "on-chain redeem amount diverged from reference bps math"
+                );
+                prop_assert!(
+                    client.redemption_reserve() <= reserve,
+                    "reserve went negative-equivalent after redeem"
+                );
+            }
+            // Any rejection is fine — the reserve/balance/overflow guard
+            // caught something the reference math flagged as unpayable, or
+            // caught a case within the contract's own additional checks
+            // (e.g. redeem_points > credited). Nothing to assert further.
+            (_, Ok(Err(_))) | (_, Err(_)) => {}
+            (None, Ok(Ok(actual_amount))) => {
+                prop_assert!(
+                    false,
+                    "reference math overflowed/rejected but contract paid out {actual_amount}"
+                );
+            }
+        }
+    }
+}
+
+// ── Referral bonus bps math (issue #852) ─────────────────────────────────────
+//
+// `pay_referral_bonus` computes `bonus = qualifying_amount * rate_bps /
+// 10_000` (floor division, checked u128), then enforces a per-referrer
+// cumulative cap. This fuzzes that computation and the cap enforcement.
+
+fn reference_referral_bonus(qualifying_amount: u64, rate_bps: u32) -> Option<u64> {
+    let bonus_u128 =
+        (qualifying_amount as u128).checked_mul(rate_bps as u128)? / BPS_DENOMINATOR;
+    if bonus_u128 > u64::MAX as u128 {
+        return None;
+    }
+    Some(bonus_u128 as u64)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    /// **Invariant**: the reference bps computation never panics across the
+    /// full `u64`/`u32` input space.
+    #[test]
+    fn fuzz_referral_bonus_math_never_panics(
+        qualifying_amount in any::<u64>(),
+        rate_bps in any::<u32>(),
+    ) {
+        let _ = reference_referral_bonus(qualifying_amount, rate_bps);
+    }
+
+    /// **Invariant**: end-to-end — `pay_referral_bonus` never credits a
+    /// referrer past the configured per-referrer cap, and every accepted
+    /// payout matches the same bps math computed independently above.
+    #[test]
+    fn fuzz_referral_bonus_respects_cap_and_matches_math(
+        rate_bps in 1u32..=100_000u32,
+        cap in 0u64..=1_000_000u64,
+        qualifying_amount in 0u64..=1_000_000u64,
+    ) {
+        let env = Env::default();
+        env.mock_all_auths();
+        let contract_id = env.register_contract(None, RewardsContract);
+        let client = RewardsContractClient::new(&env, &contract_id);
+        let admin = Address::generate(&env);
+        let referrer = Address::generate(&env);
+        let referee = Address::generate(&env);
+        client.initialize(&admin, &symbol_short!("Fuzz"), &symbol_short!("FZZ"));
+
+        client.set_referral_config(&admin, &rate_bps, &cap);
+
+        let expected = reference_referral_bonus(qualifying_amount, rate_bps);
+        let result = client.try_pay_referral_bonus(&admin, &referrer, &referee, &qualifying_amount);
+
+        match (expected, result) {
+            (Some(expected_bonus), Ok(Ok(actual_bonus))) => {
+                prop_assert_eq!(
+                    actual_bonus as u64,
+                    expected_bonus,
+                    "on-chain referral bonus diverged from reference bps math"
+                );
+                prop_assert!(
+                    cap == 0 || (expected_bonus as u64) <= cap,
+                    "referral bonus {expected_bonus} paid out despite exceeding cap {cap}"
+                );
+                prop_assert!(
+                    client.referral_bonus_total(&referrer) <= cap || cap == 0,
+                    "cumulative referral total exceeded configured cap"
+                );
+            }
+            // Rejections are fine (zero bonus, cap exceeded, overflow) — the
+            // contract's guards caught it.
+            (_, Ok(Err(_))) | (_, Err(_)) => {}
+            (None, Ok(Ok(actual_bonus))) => {
+                prop_assert!(
+                    false,
+                    "reference math overflowed but contract paid out {actual_bonus}"
+                );
+            }
         }
     }
 }

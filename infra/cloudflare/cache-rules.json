@@ -1,0 +1,38 @@
+{
+  "description": "Trivela edge caching for static campaign assets",
+  "kind": "zone",
+  "phase": "http_request_cache_settings",
+  "rules": [
+    {
+      "description": "Hashed frontend build assets (Vite emits content-hashed filenames) are immutable",
+      "expression": "(starts_with(http.request.uri.path, \"/assets/\"))",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": { "mode": "override_origin", "default": 31536000 },
+        "browser_ttl": { "mode": "override_origin", "default": 31536000 }
+      },
+      "enabled": true
+    },
+    {
+      "description": "Campaign media uploads: cache at the edge, revalidate in browsers",
+      "expression": "(starts_with(http.request.uri.path, \"/uploads/\"))",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": true,
+        "edge_ttl": { "mode": "override_origin", "default": 86400 },
+        "browser_ttl": { "mode": "override_origin", "default": 3600 }
+      },
+      "enabled": true
+    },
+    {
+      "description": "Dynamic API and probe routes must never be cached",
+      "expression": "(starts_with(http.request.uri.path, \"/api/\") or http.request.uri.path eq \"/health\" or starts_with(http.request.uri.path, \"/health/\") or http.request.uri.path eq \"/metrics\")",
+      "action": "set_cache_settings",
+      "action_parameters": {
+        "cache": false
+      },
+      "enabled": true
+    }
+  ]
+}

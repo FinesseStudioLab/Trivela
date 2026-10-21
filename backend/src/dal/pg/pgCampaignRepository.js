@@ -48,6 +48,7 @@ function rowToCampaign(row) {
     updatedAt: row.updated_at
       ? new Date(row.updated_at).toISOString()
       : new Date(row.created_at).toISOString(),
+    deletedAt: row.deleted_at ? new Date(row.deleted_at).toISOString() : null,
   };
   campaign.status = computeCampaignStatus(campaign);
   return campaign;
@@ -94,13 +95,23 @@ export function createPgCampaignRepository({
 
   const seedPromise = maybeSeed();
 
-  async function list({ active, q, tags, category, includeHidden = false, sort, order } = {}) {
+  async function list({
+    active,
+    q,
+    tags,
+    category,
+    includeHidden = false,
+    includeDeleted = false,
+    sort,
+    order,
+  } = {}) {
     await seedPromise;
 
     const where = [];
     const params = [];
     let idx = 1;
 
+    if (!includeDeleted) where.push('campaigns.deleted_at IS NULL');
     if (!includeHidden) where.push('campaigns.hidden = FALSE');
     if (active !== undefined) {
       where.push(`campaigns.active = $${idx++}`);
@@ -142,7 +153,7 @@ export function createPgCampaignRepository({
     const { rows } = await pool.query(`
       SELECT category AS name, COUNT(*)::int AS count
       FROM campaigns
-      WHERE category IS NOT NULL AND category != '' AND hidden = FALSE
+      WHERE category IS NOT NULL AND category != '' AND hidden = FALSE AND deleted_at IS NULL
       GROUP BY category
       ORDER BY count DESC, category ASC
     `);
@@ -154,7 +165,7 @@ export function createPgCampaignRepository({
       `
         SELECT LOWER(t)::text AS name, COUNT(*)::int AS count
         FROM campaigns, jsonb_array_elements_text(campaigns.tags) AS t
-        WHERE campaigns.hidden = FALSE
+        WHERE campaigns.hidden = FALSE AND campaigns.deleted_at IS NULL
         GROUP BY LOWER(t)
         ORDER BY count DESC, name ASC
         LIMIT $1
@@ -164,15 +175,17 @@ export function createPgCampaignRepository({
     return rows;
   }
 
-  async function getById(id) {
+  async function getById(id, { includeDeleted = false } = {}) {
     await seedPromise;
-    const { rows } = await pool.query('SELECT * FROM campaigns WHERE id = $1', [Number(id)]);
+    const where = includeDeleted ? 'id = $1' : 'id = $1 AND deleted_at IS NULL';
+    const { rows } = await pool.query(`SELECT * FROM campaigns WHERE ${where}`, [Number(id)]);
     return rows[0] ? rowToCampaign(rows[0]) : undefined;
   }
 
-  async function getBySlug(slug) {
+  async function getBySlug(slug, { includeDeleted = false } = {}) {
     await seedPromise;
-    const { rows } = await pool.query('SELECT * FROM campaigns WHERE slug = $1', [slug]);
+    const where = includeDeleted ? 'slug = $1' : 'slug = $1 AND deleted_at IS NULL';
+    const { rows } = await pool.query(`SELECT * FROM campaigns WHERE ${where}`, [slug]);
     return rows[0] ? rowToCampaign(rows[0]) : undefined;
   }
 
@@ -289,8 +302,47 @@ export function createPgCampaignRepository({
   }
 
   async function remove(id) {
+    const campaign = await getById(id);
+    if (!campaign) return false;
+    const deletedAt = new Date().toISOString();
+    const result = await pool.query(
+      'UPDATE campaigns SET deleted_at = $1, updated_at = $1 WHERE id = $2 AND deleted_at IS NULL',
+      [deletedAt, Number(id)],
+    );
+    return result.rowCount > 0;
+  }
+
+  async function restore(id) {
+    const { rows } = await pool.query(
+      'SELECT * FROM campaigns WHERE id = $1 AND deleted_at IS NOT NULL',
+      [Number(id)],
+    );
+    if (!rows[0]) return undefined;
+    const updatedAt = new Date().toISOString();
+    await pool.query('UPDATE campaigns SET deleted_at = NULL, updated_at = $1 WHERE id = $2', [
+      updatedAt,
+      Number(id),
+    ]);
+    return getById(id);
+  }
+
+  async function hardDelete(id) {
     const result = await pool.query('DELETE FROM campaigns WHERE id = $1', [Number(id)]);
     return result.rowCount > 0;
+  }
+
+  async function listDeleted({ limit = 100, olderThanDays } = {}) {
+    const where = ['deleted_at IS NOT NULL'];
+    const params = [];
+    let idx = 1;
+    if (olderThanDays) {
+      where.push(`deleted_at < NOW() - INTERVAL '${olderThanDays} days'`);
+    }
+    const { rows } = await pool.query(
+      `SELECT * FROM campaigns WHERE ${where.join(' AND ')} ORDER BY deleted_at ASC LIMIT ${idx}`,
+      params,
+    );
+    return rows.map(rowToCampaign);
   }
 
   return {
@@ -302,6 +354,9 @@ export function createPgCampaignRepository({
     create,
     update,
     delete: remove,
+    restore,
+    hardDelete,
+    listDeleted,
     /** Always false — PG path uses LIKE rather than SQLite FTS5. */
     ftsAvailable: false,
   };

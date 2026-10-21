@@ -1,14 +1,20 @@
-# Global fallback
-* @FinesseStudioLab/maintainers
+# Code Owners for Trivela
+# These owners will be automatically requested for review.
 
-# Backend
-/backend/ @FinesseStudioLab/backend
+# Default — project leads
+*                       @joelpeace
+
+# Smart contracts
+/contracts/             @joelpeace
+/soroban/               @joelpeace
+
+# Backend API
+/backend/               @joelpeace
 
 # Frontend
-/frontend/ @FinesseStudioLab/frontend
+/frontend/              @joelpeace
+/sdk/                   @joelpeace
 
-# Contracts
-/contracts/ @FinesseStudioLab/contracts
-
-# CI / repo config
-/.github/ @FinesseStudioLab/maintainers
+# CI/CD & infrastructure
+/.github/               @joelpeace
+/monitoring/            @joelpeace

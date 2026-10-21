@@ -114,10 +114,7 @@ export function createDurableJobQueue(
       logger.info?.({ type: job.type, attempt: job.attempts + 1 }, 'durableQueue:start');
       await handler(job.payload);
       store.ack(job.id);
-      logger.info?.(
-        { type: job.type, durationMs: Date.now() - startedAt },
-        'durableQueue:success',
-      );
+      logger.info?.({ type: job.type, durationMs: Date.now() - startedAt }, 'durableQueue:success');
     } catch (err) {
       const nextAttempts = job.attempts + 1;
       const errorMessage =

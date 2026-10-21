@@ -147,6 +147,81 @@ fn test_claim_more_than_balance_errors() {
     assert_eq!(client.balance(&user), 0);
 }
 
+// ── Minimum claim amount (issue #321) ──────────────────────────────────────
+
+#[test]
+fn test_claim_below_minimum_rejected() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    client.set_min_claim(&admin, &10);
+
+    let result = client.try_claim(&user, &5);
+    assert_eq!(result, Err(Ok(Error::BelowMinClaim)));
+    assert_eq!(client.balance(&user), 100);
+}
+
+#[test]
+fn test_claim_exactly_at_minimum_succeeds() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    client.set_min_claim(&admin, &10);
+
+    let new_balance = client.claim(&user, &10);
+    assert_eq!(new_balance, 90);
+}
+
+#[test]
+fn test_admin_can_update_min_claim() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    assert_eq!(client.min_claim(), 0);
+
+    client.set_min_claim(&admin, &50);
+    assert_eq!(client.min_claim(), 50);
+
+    client.set_min_claim(&admin, &0);
+    assert_eq!(client.min_claim(), 0);
+}
+
+#[test]
+fn test_min_claim_zero_disables_check() {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    env.mock_all_auths();
+    client.credit(&admin, &user, &100);
+    // min_claim defaults to 0 (disabled) -- even a 1-point claim must succeed.
+    let new_balance = client.claim(&user, &1);
+    assert_eq!(new_balance, 99);
+}
+
 #[test]
 fn test_batch_credit() {
     let env = Env::default();
@@ -167,6 +242,80 @@ fn test_batch_credit() {
 }
 
 #[test]
+fn test_batch_credit_updates_total_supply() {
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
+    let user_a = Address::generate(&env);
+    let user_b = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.credit(&creditor, &user_a, &100);
+    let recipients = vec![&env, (user_a.clone(), 50u64), (user_b.clone(), 75u64)];
+    client.batch_credit(&creditor, &recipients);
+
+    assert_eq!(client.balance(&user_a), 150);
+    assert_eq!(client.balance(&user_b), 75);
+    // TOTAL_SUPPLY must equal the sum of balances (#1021, formal model in contracts/rewards/formal).
+    assert_eq!(client.total_supply(), 225);
+}
+
+#[test]
+fn test_batch_credit_duplicate_recipient_is_credited_in_full() {
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    let recipients = vec![&env, (user.clone(), 30u64), (user.clone(), 20u64)];
+    client.batch_credit(&creditor, &recipients);
+
+    assert_eq!(client.balance(&user), 50);
+    assert_eq!(client.total_supply(), 50);
+}
+
+#[test]
+fn test_batch_credit_is_atomic_when_total_supply_would_overflow() {
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
+    let funded = Address::generate(&env);
+    let fresh = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.credit(&creditor, &funded, &u64::MAX);
+
+    // `fresh`'s own balance would not overflow, but the supply would.
+    let recipients = vec![&env, (fresh.clone(), 1u64)];
+    let result = client.try_batch_credit(&creditor, &recipients);
+
+    assert!(result.is_err());
+    assert_eq!(client.balance(&fresh), 0);
+    assert_eq!(client.total_supply(), u64::MAX);
+}
+
+#[test]
+fn test_total_supply_equals_sum_of_balances_across_mixed_operations() {
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    let c = Address::generate(&env);
+    env.mock_all_auths();
+
+    client.credit(&creditor, &a, &1_000);
+    client.batch_credit(
+        &creditor,
+        &vec![&env, (b.clone(), 400u64), (c.clone(), 250u64), (a.clone(), 100u64)],
+    );
+    client.claim(&a, &300);
+    client.admin_transfer(&admin, &b, &c, &150);
+    client.claim(&c, &50);
+
+    let sum = client.balance(&a) + client.balance(&b) + client.balance(&c);
+    assert_eq!(client.total_supply(), sum);
+    assert_eq!(client.total_supply(), 1_000 + 400 + 250 + 100 - 300 - 50);
+}
+
+#[test]
 fn test_credit_overflow_errors() {
     let env = Env::default();
     let contract_id = env.register_contract(None, RewardsContract);
@@ -177,6 +326,7 @@ fn test_credit_overflow_errors() {
     client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
 
     env.mock_all_auths();
+    client.set_max_credit_per_call(&admin, &0);
     client.credit(&admin, &user, &u64::MAX);
 
     let result = client.try_credit(&admin, &user, &1);
@@ -227,6 +377,7 @@ fn test_batch_credit_is_atomic_on_overflow() {
     client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
 
     env.mock_all_auths();
+    client.set_max_credit_per_call(&admin, &0);
     // Only user_b is funded: crediting user_a as well would push total_supply
     // past u64::MAX during setup (conservation invariant, issue #1021) instead
     // of overflowing user_b's balance in the batch under test.
@@ -1088,16 +1239,16 @@ fn setup_admin_rotation() -> (Env, RewardsContractClient<'static>, Address, Addr
 #[test]
 fn test_propose_and_accept_admin_happy_path() {
     let (_env, client, admin, new_admin) = setup_admin_rotation();
-    assert_eq!(client.admin(), admin);
+    assert_eq!(Some(client.admin()), Some(admin.clone()));
     assert_eq!(client.pending_admin(), None);
 
     client.propose_admin(&admin, &new_admin);
     assert_eq!(client.pending_admin(), Some(new_admin.clone()));
     // Admin doesn't change until accepted.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(Some(client.admin()), Some(admin.clone()));
 
     client.accept_admin(&new_admin);
-    assert_eq!(client.admin(), new_admin);
+    assert_eq!(Some(client.admin()), Some(new_admin.clone()));
     assert_eq!(client.pending_admin(), None);
 }
 
@@ -1106,7 +1257,7 @@ fn test_propose_admin_without_accept_keeps_old_admin() {
     let (_env, client, admin, new_admin) = setup_admin_rotation();
     client.propose_admin(&admin, &new_admin);
     // pending_admin set but admin slot unchanged.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(Some(client.admin()), Some(admin.clone()));
     assert_eq!(client.pending_admin(), Some(new_admin));
 }
 
@@ -1126,7 +1277,7 @@ fn test_only_pending_can_accept() {
     let result = client.try_accept_admin(&third_party);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
     // Admin slot still untouched.
-    assert_eq!(client.admin(), admin);
+    assert_eq!(Some(client.admin()), Some(admin.clone()));
 }
 
 #[test]
@@ -1159,7 +1310,7 @@ fn test_propose_overwrites_previous_proposal() {
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
     // The later proposal still works.
     client.accept_admin(&later_admin);
-    assert_eq!(client.admin(), later_admin);
+    assert_eq!(Some(client.admin()), Some(later_admin.clone()));
 }
 
 // ── Referral rewards (issue #656 / #603) ─────────────────────────────────────
@@ -1167,10 +1318,12 @@ fn test_propose_overwrites_previous_proposal() {
 /// Register + initialize a rewards contract and return `(env, client, admin)`.
 fn setup_rewards<'a>() -> (Env, RewardsContractClient<'a>, Address) {
     let env = Env::default();
+    env.mock_all_auths();
     let contract_id = env.register_contract(None, RewardsContract);
     let client = RewardsContractClient::new(&env, &contract_id);
     let admin = Address::generate(&env);
     client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    client.set_max_credit_per_call(&admin, &0);
     (env, client, admin)
 }
 
@@ -1200,7 +1353,7 @@ fn test_referral_config_rejects_invalid() {
 
 #[test]
 fn test_referral_config_requires_admin() {
-    let (env, client, _admin) = setup_rewards();
+    let (env, client, admin) = setup_rewards();
     let other = Address::generate(&env);
     env.mock_all_auths();
     assert_eq!(
@@ -1415,8 +1568,8 @@ fn test_prune_used_nonces_zero_max_is_noop() {
 
 #[test]
 fn test_credit_zero_amount_rejected() {
-    let (env, client, _admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
     let user = Address::generate(&env);
     env.mock_all_auths();
     assert_eq!(
@@ -1427,9 +1580,88 @@ fn test_credit_zero_amount_rejected() {
 }
 
 #[test]
+fn test_credit_unauthorized_caller_rejected() {
+    let (env, client, admin) = setup_rewards();
+    let mallory = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    assert_eq!(
+        client.try_credit(&mallory, &user, &500_000),
+        Err(Ok(Error::Unauthorized)),
+        "roleless caller must not mint points via credit"
+    );
+    assert_eq!(client.balance(&user), 0);
+    assert_eq!(client.total_supply(), 0);
+    let _ = admin;
+}
+
+#[test]
+fn test_batch_credit_unauthorized_caller_rejected() {
+    let (env, client, admin) = setup_rewards();
+    let mallory = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    let recipients = vec![&env, (user.clone(), 500_000u64)];
+    assert_eq!(
+        client.try_batch_credit(&mallory, &recipients),
+        Err(Ok(Error::Unauthorized)),
+        "roleless caller must not mint points via batch_credit"
+    );
+    assert_eq!(client.balance(&user), 0);
+    let _ = admin;
+}
+
+#[test]
+fn test_credit_vested_unauthorized_caller_rejected() {
+    let (env, client, admin) = setup_rewards();
+    let mallory = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    assert_eq!(
+        client.try_credit_vested(&mallory, &user, &1_000, &0, &100),
+        Err(Ok(Error::Unauthorized)),
+        "roleless caller must not mint vested points"
+    );
+    let _ = admin;
+}
+
+#[test]
+fn test_default_credit_cap_is_enforced() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let user = Address::generate(&env);
+
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    // Freshly initialized contract must not mint unlimited amounts per call.
+    assert_eq!(
+        client.try_credit(&admin, &user, &1_000_001),
+        Err(Ok(Error::CreditLimitExceeded))
+    );
+    assert_eq!(client.credit(&admin, &user, &1_000_000), 1_000_000);
+}
+
+#[test]
+fn test_co_admin_can_credit() {
+    let (env, client, admin) = setup_rewards();
+    let co_admin = Address::generate(&env);
+    let user = Address::generate(&env);
+    env.mock_all_auths();
+
+    let pubkey = BytesN::from_array(&env, &[7u8; 32]);
+    client.add_co_admin(&admin, &co_admin, &pubkey);
+    assert_eq!(client.credit(&co_admin, &user, &250), 250);
+}
+
+#[test]
 fn test_claim_zero_amount_rejected() {
-    let (env, client, _admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
     let user = Address::generate(&env);
     env.mock_all_auths();
     client.credit(&creditor, &user, &1_000);
@@ -1443,7 +1675,7 @@ fn test_claim_zero_amount_rejected() {
 #[test]
 fn test_admin_transfer_zero_amount_rejected() {
     let (env, client, admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let creditor = admin.clone();
     let from = Address::generate(&env);
     let to = Address::generate(&env);
     env.mock_all_auths();
@@ -1458,7 +1690,7 @@ fn test_admin_transfer_zero_amount_rejected() {
 #[test]
 fn test_admin_transfer_self_transfer_rejected() {
     let (env, client, admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let creditor = admin.clone();
     let user = Address::generate(&env);
     env.mock_all_auths();
     client.credit(&creditor, &user, &500);
@@ -1471,7 +1703,7 @@ fn test_admin_transfer_self_transfer_rejected() {
 
 #[test]
 fn test_credit_vested_zero_amount_rejected() {
-    let (env, client, _admin) = setup_rewards();
+    let (env, client, admin) = setup_rewards();
     let from = Address::generate(&env);
     let user = Address::generate(&env);
     env.mock_all_auths();
@@ -1487,8 +1719,8 @@ fn test_credit_vested_zero_amount_rejected() {
 
 #[test]
 fn test_total_supply_increments_on_credit() {
-    let (env, client, _admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
     let user = Address::generate(&env);
     env.mock_all_auths();
     assert_eq!(client.total_supply(), 0);
@@ -1500,8 +1732,8 @@ fn test_total_supply_increments_on_credit() {
 
 #[test]
 fn test_total_supply_decrements_on_claim() {
-    let (env, client, _admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let (env, client, admin) = setup_rewards();
+    let creditor = admin.clone();
     let user = Address::generate(&env);
     env.mock_all_auths();
     client.credit(&creditor, &user, &2_000);
@@ -1517,7 +1749,7 @@ fn test_total_supply_decrements_on_claim() {
 #[test]
 fn test_total_supply_conservation_across_multi_user_ops() {
     let (env, client, admin) = setup_rewards();
-    let creditor = Address::generate(&env);
+    let creditor = admin.clone();
     let alice = Address::generate(&env);
     let bob = Address::generate(&env);
     env.mock_all_auths();
@@ -1876,4 +2108,298 @@ fn test_sep41_token_mode_disabled_rejects_approve() {
     // token_mode is not enabled — all SEP-41 ops should fail
     let result = client.try_sep41_approve(&admin, &spender, &100, &0);
     assert_eq!(result, Err(Ok(Error::TokenModeNotEnabled)));
+}
+
+// ── Timelocked clawback (#729) ────────────────────────────────────────────────
+
+fn setup_clawback() -> (Env, Address, RewardsContractClient<'static>) {
+    let env = Env::default();
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+    (env, admin, client)
+}
+
+#[test]
+fn test_propose_clawback_returns_id() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &500);
+
+    let id = client.propose_clawback(&admin, &user, &100);
+    assert_eq!(id, 0);
+
+    // Second proposal gets the next id.
+    let id2 = client.propose_clawback(&admin, &user, &50);
+    assert_eq!(id2, 1);
+}
+
+#[test]
+fn test_propose_clawback_rejected_when_overbudget() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &100);
+
+    let result = client.try_propose_clawback(&admin, &user, &200);
+    assert_eq!(result, Err(Ok(Error::ClawbackOverspend)));
+}
+
+#[test]
+fn test_execute_clawback_rejected_before_timelock() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &500);
+
+    let id = client.propose_clawback(&admin, &user, &100);
+
+    // Advance ledger, but not past the full timelock.
+    env.ledger().with_mut(|li| {
+        li.sequence_number += CLAWBACK_TIMELOCK_LEDGERS / 2;
+    });
+
+    let result = client.try_execute_clawback(&admin, &id);
+    assert_eq!(result, Err(Ok(Error::ClawbackTimelocked)));
+}
+
+#[test]
+fn test_execute_clawback_succeeds_after_timelock() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &500);
+
+    let id = client.propose_clawback(&admin, &user, &200);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += CLAWBACK_TIMELOCK_LEDGERS;
+    });
+
+    client.execute_clawback(&admin, &id);
+    assert_eq!(client.balance(&user), 300);
+    assert_eq!(client.total_supply(), 300);
+}
+
+#[test]
+fn test_cancel_clawback_prevents_execution() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &500);
+
+    let id = client.propose_clawback(&admin, &user, &100);
+    client.cancel_clawback(&admin, &id);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += CLAWBACK_TIMELOCK_LEDGERS;
+    });
+
+    let result = client.try_execute_clawback(&admin, &id);
+    assert_eq!(result, Err(Ok(Error::ClawbackNotFound)));
+    // Balance unchanged.
+    assert_eq!(client.balance(&user), 500);
+}
+
+#[test]
+fn test_execute_clawback_replay_rejected() {
+    let (env, admin, client) = setup_clawback();
+    let user = Address::generate(&env);
+    client.credit(&admin, &user, &500);
+
+    let id = client.propose_clawback(&admin, &user, &100);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number += CLAWBACK_TIMELOCK_LEDGERS;
+    });
+
+    client.execute_clawback(&admin, &id);
+
+    let replay = client.try_execute_clawback(&admin, &id);
+    assert_eq!(replay, Err(Ok(Error::ClawbackNotFound)));
+}
+
+// ── Redemption reserve reconciliation (issue #834) ───────────────────────────
+
+fn setup_redemption(env: &Env) -> (RewardsContractClient<'_>, Address, Address, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+
+    let sac = env.register_stellar_asset_contract_v2(admin.clone());
+    let asset = sac.address();
+    soroban_sdk::token::StellarAssetClient::new(env, &asset).mint(&admin, &1_000_000);
+
+    (client, admin, asset, contract_id)
+}
+
+#[test]
+fn test_redeem_conserves_reserve() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, asset, _) = setup_redemption(&env);
+    let user = Address::generate(&env);
+
+    // 100 bps = 0.01 asset per point.
+    client.set_redemption_rate(&admin, &0, &asset, &100);
+    client.fund_reserve(&admin, &10_000);
+    client.credit(&admin, &user, &5_000);
+
+    let reserve_before = client.redemption_reserve();
+    let paid = client.redeem(&user, &1_000);
+    // 1000 points * 100 bps / 10000 = 10 asset units.
+    assert_eq!(paid, 10);
+
+    let reserve_after = client.redemption_reserve();
+    // Invariant: the redemption's payout equals the reserve delta exactly.
+    assert_eq!(reserve_before as i128 - reserve_after as i128, paid);
+    // Invariant: the mirrored counter matches the real SAC balance held by
+    // the contract, since nothing else has touched the token balance.
+    let token_client = soroban_sdk::token::Client::new(&env, &asset);
+    assert_eq!(
+        token_client.balance(&client.address) as u64,
+        reserve_after
+    );
+}
+
+#[test]
+fn test_redeem_rejects_when_desynced_above_actual_balance() {
+    let env = Env::default();
+    env.mock_all_auths();
+    let (client, admin, asset, contract_id) = setup_redemption(&env);
+    let user = Address::generate(&env);
+
+    client.set_redemption_rate(&admin, &0, &asset, &10_000); // 1:1
+    client.fund_reserve(&admin, &100);
+    client.credit(&admin, &user, &1_000);
+
+    // Simulate the exact desync issue #834 describes: the mirrored counter
+    // says more is available than the SAC token balance actually holds (an
+    // external transfer out, a bad reconciliation, etc.), without touching
+    // the real token balance.
+    env.as_contract(&contract_id, || {
+        env.storage().instance().set(&REDEMPTION_RESERVE, &10_000u64);
+    });
+    assert_eq!(client.redemption_reserve(), 10_000);
+
+    // The real SAC balance is still only 100, so redeeming 500 points
+    // (worth 500 asset units at 1:1) must be rejected even though the
+    // mirrored counter claims to have 10,000 available.
+    let result = client.try_redeem(&user, &500);
+    assert_eq!(result, Err(Ok(Error::InsufficientReserve)));
+
+    // A redemption within the *actual* balance still succeeds.
+    let paid = client.redeem(&user, &100);
+    assert_eq!(paid, 100);
+}
+
+// ── Emergency timelock (issue #838) ──────────────────────────────────────────
+
+fn setup_timelock(env: &Env) -> (RewardsContractClient<'_>, Address) {
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(env, &contract_id);
+    let admin = Address::generate(env);
+    client.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    env.mock_all_auths();
+    (client, admin)
+}
+
+#[test]
+fn test_timelock_defaults_and_configurable_delay() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    assert_eq!(client.timelock_delay(), DEFAULT_TIMELOCK_DELAY);
+    client.set_timelock_delay(&admin, &0, &500);
+    assert_eq!(client.timelock_delay(), 500);
+}
+
+#[test]
+fn test_timelock_early_execute_rejected() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+    client.set_timelock_delay(&admin, &0, &1_000);
+
+    let op_hash = BytesN::from_array(&env, &[7u8; 32]);
+    let eta = client.queue_timelock(&admin, &op_hash);
+    assert_eq!(eta, 1_000);
+
+    let result = client.try_execute_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimeLockActive)));
+}
+
+#[test]
+fn test_timelock_queue_then_execute() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+    client.set_timelock_delay(&admin, &0, &100);
+
+    let op_hash = BytesN::from_array(&env, &[9u8; 32]);
+    let eta = client.queue_timelock(&admin, &op_hash);
+
+    env.ledger().with_mut(|li| {
+        li.sequence_number = eta;
+    });
+
+    client.execute_timelock(&admin, &op_hash);
+    assert_eq!(client.timelock_eta(&op_hash), None);
+
+    // Executed entries cannot be replayed.
+    let replay = client.try_execute_timelock(&admin, &op_hash);
+    assert_eq!(replay, Err(Ok(Error::TimelockNotFound)));
+}
+
+#[test]
+fn test_timelock_cancel() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    let op_hash = BytesN::from_array(&env, &[3u8; 32]);
+    client.queue_timelock(&admin, &op_hash);
+    assert!(client.timelock_eta(&op_hash).is_some());
+
+    client.cancel_timelock(&admin, &op_hash);
+    assert_eq!(client.timelock_eta(&op_hash), None);
+
+    let result = client.try_cancel_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimelockNotFound)));
+}
+
+#[test]
+fn test_timelock_double_queue_rejected() {
+    let env = Env::default();
+    let (client, admin) = setup_timelock(&env);
+
+    let op_hash = BytesN::from_array(&env, &[1u8; 32]);
+    client.queue_timelock(&admin, &op_hash);
+
+    let result = client.try_queue_timelock(&admin, &op_hash);
+    assert_eq!(result, Err(Ok(Error::TimelockAlreadyQueued)));
+}
+
+#[test]
+fn test_multi_token_reward_pool_add_and_supported_assets() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let contract_id = env.register_contract(None, RewardsContract);
+    let client = RewardsContractClient::new(&env, &contract_id);
+    client.initialize(&admin);
+
+    let usdc = Address::generate(&env);
+    let xlm = Address::generate(&env);
+
+    client.add_reward_asset(&usdc);
+    client.add_reward_asset(&xlm);
+
+    let assets = client.get_supported_assets();
+    assert_eq!(assets.len(), 2);
+    assert_eq!(assets.get(0).unwrap(), usdc);
+    assert_eq!(assets.get(1).unwrap(), xlm);
+
+    let alice = Address::generate(&env);
+    client.credit_rewards(&alice, &usdc, &500);
+    assert_eq!(client.get_reward_pool_balance(&usdc), 500);
+    assert_eq!(client.get_participant_reward_balance(&alice, &usdc), 500);
+    assert_eq!(client.get_reward_pool_balance(&xlm), 0);
 }

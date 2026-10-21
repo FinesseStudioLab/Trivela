@@ -16,7 +16,7 @@ import compression from 'compression';
 import multer from 'multer';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import Redis from 'ioredis';
+import { createRedisClient } from './config/redis.js';
 import createApiKeyAuth, { createMasterKeyAuth, readProvidedKey } from './middleware/apiKeyAuth.js';
 import { createRateLimiter, createRedisStore } from './middleware/rateLimit.js';
 import { createAuthLockout } from './middleware/authLockout.js';
@@ -26,14 +26,20 @@ import { requestContextMiddleware } from './middleware/requestContext.js';
 import securityHeaders from './middleware/securityHeaders.js';
 import errorHandler from './middleware/errorHandler.js';
 import { paginateItems } from './pagination.js';
-import { checkSorobanRpcHealth } from './sorobanRpc.js';
+import { checkSorobanRpcHealth, getRpcLatencyStats } from './sorobanRpc.js';
 import { createRpcPool } from './rpcPool.js';
 import { resolveStellarNetworkConfig } from './config/stellarNetwork.js';
 import { validateBackendEnv } from './config/envValidation.js';
 import { getRateTierLimits, DEFAULT_RATE_TIER } from './config/rateTiers.js';
+import {
+  createRouteRateLimitResolver,
+  DEFAULT_ROUTE_RATE_LIMITS,
+  parseRouteRateLimits,
+} from './config/routeRateLimits.js';
 import { createDal } from './dal/index.js';
 import { createJobRunner } from './jobs/jobRunner.js';
 import { WebhookService, WEBHOOK_EVENTS } from './services/webhookService.js';
+import { createSanctionsService } from './services/sanctionsService.js';
 import {
   campaignCreateSchema,
   campaignUpdateSchema,
@@ -42,6 +48,12 @@ import {
   apiKeyRateTierUpdateSchema,
   formatZodErrors,
 } from './schemas.js';
+import { createProbeHandlers } from './middleware/probes.js';
+import { defaultCacheService } from './services/cacheService.js';
+import { createCacheMiddleware } from './middleware/cacheMiddleware.js';
+import { validateBody, validateQuery } from './middleware/validateRequest.js';
+import { createGraphQLHandler } from './graphql/graphqlHandler.js';
+import { GraphQLSchemaExecutor } from './graphql/graphqlSchema.js';
 import { createStorageAdapter } from './storage/index.js';
 import {
   uploadCampaignImage,
@@ -70,6 +82,7 @@ import { createOrgRoutes } from './routes/orgs.js';
 import { createAuditRouter } from './routes/audit.js';
 import { createAuditLogService } from './services/auditLogService.js';
 import { createWebPushService } from './services/webPushService.js';
+import { createNotificationService } from './services/notificationService.js';
 import { createOrganizationRoutes } from './routes/organizations.js';
 import { createUsageMeteringService } from './services/usageMeteringService.js';
 import { createFeatureFlagRoutes } from './routes/featureFlags.js';
@@ -83,6 +96,8 @@ import { createIdempotencyMiddleware } from './middleware/idempotency.js';
 import { createDistributedLock, createInMemoryLock } from './jobs/distributedLock.js';
 import { createExportJob } from './jobs/exportJob.js';
 import { createEventIndexer } from './jobs/eventIndexer.js';
+import { createWeeklyDigestJob } from './jobs/weeklyDigestJob.js';
+import { createEmailService } from './services/emailService.js';
 import { createSqliteJobQueueRepository } from './dal/sqliteJobQueueRepository.js';
 import { createDurableJobQueue } from './jobs/durableJobQueue.js';
 import {
@@ -97,17 +112,51 @@ import { createPathPaymentRoutes } from './routes/pathPayment.js';
 import { createIndexReadRoutes } from './routes/indexRead.js';
 import { createSep10Routes, createRequireWalletAuth } from './routes/sep10.js';
 import { createZkInputsRoutes } from './routes/zkInputs.js';
+import { createSocialTaskRoutes } from './routes/socialTasks.js';
+import { createTwitterVerificationService } from './services/twitterVerificationService.js';
 import {
   createNotificationRoutes,
   createNotificationPreferencesRoutes,
 } from './routes/notifications.js';
 import { createOperatorBalanceJob } from './jobs/operatorBalanceJob.js';
+import { createGithubTaskStore } from './services/githubWebhook.js';
+import { createOperatorPortalRoutes } from './routes/operatorPortal.js';
+import { createJwtAuthService } from './services/jwtAuthService.js';
+import { createGasCostMonitoringJob } from './jobs/gasCostMonitoringJob.js';
+import { createLogAggregationService, createLogAggregationMiddleware } from './services/logAggregationService.js';
+import { createGithubTaskRoutes, createGithubWebhookRoutes } from './routes/githubWebhook.js';
+import { createIpfsPinService, createPinataProvider } from './services/ipfsPinService.js';
+import { IPFS_PIN_JOB_TYPE, createIpfsPinRoutes } from './routes/ipfsPins.js';
+import { createLeaderboardGateway, leaderboardRoom } from './websocket/leaderboardGateway.js';
+import { createSqliteExportJobRepository } from './dal/sqliteExportJobRepository.js';
+import {
+  CAMPAIGN_EXPORT_JOB_TYPE,
+  createCampaignExportWorker,
+} from './jobs/campaignExportWorker.js';
+import { createCampaignExportJobRoutes } from './routes/campaignExportJobs.js';
+import { createFraudDetector } from './services/fraudDetection.js';
+import { createFraudFlagRoutes } from './routes/fraudFlags.js';
+import { createHorizonDepositWatcher } from './services/horizonDepositWatcher.js';
+import { createOperatorDepositRoutes } from './routes/operatorDeposits.js';
+import { createApiDocsRouter } from './routes/apiDocs.js';
 import { createPruningJob } from './jobs/pruningJob.js';
+import { createSessionTokenCleanupJob } from './jobs/sessionTokenCleanupJob.js';
+import { createCampaignRewardNotificationJob } from './jobs/campaignRewardNotificationJob.js';
+import { setupSentry, captureException } from './services/sentryIntegration.js';
+import {
+  purgePiiForUser,
+  purgePiiForCampaign,
+  exportPiiForUser,
+} from './services/piiPurgeService.js';
 import { createModerationService } from './moderation/moderationService.js';
 import { createContentModerationMiddleware } from './middleware/contentModeration.js';
 import createFaucetRoutes from './routes/faucet.js';
 import createStatusRoutes from './routes/status.js';
 import createWebhookRoutes from './routes/webhooks.js';
+import swaggerUi from 'swagger-ui-express';
+import { readFileSync } from 'node:fs';
+import { load as yamlLoad } from 'js-yaml';
+import { createReferralCodeRoutes } from './routes/referralCodes.js';
 
 const DEFAULT_PORT = 3001;
 
@@ -348,6 +397,25 @@ export async function createApp(options = {}) {
   const auditLogRepository = dal.auditLogs;
   const webhookRepository = dal.webhooks;
   const referralRepository = dal.referrals;
+
+  // #1257 — live leaderboard pushes over the WebSocket gateway
+  const leaderboardGateway = createLeaderboardGateway({
+    getLeaderboard: (campaignId) =>
+      referralRepository
+        .getLeaderboard(campaignId, { limit: 10 })
+        .rows.map((/** @type {any} */ r) => ({
+          wallet: r.referrerAddress,
+          rank: r.rank,
+          points: r.referralCount,
+        })),
+    publish: (campaignId, message) =>
+      getWebSocketServer()?.broadcast(leaderboardRoom(campaignId), message) ?? 0,
+    debounceMs: normalizePositiveInteger(
+      /** @type {any} */ (options.leaderboardDebounceMs) ?? process.env.LEADERBOARD_DEBOUNCE_MS,
+      200,
+    ),
+    logger: log,
+  });
   const variantRepository = dal.variants;
   const cohortRepository = dal.cohorts;
   const pushSubscriptionRepository = dal.pushSubscriptions;
@@ -389,6 +457,17 @@ export async function createApp(options = {}) {
     },
     logger: log,
   });
+
+  const notificationService = createNotificationService({
+    notificationRepo: dal.notifications,
+    notificationPreferencesRepo: notificationPreferencesRepository,
+    webPushService,
+  });
+
+  // Sanctions/blocklist screening for payout addresses — closes #955.
+  // Provider is configurable via SANCTIONS_PROVIDER env var (default: "local").
+  // Add blocked addresses via SANCTIONS_BLOCKLIST (comma-separated Stellar addresses).
+  const sanctionsService = createSanctionsService({ logger: log });
   const shortCacheTtlMs = normalizePositiveInteger(
     /** @type {any} */ (options.shortCacheTtlMs) ?? process.env.SHORT_CACHE_TTL_MS,
     DEFAULT_SHORT_CACHE_TTL_MS,
@@ -412,6 +491,10 @@ export async function createApp(options = {}) {
   };
 
   const app = express();
+
+  // Initialize Sentry error monitoring (#1263)
+  await setupSentry();
+
   const metrics = {
     requestTotal: 0,
     requestErrors: 0,
@@ -500,23 +583,17 @@ export async function createApp(options = {}) {
 
   let rateLimitStore = null;
   let usageRedisClient = null;
-  const redisUrl = process.env.REDIS_URL || process.env.REDIS_HOST;
-  if (redisUrl && !options.disableRedis) {
+  if (!options.disableRedis) {
     try {
-      const redisClient = new Redis(redisUrl, {
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: true,
-        lazyConnect: false,
-      });
-      redisClient.on('error', (err) => {
-        log.error({ err }, 'Redis connection error');
-      });
-      rateLimitStore = createRedisStore(redisClient);
-      usageRedisClient = redisClient;
-      log.info(
-        { redisUrl: redisUrl.replace(/:[^:@]+@/, ':***@') },
-        'Rate limiter using Redis store',
-      );
+      const { mode, client: redisClient } = createRedisClient();
+      if (redisClient) {
+        redisClient.on('error', (err) => {
+          log.error({ err }, 'Redis connection error');
+        });
+        rateLimitStore = createRedisStore(redisClient);
+        usageRedisClient = redisClient;
+        log.info({ redisMode: mode }, 'Rate limiter using Redis store');
+      }
     } catch (error) {
       log.warn(
         { err: error },
@@ -536,6 +613,28 @@ export async function createApp(options = {}) {
       ? createDistributedLock(usageRedisClient, { ttlMs: lockTtlMs })
       : createInMemoryLock({ ttlMs: lockTtlMs }));
 
+  // Email service adapter — wraps sendEmail with .send({to, template, data}) interface
+  const emailService = {
+    async send({ to, template, data }) {
+      const { sendEmail } = await import('./services/emailService.js');
+      return sendEmail(template, to, data);
+    },
+  };
+
+  // Weekly campaign digest — performance summary emails for operators (#1355)
+  const digestRecipients = (process.env.CAMPAIGN_DIGEST_RECIPIENTS ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const weeklyDigestJob = createWeeklyDigestJob({
+    db: dal.db,
+    emailService,
+    campaignRepository,
+    referralRepository,
+    getRecipients: () => digestRecipients,
+    logger: log,
+  });
+
   // Data export job — daily CSV export to object storage (#562)
   const exportRetentionDays = normalizePositiveInteger(
     /** @type {any} */ (options.exportRetentionDays) ?? process.env.EXPORT_RETENTION_DAYS,
@@ -551,6 +650,9 @@ export async function createApp(options = {}) {
 
   const eventIndexer = createEventIndexer({
     db: dal.db,
+    // Live activity feed (#1201): resolved lazily because the WebSocket
+    // server is attached after the HTTP server starts listening.
+    onActivity: (activity) => getWebSocketServer()?.publishActivity(activity),
     rpcPool,
     logger: log,
     referralBonus: normalizePositiveInteger(
@@ -565,6 +667,7 @@ export async function createApp(options = {}) {
         process.env.INDEXER_CONFIRMATION_DEPTH,
       0,
     ),
+    notificationService,
   });
 
   // Durable job queue store — persistent across restarts (#565)
@@ -608,12 +711,49 @@ export async function createApp(options = {}) {
     return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER);
   }
 
+  // Monthly quota hooks (#759) — mirror resolveRateLimitForRequest's shape
+  // (independently re-reads/validates the key rather than relying on
+  // req.auth, for the same reason: this runs before auth middleware).
+  // Requests with no API key (env-configured keys, unauthenticated traffic)
+  // have no monthly quota, matching how they also skip per-key rate tiers.
+  function resolveMonthlyQuotaForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return null;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return null;
+    return getRateTierLimits(match.rateTier ?? DEFAULT_RATE_TIER).monthlyQuota;
+  }
+
+  function getMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.getMonthlyUsage(match.id);
+  }
+
+  function incrementMonthlyUsageForRequest(req) {
+    const provided = readProvidedKey(req);
+    if (!provided) return 0;
+    const match = apiKeyRepository.validate(provided);
+    if (!match) return 0;
+    return apiKeyRepository.incrementMonthlyUsage(match.id);
+  }
+
   const rateLimiter = createRateLimiter({
     windowMs: rateLimitWindowMs,
     maxRequests: rateLimitMaxRequests,
     timeProvider: /** @type {any} */ (options.rateLimit)?.timeProvider,
     store: rateLimitStore,
     resolveLimits: resolveRateLimitForRequest,
+    resolveRouteLimit: createRouteRateLimitResolver(
+      /** @type {any} */ (options.rateLimit)?.routes ??
+        parseRouteRateLimits(process.env.RATE_LIMIT_ROUTES) ??
+        DEFAULT_ROUTE_RATE_LIMITS,
+    ),
+    resolveMonthlyQuota: resolveMonthlyQuotaForRequest,
+    getMonthlyUsage: getMonthlyUsageForRequest,
+    incrementMonthlyUsage: incrementMonthlyUsageForRequest,
   });
 
   app.use(requestId);
@@ -628,6 +768,21 @@ export async function createApp(options = {}) {
   app.use(createDeprecationMiddleware({ log }));
   app.use(traceparentMiddleware());
   app.use(requestLogger);
+  // #1346 — Log aggregation middleware
+  app.use(createLogAggregationMiddleware(logAggregationService));
+  // #1256 — GitHub webhook. Mounted before express.json(): the HMAC signature is
+  // computed over the raw request bytes.
+  const githubTaskStore = createGithubTaskStore({ db: dal.db, logger: log });
+  app.use(
+    API_V1_PREFIX,
+    createGithubWebhookRoutes({
+      store: githubTaskStore,
+      getSecret: () =>
+        String(options.githubWebhookSecret ?? process.env.GITHUB_WEBHOOK_SECRET ?? ''),
+      logger: log,
+    }),
+  );
+
   app.use(express.json({ limit: jsonBodyLimit }));
 
   const uploadDir = process.env.UPLOAD_DIR ?? './uploads';
@@ -715,6 +870,8 @@ export async function createApp(options = {}) {
   );
 
   const pruningJob = createPruningJob({ dal });
+  const sessionTokenCleanupJob = createSessionTokenCleanupJob({ dal });
+  const campaignRewardNotificationJob = createCampaignRewardNotificationJob({ dal, emailService });
 
   const jobRunner = createJobRunner({
     handlers: {
@@ -740,6 +897,15 @@ export async function createApp(options = {}) {
       },
       async storage_pruning() {
         await pruningJob();
+      },
+      async session_token_cleanup() {
+        await sessionTokenCleanupJob();
+      },
+      async campaign_reward_notifications() {
+        await campaignRewardNotificationJob();
+      },
+      async weekly_digest() {
+        await weeklyDigestJob.run();
       },
     },
     logger: log,
@@ -780,10 +946,68 @@ export async function createApp(options = {}) {
     setInterval(doExport, 24 * 60 * 60 * 1_000).unref?.();
   }
 
+  // Hourly session token cleanup (#1262)
+  if (!options.disableJobs) {
+    const sessionTokenCleanupIntervalMs = 60 * 60 * 1000; // 1 hour
+    jobRunner.enqueue('session_token_cleanup', null);
+    setInterval(
+      () => jobRunner.enqueue('session_token_cleanup', null),
+      sessionTokenCleanupIntervalMs,
+    ).unref?.();
+  }
+
+  // Twice daily campaign reward notifications (#1246)
+  if (!options.disableJobs) {
+    const campaignRewardNotifIntervalMs = 12 * 60 * 60 * 1000; // 12 hours
+    jobRunner.enqueue('campaign_reward_notifications', null);
+    setInterval(
+      () => jobRunner.enqueue('campaign_reward_notifications', null),
+      campaignRewardNotifIntervalMs,
+    ).unref?.();
+  }
+
+  // Weekly campaign digest — fires on startup (idempotent per ISO week) and weekly (#1355)
+  if (!options.disableJobs) {
+    const runDigest = () => jobRunner.enqueue('weekly_digest', null);
+    runDigest();
+    setInterval(runDigest, 7 * 24 * 60 * 60 * 1_000).unref?.();
+  }
+
+  // #1255 — IPFS pinning of campaign assets (enabled when PINATA_JWT is set)
+  const ipfsPinService =
+    /** @type {any} */ (options.ipfsPinService) ??
+    (process.env.PINATA_JWT
+      ? createIpfsPinService({
+          db: dal.db,
+          provider: createPinataProvider({
+            jwt: process.env.PINATA_JWT,
+            baseUrl: process.env.PINATA_API_URL,
+            fetchImpl,
+          }),
+          fetchImpl,
+          logger: log,
+        })
+      : null);
+  // #1260 — asynchronous campaign exports, processed off the request path
+  const campaignExportJobRepository = createSqliteExportJobRepository({ db: dal.db });
+  const campaignExportWorker = createCampaignExportWorker({
+    db: dal.db,
+    repository: campaignExportJobRepository,
+    campaignRepository,
+    storage: storageAdapter,
+    logger: log,
+  });
+
   // Durable job queue — starts poll loop and recovers stale jobs from prior crashes (#565)
   const durableJobQueue = createDurableJobQueue({
     store: jobQueueStore,
     handlers: {
+      // #1255 — background pinning, enqueued when a campaign is created
+      [IPFS_PIN_JOB_TYPE]: async (/** @type {any} */ payload) => {
+        const target = campaignRepository.getById(String(payload?.campaignId));
+        if (target && ipfsPinService) await ipfsPinService.pinCampaign(target);
+      },
+      [CAMPAIGN_EXPORT_JOB_TYPE]: campaignExportWorker.handle,
       // #922 — end-of-campaign claimable balance creation, enqueued from
       // POST /campaigns/:id/claimable-balances instead of running inline.
       [CLAIMABLE_BALANCES_JOB_TYPE]: createClaimableBalancesJobHandler({
@@ -832,16 +1056,100 @@ export async function createApp(options = {}) {
     operatorBalanceJob.start();
   }
 
+  // #1258 — IP-cluster fraud detection for multi-account signups
+  const parseList = (/** @type {unknown} */ value) =>
+    String(value ?? '')
+      .split(',')
+      .map((v) => v.trim())
+      .filter(Boolean);
+  const fraudDetector = createFraudDetector({
+    db: dal.db,
+    subnetThreshold: normalizePositiveInteger(
+      /** @type {any} */ (options.fraudSubnetThreshold) ?? process.env.FRAUD_SUBNET_THRESHOLD,
+      3,
+    ),
+    windowMs:
+      normalizePositiveInteger(
+        /** @type {any} */ (options.fraudWindowHours) ?? process.env.FRAUD_WINDOW_HOURS,
+        24,
+      ) *
+      60 *
+      60 *
+      1000,
+    proxyList: parseList(options.fraudProxyExitList ?? process.env.FRAUD_PROXY_EXIT_LIST),
+    logger: log,
+  });
+
+  // #1261 — Horizon watcher for operator reward-token deposits
+  const depositWatchAccounts = parseList(
+    options.operatorDepositAccounts ?? process.env.OPERATOR_DEPOSIT_ACCOUNTS,
+  );
+  const depositWatcher = createHorizonDepositWatcher({
+    db: dal.db,
+    horizonUrl: stellarConfig.horizonUrl,
+    accounts: depositWatchAccounts,
+    asset: {
+      code: process.env.REWARD_TOKEN_CODE || 'XLM',
+      issuer: process.env.REWARD_TOKEN_ISSUER || null,
+    },
+    allowHttp: !String(stellarConfig.horizonUrl ?? '').startsWith('https'),
+    logger: log,
+  });
+  if (!options.disableJobs && depositWatchAccounts.length > 0 && stellarConfig.horizonUrl) {
+    depositWatcher.start();
+  }
+
+  // #1253 — JWT authentication service for operator portal
+  const jwtSecret = options.jwtSecret ?? process.env.JWT_SECRET;
+  const jwtAuthService = jwtSecret ? createJwtAuthService(jwtSecret) : null;
+
+  // #1266 — Gas cost monitoring worker
+  const gasCostMonitoringJob = createGasCostMonitoringJob({
+    rpcPool,
+    gasCostRepository: dal.gasCosts || {
+      insert: async () => {},
+      getByContractId: async () => [],
+      getDistinctContracts: async () => [],
+      getMetrics: async () => ({}),
+    },
+    logger: log,
+  });
+
+  // #1346 — Log aggregation service
+  const logAggregationService = createLogAggregationService({
+    lokiEndpoint: process.env.LOKI_ENDPOINT,
+    serviceName: process.env.OTEL_SERVICE_NAME || 'trivela-backend',
+    environment: process.env.NODE_ENV || 'development',
+    logger: log,
+  });
+
   async function buildHealthPayload() {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
     const rpc = rpcHealthCache.payload ?? (await checkSorobanRpcHealth({ rpcUrl, fetchImpl }));
 
+    // Redis health — closes #858: surface Redis connectivity in /health so
+    // operators can detect a Redis outage before rate-limit correctness degrades.
+    let redisHealth = { status: 'disabled' };
+    if (usageRedisClient) {
+      try {
+        const pong = await usageRedisClient.ping();
+        redisHealth = { status: pong === 'PONG' ? 'ok' : 'degraded' };
+      } catch {
+        redisHealth = { status: 'error' };
+      }
+    }
+
+    const isOk =
+      /** @type {any} */ (rpc).status === 'ok' &&
+      (redisHealth.status === 'ok' || redisHealth.status === 'disabled');
+
     return {
-      status: /** @type {any} */ (rpc).status === 'ok' ? 'ok' : 'degraded',
+      status: isOk ? 'ok' : 'degraded',
       service: 'trivela-api',
       timestamp: new Date().toISOString(),
       rpc,
       rpcPool: rpcPool.getStatus(),
+      redis: redisHealth,
     };
   }
 
@@ -867,6 +1175,7 @@ export async function createApp(options = {}) {
         entityId,
         diff,
         orgId: req.auth?.orgId || null,
+        ipAddress: req.ip || req.socket?.remoteAddress || null,
         timestamp: new Date().toISOString(),
       });
     } catch (error) {
@@ -881,12 +1190,65 @@ export async function createApp(options = {}) {
     res.json(payload);
   });
 
+  // #1251 — readiness verifies the database, Redis (when configured) and the
+  // Soroban RPC. The RPC is reported but only fails readiness when
+  // READINESS_REQUIRE_RPC=true, so an RPC blip does not evict every pod.
+  const readinessRequireRpc = ['1', 'true'].includes(
+    String(options.readinessRequireRpc ?? process.env.READINESS_REQUIRE_RPC ?? '').toLowerCase(),
+  );
+  const probeHandlers = createProbeHandlers({
+    getIsShuttingDown: () => isShuttingDown,
+    timeoutMs: normalizePositiveInteger(
+      /** @type {any} */ (options.readinessTimeoutMs) ?? process.env.READINESS_TIMEOUT_MS,
+      2000,
+    ),
+    checks: {
+      database: {
+        run: () => {
+          dal.db.prepare('SELECT 1 AS ok').get();
+        },
+      },
+      redis: usageRedisClient
+        ? {
+            run: async () => {
+              const pong = await usageRedisClient.ping();
+              if (pong !== 'PONG') throw new Error(`unexpected PING reply: ${pong}`);
+            },
+          }
+        : null,
+      rpc: {
+        required: readinessRequireRpc,
+        run: async () => {
+          const result = await checkSorobanRpcHealth({
+            rpcUrl: rpcPool.getHealthyRpcUrl(),
+            fetchImpl,
+          });
+          if (/** @type {any} */ (result).status !== 'ok') {
+            throw new Error(`Soroban RPC is ${/** @type {any} */ (result).status}`);
+          }
+          return { pool: rpcPool.getStatus() };
+        },
+      },
+    },
+    healthDetails: () => ({ rpc: rpcPool.getStatus() }),
+  });
+  app.get('/health/live', probeHandlers.livenessHandler);
+  app.get('/health/ready', probeHandlers.readinessHandler);
+  app.get('/livez', probeHandlers.livenessHandler);
+  app.get('/readyz', probeHandlers.readinessHandler);
+  app.get('/healthz', probeHandlers.healthHandler);
+
   app.get('/ready', (_req, res) => {
     if (isShuttingDown) {
       return res.status(503).json({ status: 'shutting_down', ready: false });
     }
     return res.json({ status: 'ok', ready: true });
   });
+
+  const graphqlHandler = createGraphQLHandler({
+    executor: new GraphQLSchemaExecutor({ campaignRepository }),
+  });
+  app.all('/graphql', rateLimiter, graphqlHandler);
 
   const siteOrigin =
     process.env.SITE_ORIGIN ?? allowedOrigins.find((origin) => origin !== '*') ?? '';
@@ -925,6 +1287,32 @@ export async function createApp(options = {}) {
       openApiPath: join(process.cwd(), 'backend', 'openapi.yaml'),
     }),
   );
+
+  // Interactive API docs (#882) — Swagger UI served at /docs
+  // The dev-portal HTML embeds this in an iframe; also linkable directly.
+  (() => {
+    const openApiPath = join(process.cwd(), 'backend', 'openapi.yaml');
+    let swaggerSpec;
+    try {
+      swaggerSpec = yamlLoad(readFileSync(openApiPath, 'utf8'));
+    } catch {
+      swaggerSpec = {
+        openapi: '3.0.0',
+        info: { title: 'Trivela API', version: '0.0.0' },
+        paths: {},
+      };
+    }
+    // #1259 — generated OpenAPI 3.0 document + Swagger UI at /docs/api
+    app.use('/docs/api', createApiDocsRouter({ baseSpec: swaggerSpec }));
+    app.use('/docs', swaggerUi.serve);
+    app.get(
+      '/docs',
+      swaggerUi.setup(swaggerSpec, {
+        customSiteTitle: 'Trivela API Reference',
+        swaggerOptions: { persistAuthorization: true },
+      }),
+    );
+  })();
 
   app.get('/health/rpc', async (_req, res) => {
     const rpcUrl = rpcPool.getHealthyRpcUrl();
@@ -1014,6 +1402,11 @@ export async function createApp(options = {}) {
       '# HELP trivela_rpc_pool_unhealthy Unhealthy RPC endpoints in the pool.',
       '# TYPE trivela_rpc_pool_unhealthy gauge',
       `trivela_rpc_pool_unhealthy ${poolStatus.unhealthy}`,
+      // Soroban RPC probe latency summary (#1339).
+      '# HELP trivela_rpc_latency_ms Soroban RPC probe latency in milliseconds.',
+      '# TYPE trivela_rpc_latency_ms summary',
+      `trivela_rpc_latency_ms_sum ${getRpcLatencyStats().sumMs}`,
+      `trivela_rpc_latency_ms_count ${getRpcLatencyStats().count}`,
       // Job queue depth (issue #930 — RED + queue + RPC metrics).
       '# HELP trivela_job_queue_depth Jobs waiting to run, by queue.',
       '# TYPE trivela_job_queue_depth gauge',
@@ -1362,6 +1755,10 @@ export async function createApp(options = {}) {
         });
       }
 
+      if (ipfsPinService && !options.disableJobs) {
+        durableJobQueue.enqueue(IPFS_PIN_JOB_TYPE, { campaignId: campaign.id }, { maxAttempts: 3 });
+      }
+
       shortCache.clear();
       return res.status(201).json(serializeCampaign(campaign));
     } catch (error) {
@@ -1546,6 +1943,119 @@ export async function createApp(options = {}) {
 
     shortCache.clear();
     return res.status(204).end();
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function restoreCampaign(req, res) {
+    const restored = campaignRepository.restore(req.params.id);
+    if (!restored) {
+      return res
+        .status(404)
+        .json({ error: 'Campaign not found or not deleted', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    recordAuditEntry(req, {
+      action: 'restore',
+      entity: 'campaign',
+      entityId: req.params.id,
+      diff: { restored: true },
+    });
+
+    webhookService
+      .dispatchEvent({
+        type: WEBHOOK_EVENTS.CAMPAIGN_RESTORED,
+        campaignId: req.params.id,
+        data: restored,
+        timestamp: new Date().toISOString(),
+      })
+      .catch((err) => {
+        log.warn(
+          { err, campaignId: req.params.id },
+          'Failed to dispatch campaign.restored webhook',
+        );
+      });
+
+    shortCache.clear();
+    return res.json(serializeCampaign(restored));
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgeCampaign(req, res) {
+    const purged = campaignRepository.hardDelete(req.params.id);
+    if (!purged) {
+      return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });
+    }
+    recordAuditEntry(req, {
+      action: 'purge',
+      entity: 'campaign',
+      entityId: req.params.id,
+      diff: { purged: true },
+    });
+    shortCache.clear();
+    return res.status(204).end();
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function listDeletedCampaigns(req, res) {
+    const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+    const olderThanDays = req.query.olderThanDays
+      ? parseInt(req.query.olderThanDays, 10)
+      : undefined;
+    const campaigns = campaignRepository.listDeleted({ limit, olderThanDays });
+    return res.json({ campaigns, total: campaigns.length });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgePiiUser(req, res) {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string') {
+      return res.status(400).json({ error: 'identifier is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = purgePiiForUser(dal.db, identifier);
+    recordAuditEntry(req, {
+      action: 'pii_purge',
+      entity: 'user',
+      entityId: identifier,
+      diff: result,
+    });
+    return res.json({ success: true, ...result });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function purgePiiCampaign(req, res) {
+    const { campaignId } = req.body;
+    if (!campaignId) {
+      return res.status(400).json({ error: 'campaignId is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = purgePiiForCampaign(dal.db, campaignId);
+    recordAuditEntry(req, {
+      action: 'pii_purge',
+      entity: 'campaign',
+      entityId: String(campaignId),
+      diff: result,
+    });
+    return res.json({ success: true, ...result });
+  }
+
+  /** @param {import('express').Request} req @param {import('express').Response} res */
+  function exportPiiUser(req, res) {
+    const { identifier } = req.body;
+    if (!identifier || typeof identifier !== 'string') {
+      return res.status(400).json({ error: 'identifier is required', code: 'VALIDATION_ERROR' });
+    }
+    const result = exportPiiForUser(dal.db, identifier);
+    recordAuditEntry(req, {
+      action: 'pii_export',
+      entity: 'user',
+      entityId: identifier,
+      // Row counts only — never the exported data itself — so the audit
+      // trail never becomes a second copy of the PII it's logging about.
+      diff: {
+        tables: Object.fromEntries(
+          Object.entries(result.data).map(([t, rows]) => [t, rows.length]),
+        ),
+      },
+    });
+    return res.json({ success: true, ...result });
   }
 
   /** @param {import('express').Request} req @param {import('express').Response} res */
@@ -2150,6 +2660,65 @@ export async function createApp(options = {}) {
     );
     app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
+    // Soft-delete management routes
+    app.post(
+      `${prefix}/campaigns/:id/restore`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireApiKey,
+      restoreCampaign,
+    );
+    app.post(
+      `${prefix}/campaigns/:id/restore`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      restoreCampaign,
+    );
+    app.delete(`${prefix}/campaigns/:id/purge`, rateLimiter, requireApiKey, purgeCampaign);
+    app.delete(
+      `${prefix}/campaigns/:id/purge`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:write'),
+      purgeCampaign,
+    );
+    app.get(`${prefix}/campaigns/deleted`, rateLimiter, requireApiKey, listDeletedCampaigns);
+    app.get(
+      `${prefix}/campaigns/deleted`,
+      rateLimiter,
+      ...guard,
+      requireScope('campaigns:read'),
+      listDeletedCampaigns,
+    );
+
+    // GDPR / PII purge + export routes (admin only, issue #927).
+    //
+    // Bug fix: this used to be two competing route registrations per path —
+    // Express only ever dispatches the first match, so the second
+    // (requireScope('org:manage'), a scope that isn't even in
+    // VALID_API_KEY_SCOPES and so could never actually pass) was silently
+    // unreachable dead code. The live behavior was "any valid tenant API
+    // key can purge any user's PII site-wide" — replaced with a single
+    // requireMasterKey-gated registration per path, consistent with every
+    // other admin-sensitive route in this file.
+    app.post(
+      `${prefix}/pii/purge-user`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      purgePiiUser,
+    );
+    app.post(
+      `${prefix}/pii/purge-campaign`,
+      rateLimiter,
+      idempotencyMiddleware,
+      requireMasterKey,
+      purgePiiCampaign,
+    );
+    app.post(`${prefix}/pii/export-user`, rateLimiter, requireMasterKey, exportPiiUser);
+
     // Campaign translations (i18n)
     app.get(`${prefix}/campaigns/:id/translations`, rateLimiter, ...guard, (req, res) => {
       const campaign = campaignRepository.getById(req.params.id);
@@ -2531,6 +3100,36 @@ export async function createApp(options = {}) {
       }
     });
 
+    // Sanctions screening — closes #955
+    // POST /api/v1/sanctions/screen  { address: string }
+    // Screen a Stellar address against the configured blocklist before settlement.
+    // Returns { blocked: boolean, reason?: string, provider: string }.
+    // Blocked addresses are also written to the audit log.
+    app.post(`${prefix}/sanctions/screen`, rateLimiter, async (req, res) => {
+      const address = req.body?.address;
+      if (typeof address !== 'string' || !address.trim()) {
+        return res.status(400).json({
+          error: 'address is required',
+          code: 'VALIDATION_ERROR',
+        });
+      }
+      try {
+        const result = await sanctionsService.screen(address.trim(), { logger: log });
+        if (result.blocked) {
+          recordAuditEntry(req, {
+            action: 'block',
+            entity: 'sanctions',
+            entityId: address.trim(),
+            diff: { reason: result.reason, provider: result.provider },
+          });
+        }
+        return res.status(result.blocked ? 403 : 200).json(result);
+      } catch (err) {
+        log.error({ err }, 'sanctions: screen error');
+        return res.status(500).json({ error: 'Sanctions check failed', code: 'INTERNAL_ERROR' });
+      }
+    });
+
     // Referral routes (Issue #350)
     app.post(`${prefix}/campaigns/:id/referrals`, rateLimiter, (req, res) => {
       const campaign = campaignRepository.getById(req.params.id);
@@ -2567,6 +3166,20 @@ export async function createApp(options = {}) {
           error: 'Referee already attributed to a referrer for this campaign',
           code: 'REFERRAL_DUPLICATE',
         });
+      }
+
+      // Points were awarded to the referrer: push new standings to WebSocket subscribers (#1257).
+      leaderboardGateway.trigger(campaign.id);
+      // #1258 — flag clusters of signups from one IP subnet / proxy exit node.
+      // Detection is advisory: a failure here must never fail the signup.
+      try {
+        fraudDetector.recordSignup({
+          campaignId: String(campaign.id),
+          account: refereeAddress.trim(),
+          ip: req.ip,
+        });
+      } catch (err) {
+        log.warn({ err }, 'fraud detection failed');
       }
 
       // Live-update anyone watching this campaign's referral leaderboard stream.
@@ -2806,6 +3419,42 @@ export async function createApp(options = {}) {
     });
     app.use(prefix, rateLimiter, auditRouter);
 
+    // #1256 — verified GitHub tasks (master key)
+    app.use(
+      `${prefix}/admin/github-tasks`,
+      rateLimiter,
+      requireMasterKey,
+      createGithubTaskRoutes({ store: githubTaskStore }),
+    );
+
+    // #1255 — IPFS pinning of campaign assets (API key; the router applies the guard itself)
+    app.use(
+      prefix,
+      rateLimiter,
+      createIpfsPinRoutes({ getService: () => ipfsPinService, campaignRepository, guard }),
+    );
+
+    // #1258 — fraud flag review (master key)
+    app.use(
+      `${prefix}/admin/fraud`,
+      rateLimiter,
+      requireMasterKey,
+      createFraudFlagRoutes({ fraudDetector, recordAudit: recordAuditEntry }),
+    );
+
+    // #1261 — operator deposit verification (master key)
+    app.use(
+      `${prefix}/operator`,
+      rateLimiter,
+      requireMasterKey,
+      createOperatorDepositRoutes({ watcher: depositWatcher }),
+    );
+
+    // #1253 — JWT authentication for operator portal
+    if (jwtAuthService) {
+      createOperatorPortalRoutes(app, { jwtSecret });
+    }
+
     // Variant routes for A/B testing (Issue #624)
     const variantRouter = createVariantRoutes({
       variantRepo: variantRepository,
@@ -2845,12 +3494,20 @@ export async function createApp(options = {}) {
     const featureFlagService = createFeatureFlagService({
       featureFlagRepository: dal.featureFlags,
     });
-    const featureFlagRouter = createFeatureFlagRoutes({ featureFlagService, requireApiKey, recordAuditEntry });
+    const featureFlagRouter = createFeatureFlagRoutes({
+      featureFlagService,
+      requireApiKey,
+      recordAuditEntry,
+    });
     app.use(`${prefix}/feature-flags`, rateLimiter, featureFlagRouter);
 
     // #560 — Public read API over indexed data (cursor-paginated, ETag cached)
     const indexReadRouter = createIndexReadRoutes({ dal, campaignRepository });
     app.use(`${prefix}/index`, rateLimiter, indexReadRouter);
+
+    // Referral code generator for partner Twitter influencers
+    const referralCodeRouter = createReferralCodeRoutes();
+    app.use(`${prefix}/referral-codes`, rateLimiter, referralCodeRouter);
 
     // #556 — Sponsored account creation + CAP-33 reserve sponsorship
     const sponsoredAccountRouter = createSponsoredAccountRoutes({
@@ -2859,6 +3516,20 @@ export async function createApp(options = {}) {
       env: process.env,
     });
     app.use(`${prefix}/sponsored-accounts`, rateLimiter, ...guard, sponsoredAccountRouter);
+
+    // #1260 — asynchronous campaign exports (queued, polled by job id)
+    app.use(
+      prefix,
+      rateLimiter,
+      createCampaignExportJobRoutes({
+        repository: campaignExportJobRepository,
+        campaignRepository,
+        jobQueue: durableJobQueue,
+        guard,
+        recordAudit: recordAuditEntry,
+        logger: log,
+      }),
+    );
 
     // #548 — Claimable balances for unclaimed/expired rewards
     // #922 — submission runs via durableJobQueue; idempotencyMiddleware
@@ -2888,6 +3559,16 @@ export async function createApp(options = {}) {
       fetchImpl,
     });
     app.use(`${prefix}/payment-paths`, rateLimiter, pathPaymentRouter);
+
+    // #1243 — Twitter/X social task verification (tweet/like/retweet/follow)
+    // via the official API v2, before any points are awarded.
+    const socialTaskRouter = createSocialTaskRoutes({
+      twitterVerificationService: createTwitterVerificationService({
+        bearerToken: process.env.TWITTER_BEARER_TOKEN,
+        fetch: fetchImpl,
+      }),
+    });
+    app.use(`${prefix}/social-tasks`, rateLimiter, ...guard, socialTaskRouter);
   }
 
   // #551 — SEP-1 stellar.toml (public, no auth, correct content-type + CORS)
@@ -2962,8 +3643,12 @@ export async function createApp(options = {}) {
   // Central error handler — must be registered after all routes
   app.use(errorHandler);
 
+  app._leaderboardGateway = leaderboardGateway;
+
   app._close = () => {
     isShuttingDown = true;
+    leaderboardGateway.stop();
+    depositWatcher.stop();
     try {
       dal.db.close();
     } catch (_) {
@@ -2978,6 +3663,11 @@ export async function createApp(options = {}) {
 
   // Expose wallet auth middleware for use by routes and tests
   app._requireWalletAuth = requireWalletAuth;
+
+  // Expose services for external use
+  app._jwtAuthService = jwtAuthService;
+  app._gasCostMonitoringJob = gasCostMonitoringJob;
+  app._logAggregationService = logAggregationService;
 
   return app;
 }
@@ -3000,6 +3690,8 @@ export async function startServer(options = {}) {
     try {
       initializeWebSocket(server, {
         path: process.env.WEBSOCKET_PATH || '/ws',
+        leaderboardSnapshot: (/** @type {string} */ campaignId) =>
+          app._leaderboardGateway.snapshot(campaignId),
       });
       log.info('WebSocket server initialized on /ws');
     } catch (error) {

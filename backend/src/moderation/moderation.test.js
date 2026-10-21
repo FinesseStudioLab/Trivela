@@ -230,3 +230,56 @@ test('POST /api/v1/admin/moderation/blocklist: requires master key', async () =>
     await stopTestServer(server);
   }
 });
+
+// ── Unit tests: built-in spam/phishing heuristics (#469) ─────────────────────
+
+test('moderationService (local): flags link-stuffed and shortener content as spam', async () => {
+  const svc = createModerationService({ provider: 'local', terms: [] });
+  const stuffed = await svc.check({
+    name: 'Rewards',
+    description: 'see http://a.example http://b.example http://c.example http://d.example',
+  });
+  assert.equal(stuffed.flagged, true);
+  assert.deepEqual(stuffed.categories, ['spam']);
+
+  const short = await svc.check({ name: 'Win big', description: 'claim at bit.ly/xyz123' });
+  assert.equal(short.flagged, true);
+});
+
+test('moderationService (local): flags repeated-character runs and shouting', async () => {
+  const svc = createModerationService({ provider: 'local', terms: [] });
+  assert.equal((await svc.check({ name: 'Heyyyyyyyyyyyy', description: 'x' })).flagged, true);
+  assert.equal(
+    (await svc.check({ name: 'EARN FREE POINTS RIGHT NOW', description: 'LIMITED TIME ONLY' }))
+      .flagged,
+    true,
+  );
+});
+
+test('moderationService (local): flags wallet phishing lures', async () => {
+  const svc = createModerationService({ provider: 'local', terms: [] });
+  const result = await svc.check({
+    name: 'Airdrop',
+    description: 'Enter your seed phrase to claim your reward',
+  });
+  assert.equal(result.flagged, true);
+  assert.deepEqual(result.categories, ['phishing']);
+});
+
+test('moderationService (local): ordinary campaign copy is not flagged by heuristics', async () => {
+  const svc = createModerationService({ provider: 'local', terms: [] });
+  const result = await svc.check({
+    name: 'Summer Referral Campaign',
+    description: 'Invite friends and earn points. Details at https://example.com/rules',
+    tags: ['referral', 'summer'],
+  });
+  assert.equal(result.flagged, false);
+});
+
+test('moderationService (none): heuristics are skipped', async () => {
+  const svc = createModerationService({ provider: 'none', terms: [] });
+  assert.equal(
+    (await svc.check({ name: 'seed phrase', description: 'private key' })).flagged,
+    false,
+  );
+});

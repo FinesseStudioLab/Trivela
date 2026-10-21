@@ -58,6 +58,48 @@ function createRedisStore(redisClient) {
   };
 }
 
+// Sliding-window-counter store (#1241). The fixed-window counter above
+// resets hard at each window boundary, so a client can send `maxRequests`
+// at the tail of window N and `maxRequests` again at the head of window
+// N+1 — up to 2x the configured rate in a short burst. This store instead
+// blends the previous window's count into the current one, weighted by how
+// much of the previous window still overlaps the sliding lookback, which
+// is the standard approximation used by most production sliding-window
+// rate limiters (no per-request timestamp log required, so it stays O(1)
+// per key like the fixed-window store above).
+function createSlidingWindowStore() {
+  const windows = new Map();
+
+  return {
+    async increment(key, windowMs, now = Date.now()) {
+      const currentWindowStart = Math.floor(now / windowMs) * windowMs;
+      const entry = windows.get(key);
+
+      let previousCount = 0;
+      let currentCount = 0;
+
+      if (entry && entry.windowStart === currentWindowStart) {
+        previousCount = entry.previousCount;
+        currentCount = entry.currentCount;
+      } else if (entry && entry.windowStart === currentWindowStart - windowMs) {
+        previousCount = entry.currentCount;
+      }
+
+      currentCount += 1;
+      windows.set(key, { windowStart: currentWindowStart, previousCount, currentCount });
+
+      const elapsedInCurrent = now - currentWindowStart;
+      const overlapWeight = Math.max(0, (windowMs - elapsedInCurrent) / windowMs);
+      const weightedCount = previousCount * overlapWeight + currentCount;
+
+      return {
+        count: weightedCount,
+        resetAt: currentWindowStart + windowMs,
+      };
+    },
+  };
+}
+
 export function createRateLimiter({
   windowMs = DEFAULT_WINDOW_MS,
   maxRequests = DEFAULT_MAX_REQUESTS,
@@ -68,16 +110,42 @@ export function createRateLimiter({
   // request, returns `{ maxRequests, windowMs }` to use instead of the static
   // defaults above, or a falsy value to fall back to them. Sync or async.
   resolveLimits = null,
+  // Optional per-route limits (#465). Given the request, returns
+  // `{ id, maxRequests, windowMs? }` for a matching route rule, or a falsy
+  // value. A match gets its own counter bucket (so a hot write endpoint does
+  // not consume the client's read budget) and can only tighten the limit that
+  // would otherwise apply — never loosen it.
+  resolveRouteLimit = null,
+  // Optional monthly quota hooks (#759), independent of the windowed
+  // maxRequests/windowMs check above: the window check limits burst/sustained
+  // rate, this limits total volume over a calendar month regardless of how
+  // it's spread out. All three are required together or all omitted.
+  //   - resolveMonthlyQuota(req): number | null | undefined — the quota for
+  //     this request's key, or null/undefined for "no monthly quota".
+  //   - getMonthlyUsage(req): current count for the active period, without
+  //     incrementing it (used only to report `X-Monthly-Quota-Remaining`
+  //     when a request is rejected for being over quota).
+  //   - incrementMonthlyUsage(req): increments and returns the new count.
+  //     Only called for requests that pass the per-window check, so a
+  //     request rejected with 429 for burst-rate reasons doesn't also
+  //     consume quota.
+  resolveMonthlyQuota = null,
+  getMonthlyUsage = null,
+  incrementMonthlyUsage = null,
 } = {}) {
   const rateLimitStore = store || createMemoryStore();
 
   return async function rateLimit(req, res, next) {
     try {
       const now = timeProvider();
-      const key = keyGenerator(req);
+      const routeLimit = resolveRouteLimit ? resolveRouteLimit(req) : null;
+      const key = routeLimit ? `${keyGenerator(req)}|route:${routeLimit.id}` : keyGenerator(req);
       const override = resolveLimits ? await resolveLimits(req) : null;
-      const effectiveMaxRequests = override?.maxRequests ?? maxRequests;
-      const effectiveWindowMs = override?.windowMs ?? windowMs;
+      const tierMaxRequests = override?.maxRequests ?? maxRequests;
+      const effectiveMaxRequests = routeLimit
+        ? Math.min(tierMaxRequests, routeLimit.maxRequests)
+        : tierMaxRequests;
+      const effectiveWindowMs = routeLimit?.windowMs ?? override?.windowMs ?? windowMs;
 
       const { count, resetAt } = await rateLimitStore.increment(key, effectiveWindowMs, now);
 
@@ -106,6 +174,46 @@ export function createRateLimiter({
         });
       }
 
+      // Monthly quota (#759) — separate from the per-window check above.
+      // Only checked/incremented once a request has already passed the
+      // burst-rate check, so a request rejected above doesn't also spend
+      // quota.
+      if (resolveMonthlyQuota && getMonthlyUsage && incrementMonthlyUsage) {
+        const monthlyQuota = await resolveMonthlyQuota(req);
+        if (typeof monthlyQuota === 'number' && monthlyQuota > 0) {
+          const currentUsage = await getMonthlyUsage(req);
+          if (currentUsage >= monthlyQuota) {
+            res.setHeader('X-Monthly-Quota-Limit', String(monthlyQuota));
+            res.setHeader('X-Monthly-Quota-Remaining', '0');
+            // Best-effort seconds until the top of next UTC month — not a
+            // precise reset time, just enough for a client to back off
+            // sensibly rather than retry immediately.
+            const nowDate = new Date(now);
+            const nextMonth = Date.UTC(
+              nowDate.getUTCFullYear(),
+              nowDate.getUTCMonth() + 1,
+              1,
+            );
+            const retryAfterSeconds = Math.max(1, Math.ceil((nextMonth - now) / 1000));
+            res.setHeader('Retry-After', String(retryAfterSeconds));
+            return res.status(429).json({
+              error: 'Monthly quota exceeded',
+              code: 'MONTHLY_QUOTA_EXCEEDED',
+              quota: monthlyQuota,
+              used: currentUsage,
+              retryAfterSeconds,
+            });
+          }
+
+          const newUsage = await incrementMonthlyUsage(req);
+          res.setHeader('X-Monthly-Quota-Limit', String(monthlyQuota));
+          res.setHeader(
+            'X-Monthly-Quota-Remaining',
+            String(Math.max(monthlyQuota - newUsage, 0)),
+          );
+        }
+      }
+
       return next();
     } catch (error) {
       return next(error);
@@ -113,4 +221,4 @@ export function createRateLimiter({
   };
 }
 
-export { createMemoryStore, createRedisStore };
+export { createMemoryStore, createRedisStore, createSlidingWindowStore };

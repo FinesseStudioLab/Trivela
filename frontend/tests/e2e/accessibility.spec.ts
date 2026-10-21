@@ -92,6 +92,54 @@ test.describe('Accessibility Tests', () => {
     }
   });
 
+  test('Explore page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/explore`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Explore Page');
+  });
+
+  test('About page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/about`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'About Page');
+  });
+
+  test('Transaction History page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/history`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Transaction History Page');
+  });
+
+  test('Proof of Reserves page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/proof-of-reserves`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Proof of Reserves Page');
+  });
+
+  test('User Profile page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/profile`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'User Profile Page');
+  });
+
+  test('Admin dashboard page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Dashboard');
+  });
+
+  test('Admin Analytics page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin/analytics`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Analytics');
+  });
+
+  test('Admin Webhooks page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin/webhooks`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Webhooks');
+  });
+
   test('Navigation and header - no critical a11y violations', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/`);
 

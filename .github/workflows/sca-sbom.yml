@@ -1,0 +1,101 @@
+name: SCA + SBOM
+
+# Issue #773: neither ecosystem (npm, cargo) had a dependency-vulnerability
+# gate for the Rust contracts, and no SBOM was produced anywhere.
+# repo-sanity.yml already runs `npm audit --omit=dev --audit-level=critical`
+# for the Node workspace (kept as-is here, on purpose -- its own comment
+# explains a deliberate critical-only threshold for a documented set of
+# pre-1.0 transitive HIGH advisories; not this PR's call to re-tune). This
+# workflow adds the two things that were genuinely missing: a cargo-side
+# advisory gate for contracts/, and an SBOM artifact for both ecosystems.
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  cargo-audit:
+    name: cargo audit (Rust contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      # rustsec/audit-check runs `cargo audit` against the advisory database
+      # and fails the job on any advisory at or above the given severity.
+      # High/critical, per the issue's acceptance criteria -- deliberately
+      # not critical-only like the npm job, since there's no equivalent
+      # documented pre-1.0-package exception on the Rust side yet.
+      - name: cargo audit (fail on high/critical advisories)
+        uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  cargo-deny:
+    name: cargo deny (license + advisory policy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          log-level: warn
+          command: check
+          # No deny.toml exists yet in this repo -- cargo-deny-action
+          # generates a permissive default config on first run rather than
+          # failing outright, so this job establishes the gate without
+          # requiring a hand-authored policy file as a blocking prerequisite.
+          # A follow-up can tighten it with a committed deny.toml.
+          arguments: --all-features
+
+  sbom:
+    name: Generate SBOM artifacts (CycloneDX)
+    runs-on: ubuntu-latest
+    needs: [cargo-audit, cargo-deny]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Workspace install (npm ci)
+        run: npm ci
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install SBOM generators
+        run: |
+          npm install --global @cyclonedx/cyclonedx-npm
+          cargo install --locked cargo-cyclonedx
+
+      - name: Generate npm SBOM (CycloneDX JSON)
+        run: cyclonedx-npm --output-file sbom-npm.cdx.json
+
+      - name: Generate cargo SBOM (CycloneDX JSON, per workspace member)
+        run: cargo cyclonedx --format json --all
+
+      - name: Collect SBOM artifacts
+        run: |
+          mkdir -p sbom-artifacts
+          cp sbom-npm.cdx.json sbom-artifacts/
+          find contracts -maxdepth 2 -name '*.cdx.json' -exec cp {} sbom-artifacts/ \;
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom-artifacts/
+          retention-days: 90

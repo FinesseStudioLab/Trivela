@@ -40,8 +40,54 @@ jobs:
       - name: Lint contracts
         run: cargo clippy --workspace --all-targets -- -D warnings -A deprecated
 
+      # Issue #833: extend_ttl(50, 100) literals leaked into four redemption
+      # functions instead of the named TTL_THRESHOLD/TTL_EXTEND_TO constants
+      # (50/100 happen to be the #[cfg(test)] override values, so tests never
+      # caught it) -- on mainnet that under-extends the whole contract's
+      # instance TTL to ~8 minutes instead of the intended ~30 days. This
+      # grep guard fails the build on any future literal extend_ttl call so
+      # the same drift can't reappear silently.
+      - name: Guard against literal extend_ttl() TTL values
+        run: |
+          # Excludes comment lines (":  //") so explanatory doc comments that
+          # mention the old literal as historical context (see the comment
+          # blocks in contracts/rewards/src/lib.rs and contracts/campaign/src/lib.rs)
+          # don't trip the guard -- only actual code call sites do.
+          MATCHES=$(grep -rn --include='*.rs' -E 'extend_ttl\([0-9]' contracts/ | grep -vE ':\s*//' || true)
+          if [ -n "$MATCHES" ]; then
+            echo "$MATCHES"
+            echo "::error::Found a literal extend_ttl(N, N) call in contract code. Use the named TTL_THRESHOLD/TTL_EXTEND_TO constants (see docs/TTL_STRATEGY.md) so mainnet builds get the correct values instead of silently falling back to whatever number was hand-typed."
+            exit 1
+          fi
+          echo "No literal extend_ttl() TTL values found."
+
+      # #1196: contract event logging standard. Fails if a new publish site
+      # breaks the topic convention (tuple led by a `*_EVENT` symbol const) or
+      # if docs/EVENT_SCHEMA.md's generated event catalog is out of date.
+      - name: Check contract event logging standard
+        run: |
+          node --test scripts/check-contract-events.test.mjs
+          node scripts/check-contract-events.mjs
+
+      # #1317: SMT proofs (Z3) of the reward-accounting invariant
+      # TOTAL_SUPPLY == sum of balances for credit, batch_credit, claim and
+      # admin_transfer, plus negative controls. See docs/FORMAL_VERIFICATION.md.
+      - name: Verify reward accounting invariants (Z3)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq z3
+          ./scripts/verify-reward-invariants.sh
+
       - name: Run contract tests
         run: cargo test --workspace
+
+      # High-N storage-exhaustion stress test (issue #835) — see
+      # docs/STORAGE_MODEL.md. Already covered by the `cargo test --workspace`
+      # step above; run again by name here so a failure/regression in this
+      # specific test class is called out on its own in CI logs instead of
+      # being buried among hundreds of other test names.
+      - name: Storage-exhaustion stress test
+        run: cargo test --package trivela-campaign-contract test_high_volume_registration_stress -- --nocapture
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
@@ -240,6 +286,39 @@ jobs:
           cargo kani --harness multiplier_calculation_safety --enable-unwind 0 || echo "Kani verification completed with results"
           cargo kani --harness referral_bonus_safety --enable-unwind 0 || echo "Kani verification completed with results"
           cargo kani --harness balance_overflow_safety --enable-unwind 0 || echo "Kani verification completed with results"
+
+      # #805: ABI snapshot gate — fail if the campaign contract interface changed
+      # without updating contracts/campaign/contract_spec.json.
+      # To update: edit the spec file and bump schema_version, then commit both.
+      - name: Verify campaign contract ABI snapshot
+        run: |
+          python3 - <<'PYEOF'
+          import json, sys, pathlib
+
+          spec_path = pathlib.Path("contracts/campaign/contract_spec.json")
+          if not spec_path.exists():
+              print("ERROR: contract_spec.json missing — run scripts/generate-spec.sh", file=sys.stderr)
+              sys.exit(1)
+
+          spec = json.loads(spec_path.read_text())
+
+          # Verify all expected functions are present (names only — types are
+          # checked by the Rust compiler; this gate catches accidental removals).
+          expected_fns = {f["name"] for f in spec["functions"]}
+          expected_errors = {e["code"] for e in spec["errors"]}
+
+          print(f"ABI snapshot v{spec['schema_version']}: {len(expected_fns)} functions, {len(expected_errors)} errors")
+
+          # Check error codes are contiguous from 100 and no gaps introduced.
+          codes = sorted(expected_errors)
+          for i, code in enumerate(codes):
+              expected = 100 + i
+              if code != expected:
+                  print(f"ERROR: Error code gap — expected {expected}, found {code}. Update contract_spec.json.", file=sys.stderr)
+                  sys.exit(1)
+
+          print("ABI snapshot check passed.")
+          PYEOF
 
       - name: Run negative verification tests
         continue-on-error: true

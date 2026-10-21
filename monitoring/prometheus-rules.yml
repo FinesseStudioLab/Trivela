@@ -1,0 +1,198 @@
+# Prometheus recording and alerting rules for SLOs and error budgets
+# 
+# Fixes: https://github.com/FinesseStudioLab/Trivela/issues/779
+
+groups:
+  - name: slo_recording_rules
+    interval: 30s
+    rules:
+      # Campaign Read Availability
+      - record: slo:campaign_read:availability:ratio_rate1h
+        expr: |
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET",status!~"5.."}[1h]))
+          /
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET"}[1h]))
+      
+      - record: slo:campaign_read:availability:ratio_rate6h
+        expr: |
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET",status!~"5.."}[6h]))
+          /
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET"}[6h]))
+      
+      - record: slo:campaign_read:availability:ratio_rate30d
+        expr: |
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET",status!~"5.."}[30d]))
+          /
+          sum(rate(http_requests_total{route=~"/api/campaigns.*",method="GET"}[30d]))
+      
+      # Campaign Read Latency
+      - record: slo:campaign_read:latency:p95_1h
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_milliseconds_bucket{route=~"/api/campaigns.*",method="GET"}[1h])) by (le)
+          )
+      
+      # Redeem Availability
+      - record: slo:redeem:availability:ratio_rate1h
+        expr: |
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST",status!~"5.."}[1h]))
+          /
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST"}[1h]))
+      
+      - record: slo:redeem:availability:ratio_rate6h
+        expr: |
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST",status!~"5.."}[6h]))
+          /
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST"}[6h]))
+      
+      - record: slo:redeem:availability:ratio_rate30d
+        expr: |
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST",status!~"5.."}[30d]))
+          /
+          sum(rate(http_requests_total{route="/api/rewards/redeem",method="POST"}[30d]))
+      
+      # Webhook Delivery
+      - record: slo:webhook:delivery:ratio_rate1h
+        expr: |
+          sum(rate(webhook_deliveries_total{status="delivered"}[1h]))
+          /
+          sum(rate(webhook_deliveries_total[1h]))
+      
+      # Error Budget Calculations
+      - record: slo:campaign_read:error_budget:remaining
+        expr: |
+          1 - ((1 - slo:campaign_read:availability:ratio_rate30d) / (1 - 0.999))
+      
+      - record: slo:redeem:error_budget:remaining
+        expr: |
+          1 - ((1 - slo:redeem:availability:ratio_rate30d) / (1 - 0.990))
+      
+      # Burn Rate (how fast error budget is being consumed)
+      - record: slo:campaign_read:error_budget:burn_rate_1h
+        expr: |
+          (1 - slo:campaign_read:availability:ratio_rate1h) / (1 - 0.999)
+      
+      - record: slo:campaign_read:error_budget:burn_rate_6h
+        expr: |
+          (1 - slo:campaign_read:availability:ratio_rate6h) / (1 - 0.999)
+      
+      - record: slo:redeem:error_budget:burn_rate_1h
+        expr: |
+          (1 - slo:redeem:availability:ratio_rate1h) / (1 - 0.990)
+      
+      - record: slo:redeem:error_budget:burn_rate_6h
+        expr: |
+          (1 - slo:redeem:availability:ratio_rate6h) / (1 - 0.990)
+
+  - name: slo_fast_burn_alerts
+    interval: 30s
+    rules:
+      # Fast burn: 14.4x rate (error budget exhausted in 2 days)
+      - alert: CampaignReadErrorBudgetFastBurn
+        expr: |
+          slo:campaign_read:error_budget:burn_rate_1h > 14.4
+          and
+          slo:campaign_read:error_budget:burn_rate_1h > 14.4
+        for: 2m
+        labels:
+          severity: critical
+          slo: campaign-read-availability
+        annotations:
+          summary: "Campaign Read SLO: Fast error budget burn detected"
+          description: "Error budget burning at {{ $value | humanizePercentage }}x rate. At this rate, budget will be exhausted in 2 days."
+          runbook: "https://docs.trivela.io/runbooks/slo-fast-burn"
+      
+      - alert: RedeemErrorBudgetFastBurn
+        expr: |
+          slo:redeem:error_budget:burn_rate_1h > 14.4
+          and
+          slo:redeem:error_budget:burn_rate_1h > 14.4
+        for: 2m
+        labels:
+          severity: critical
+          slo: redeem-availability
+        annotations:
+          summary: "Redeem SLO: Fast error budget burn detected"
+          description: "Error budget burning at {{ $value | humanizePercentage }}x rate. At this rate, budget will be exhausted in 2 days."
+          runbook: "https://docs.trivela.io/runbooks/slo-fast-burn"
+  
+  - name: slo_medium_burn_alerts
+    interval: 1m
+    rules:
+      # Medium burn: 6x rate (error budget exhausted in 5 days)
+      - alert: CampaignReadErrorBudgetMediumBurn
+        expr: |
+          slo:campaign_read:error_budget:burn_rate_6h > 6.0
+          and
+          slo:campaign_read:error_budget:burn_rate_1h > 6.0
+        for: 15m
+        labels:
+          severity: warning
+          slo: campaign-read-availability
+        annotations:
+          summary: "Campaign Read SLO: Medium error budget burn detected"
+          description: "Error budget burning at {{ $value | humanizePercentage }}x rate. At this rate, budget will be exhausted in 5 days."
+          runbook: "https://docs.trivela.io/runbooks/slo-medium-burn"
+      
+      - alert: RedeemErrorBudgetMediumBurn
+        expr: |
+          slo:redeem:error_budget:burn_rate_6h > 6.0
+          and
+          slo:redeem:error_budget:burn_rate_1h > 6.0
+        for: 15m
+        labels:
+          severity: warning
+          slo: redeem-availability
+        annotations:
+          summary: "Redeem SLO: Medium error budget burn detected"
+          description: "Error budget burning at {{ $value | humanizePercentage }}x rate. At this rate, budget will be exhausted in 5 days."
+          runbook: "https://docs.trivela.io/runbooks/slo-medium-burn"
+  
+  - name: slo_budget_exhaustion_alerts
+    interval: 5m
+    rules:
+      # Alert when error budget drops below 20%
+      - alert: CampaignReadErrorBudgetLow
+        expr: slo:campaign_read:error_budget:remaining < 0.20
+        for: 5m
+        labels:
+          severity: warning
+          slo: campaign-read-availability
+        annotations:
+          summary: "Campaign Read SLO: Error budget critically low"
+          description: "Only {{ $value | humanizePercentage }} of error budget remaining for 30d window."
+          runbook: "https://docs.trivela.io/runbooks/error-budget-low"
+      
+      - alert: RedeemErrorBudgetLow
+        expr: slo:redeem:error_budget:remaining < 0.20
+        for: 5m
+        labels:
+          severity: warning
+          slo: redeem-availability
+        annotations:
+          summary: "Redeem SLO: Error budget critically low"
+          description: "Only {{ $value | humanizePercentage }} of error budget remaining for 30d window."
+          runbook: "https://docs.trivela.io/runbooks/error-budget-low"
+      
+      # Alert when error budget is exhausted
+      - alert: CampaignReadSLOViolation
+        expr: slo:campaign_read:error_budget:remaining <= 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: campaign-read-availability
+        annotations:
+          summary: "Campaign Read SLO VIOLATED"
+          description: "Error budget exhausted. Current availability: {{ $value | humanizePercentage }}, Target: 99.9%"
+          runbook: "https://docs.trivela.io/runbooks/slo-violation"
+      
+      - alert: RedeemSLOViolation
+        expr: slo:redeem:error_budget:remaining <= 0
+        for: 5m
+        labels:
+          severity: critical
+          slo: redeem-availability
+        annotations:
+          summary: "Redeem SLO VIOLATED"
+          description: "Error budget exhausted. Current availability: {{ $value | humanizePercentage }}, Target: 99.0%"
+          runbook: "https://docs.trivela.io/runbooks/slo-violation"

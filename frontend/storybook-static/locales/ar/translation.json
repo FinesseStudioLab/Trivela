@@ -1,0 +1,75 @@
+{
+  "nav": {
+    "explore": "استكشاف",
+    "leaderboard": "لوحة المتصدرين",
+    "campaigns": "الحملات",
+    "myPoints": "نقاطي",
+    "connectWallet": "ربط المحفظة",
+    "disconnectWallet": "قطع اتصال المحفظة"
+  },
+  "hero": {
+    "title": "منصة الحملات والمكافآت",
+    "subtitle": "على Stellar Soroban",
+    "description": "Rust · Node · React"
+  },
+  "campaigns": {
+    "featured": "الحملات المميزة",
+    "all": "جميع الحملات",
+    "loading": "جارٍ تحميل الحملات…",
+    "empty": "لا توجد حملات متاحة الآن.",
+    "error": "تعذّر تحميل الحملات الآن.",
+    "register": "تسجيل",
+    "registered": "مسجّل",
+    "closed": "مغلقة",
+    "active": "نشطة",
+    "participants": "مشارك",
+    "endsIn": "تنتهي خلال",
+    "ended": "انتهت",
+    "startsIn": "تبدأ خلال"
+  },
+  "rewards": {
+    "availablePoints": "النقاط المتاحة",
+    "totalEarned": "إجمالي المكتسب",
+    "claim": "استلام المكافآت",
+    "claiming": "جارٍ الاستلام…",
+    "claimSuccess": "تم استلام المكافآت بنجاح!",
+    "claimError": "فشل استلام المكافآت. يرجى المحاولة مجدداً.",
+    "walletRewards": "مكافآت المحفظة",
+    "noRewards": "لا توجد مكافآت متاحة بعد."
+  },
+  "wallet": {
+    "connect": "ربط المحفظة",
+    "connecting": "جارٍ الاتصال…",
+    "connected": "متصل",
+    "disconnect": "قطع الاتصال",
+    "selectWallet": "اختر محفظة",
+    "notInstalled": "{{wallet}} غير مثبّتة",
+    "installPrompt": "ثبّت {{wallet}} للمتابعة.",
+    "connectionError": "فشل ربط المحفظة. يرجى المحاولة مجدداً."
+  },
+  "errors": {
+    "generic": "حدث خطأ ما. يرجى المحاولة مجدداً.",
+    "network": "خطأ في الشبكة. تحقق من اتصالك.",
+    "unauthorized": "غير مصرح لك بتنفيذ هذا الإجراء.",
+    "notFound": "المورد المطلوب غير موجود."
+  },
+  "common": {
+    "loading": "جارٍ التحميل…",
+    "retry": "إعادة المحاولة",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "close": "إغلاق",
+    "save": "حفظ",
+    "submit": "إرسال",
+    "back": "رجوع",
+    "next": "التالي",
+    "learnMore": "اعرف المزيد",
+    "viewAll": "عرض الكل",
+    "copyAddress": "نسخ العنوان",
+    "copied": "تم النسخ!"
+  },
+  "footer": {
+    "partOfStellar": "جزء من منظومة Stellar.",
+    "license": "Apache-2.0."
+  }
+}

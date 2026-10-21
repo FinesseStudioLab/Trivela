@@ -123,3 +123,106 @@ test('refbonus event with missing topics is ignored', async () => {
 
   assert.equal(projections(db).length, 0);
 });
+
+// ── pollWithCursor: backpressure + exactly-once (issue #753) ──────────────────
+
+/**
+ * DB mock that also supports `get()` (returns the cursor row) and tracks which
+ * processed_events inserts saw `changes === 0` (simulating already-seen events).
+ */
+function makeCursorDb({ storedCursor = null, alreadyProcessed = new Set() } = {}) {
+  const calls = [];
+  return {
+    calls,
+    async get(sql, _params) {
+      calls.push({ sql, type: 'get' });
+      if (/indexer_cursors/.test(sql)) return storedCursor ? { cursor: storedCursor } : undefined;
+      return undefined;
+    },
+    async run(sql, params) {
+      calls.push({ sql, params, type: 'run' });
+      if (/processed_events/.test(sql) && alreadyProcessed.has(`${params[1]}:${params[2]}`)) {
+        return { changes: 0 };
+      }
+      return { changes: 1 };
+    },
+  };
+}
+
+function makeMockRpcPool(events = [], nextCursor = 'cursor:99') {
+  return {
+    async acquire() {
+      return {
+        async getEvents() {
+          return { events, nextCursor };
+        },
+      };
+    },
+    release() {},
+  };
+}
+
+test('pollWithCursor loads stored cursor on startup and resumes from it (issue #753)', async () => {
+  const db = makeCursorDb({ storedCursor: 'cursor:42' });
+  const rpcPool = makeMockRpcPool([], 'cursor:43');
+  const indexer = createEventIndexer({ db, rpcPool });
+
+  await indexer.pollWithCursor('CONTRACT_A');
+
+  const getCursorCall = db.calls.find((c) => c.type === 'get' && /indexer_cursors/.test(c.sql));
+  assert.ok(getCursorCall, 'reads the stored cursor');
+});
+
+test('pollWithCursor persists nextCursor after a batch (issue #753)', async () => {
+  const db = makeCursorDb();
+  const events = [{ topic: ['credit', 'USER'], data: 100, ledger: 5 }];
+  const rpcPool = makeMockRpcPool(events, 'cursor:next');
+  const indexer = createEventIndexer({ db, rpcPool });
+
+  await indexer.pollWithCursor('CONTRACT_A');
+
+  const saveCursorCall = db.calls.find(
+    (c) => c.type === 'run' && /indexer_cursors/.test(c.sql) && /DO UPDATE/.test(c.sql),
+  );
+  assert.ok(saveCursorCall, 'upserts the cursor after processing');
+  assert.equal(saveCursorCall.params[1], 'cursor:next', 'saves the correct next cursor');
+});
+
+test('pollWithCursor skips already-processed events without re-handling them (issue #753)', async () => {
+  // Mark ledger=5, eventIndex=0 as already processed
+  const db = makeCursorDb({ alreadyProcessed: new Set(['5:0']) });
+  const events = [{ topic: ['credit', 'USER'], data: 100, ledger: 5 }];
+  const rpcPool = makeMockRpcPool(events, 'cursor:next');
+  const indexer = createEventIndexer({ db, rpcPool });
+
+  await indexer.pollWithCursor('CONTRACT_A');
+
+  // The credit handler writes to `balances` — it must NOT appear since the
+  // event was already processed (dedupe short-circuited).
+  const balanceWrite = db.calls.find((c) => /balances/.test(c.sql));
+  assert.ok(!balanceWrite, 'already-processed event is not re-applied');
+});
+
+test('pollWithCursor returns nextCursor (issue #753)', async () => {
+  const db = makeCursorDb();
+  const rpcPool = makeMockRpcPool([], 'cursor:end');
+  const indexer = createEventIndexer({ db, rpcPool });
+
+  const result = await indexer.pollWithCursor('CONTRACT_A');
+  assert.equal(result, 'cursor:end');
+});
+
+test('pollWithCursor processes multiple events in a batch (issue #753)', async () => {
+  const db = makeCursorDb();
+  const events = [
+    { topic: ['credit', 'USER_A'], data: 50, ledger: 10 },
+    { topic: ['credit', 'USER_B'], data: 75, ledger: 10 },
+  ];
+  const rpcPool = makeMockRpcPool(events, 'cursor:11');
+  const indexer = createEventIndexer({ db, rpcPool });
+
+  await indexer.pollWithCursor('CONTRACT_A');
+
+  const processedInserts = db.calls.filter((c) => /processed_events/.test(c.sql));
+  assert.equal(processedInserts.length, 2, 'one dedupe insert per event');
+});

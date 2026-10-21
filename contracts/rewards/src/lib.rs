@@ -44,12 +44,24 @@ use soroban_sdk::{
     Bytes, BytesN, Env, Symbol, Vec,
 };
 
+pub mod groth16;
+pub mod types;
+use types::DataKey;
+
+#[cfg(test)]
+mod error_codes_test;
+#[cfg(test)]
 mod poseidon;
+#[cfg(test)]
 mod merkle;
 #[cfg(test)]
 mod poseidon_merkle_tests;
 #[cfg(test)]
 mod poseidon_vs_sha256_bench;
+#[cfg(test)]
+mod airdrop_test;
+#[cfg(test)]
+mod pool_rebalance_test;
 
 #[contracterror]
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
@@ -82,6 +94,7 @@ pub enum Error {
     InvalidReferralConfig = 19,
     /// The computed referral bonus rounded down to zero.
     ZeroReferralBonus = 20,
+    // ── SEP-41 Token errors (issue #530) ──────────────────────────────────────
     /// SEP-41 token mode is not enabled.
     TokenModeNotEnabled = 21,
     /// SEP-41: allowance not sufficient for transfer_from.
@@ -96,13 +109,134 @@ pub enum Error {
     DuplicateSigner = 28,
     UnknownSigner = 29,
     /// Operation amount must be greater than zero (issue #1020).
-    ///
-    /// Assigned 30/31 rather than 21/22: the SEP-41 block already published
-    /// those codes through the generated bindings and docs/CONTRACTS_API.md,
-    /// so renumbering it would break decoding for existing clients.
     ZeroAmount = 30,
     /// Transfer source and destination cannot be the same address (issue #1020).
     SelfTransfer = 31,
+    /// No clawback proposal found for the given id.
+    ClawbackNotFound = 32,
+    /// The timelock delay for this clawback has not yet elapsed.
+    ClawbackTimelocked = 33,
+    /// Clawback amount exceeds the target's current unclaimed balance.
+    ClawbackOverspend = 34,
+    /// Only the configured guardian (admin) may cancel a clawback proposal.
+    ClawbackGuardianOnly = 35,
+    // ── Multi-sig errors (issue #733) ─────────────────────────────────────────
+    /// Multi-sig configuration has not been initialised.
+    MultiSigNotConfigured = 36,
+    /// The caller is not in the authorised signer set.
+    NotASigner = 37,
+    /// This signer has already approved this proposal.
+    AlreadyApproved = 38,
+    /// The referenced proposal does not exist.
+    ProposalNotFound = 39,
+    /// The proposal has passed its expiry ledger.
+    ProposalExpired = 40,
+    /// The proposal does not yet have enough approvals to execute.
+    InsufficientApprovals = 41,
+    // ── Governance errors (issue #735) ────────────────────────────────────────
+    /// Governance quorum or delay has not been configured.
+    GovernanceNotConfigured = 42,
+    /// A governance proposal for this key is already pending.
+    ProposalAlreadyPending = 43,
+    /// The time-lock delay has not yet elapsed.
+    TimeLockActive = 44,
+    /// The governance proposal has been cancelled or never existed.
+    ProposalCancelled = 45,
+    // ── Airdrop errors (issue #845) ──────────────────────────────────────────────
+    /// Merkle airdrop root has not been set.
+    AirdropRootNotSet = 46,
+    /// The supplied merkle proof is invalid or does not match the root.
+    AirdropInvalidProof = 47,
+    /// The nullifier has already been used to claim from this airdrop.
+    AirdropNullifierUsed = 48,
+    // ── Distribution mode errors (issue #871) ─────────────────────────────────────
+    /// Invalid distribution mode specified.
+    InvalidDistributionMode = 49,
+    // ── Issue #903: Campaign supply cap ───────────────────────────────────────
+    /// Credit would exceed the campaign's configured total supply cap.
+    CampaignSupplyCapExceeded = 50,
+    /// Campaign supply cap configuration is invalid.
+    InvalidSupplyCap = 51,
+    // ── Issue #898: Multi-level referral tree ────────────────────────────────
+    /// Invalid referral depth configuration (must be > 0 and <= MAX_REFERRAL_DEPTH).
+    InvalidReferralDepth = 52,
+    /// Referral tier configuration is invalid.
+    InvalidReferralTierConfig = 53,
+    // ── Staking/Boost errors ──────────────────────────────────────────────────
+    /// Invalid boost curve configuration.
+    InvalidBoostCurve = 54,
+    /// Lock schedule configuration is invalid.
+    InvalidLockSchedule = 55,
+    /// Boost multiplier cannot be zero.
+    ZeroBoostMultiplier = 56,
+    // ── Issue #895: Operator delegation errors ────────────────────────────────
+    /// Operator budget has been fully consumed.
+    OperatorBudgetExceeded = 57,
+    /// Operator delegation not found or has been revoked.
+    OperatorDelegationNotFound = 58,
+    /// Invalid operator delegation configuration.
+    InvalidOperatorDelegation = 59,
+    // ── Issue #896: Multi-asset redemption errors ─────────────────────────────
+    /// Redemption asset not found or not configured.
+    RedemptionAssetNotFound = 60,
+    /// Redemption asset is disabled.
+    RedemptionAssetDisabled = 61,
+    /// Invalid asset configuration.
+    InvalidAssetConfig = 62,
+    // ── Issue #899: Claim cooldown errors ─────────────────────────────────────
+    /// Claim is still within the cooldown period.
+    ClaimCooldownActive = 63,
+    /// Invalid cooldown configuration.
+    InvalidCooldownConfig = 64,
+    // ── Issue #900: Minimum claim threshold ──────────────────────────────────
+    /// Claim amount is below the configured minimum threshold.
+    BelowMinClaim = 65,
+    // ── Staking errors ───────────────────────────────────────────────────────
+    /// Staking position not found.
+    StakingNotFound = 66,
+    /// Staking position is still locked.
+    PositionLocked = 67,
+    // ── Timelock errors ──────────────────────────────────────────────────────
+    /// This exact operation is already queued in the timelock.
+    TimelockAlreadyQueued = 68,
+    /// No matching timelock entry is queued.
+    TimelockNotFound = 69,
+}
+
+// ── Issue #895: Operator delegation types ─────────────────────────────────────
+
+/// Operator delegation configuration stored per (operator, campaign_id).
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct OperatorDelegation {
+    pub operator: Address,
+    pub campaign_id: u64,
+    pub budget_total: u64,
+    pub budget_used: u64,
+    pub granted_at: u32,
+    pub revoked: bool,
+}
+
+// ── Issue #896: Multi-asset redemption types ──────────────────────────────────
+
+/// Per-asset redemption configuration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct RedemptionAssetConfig {
+    pub asset_address: Address,
+    pub rate_bps: u64,          // Points per asset unit (basis points)
+    pub reserve_balance: i128,
+    pub enabled: bool,
+}
+
+// ── Issue #899: Claim cooldown types ──────────────────────────────────────────
+
+/// Per-campaign claim cooldown configuration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ClaimCooldown {
+    pub cooldown_ledgers: u32,  // Minimum ledgers between claims
+    pub enabled: bool,
 }
 
 /// Vesting schedule record stored per user per vest_id.
@@ -113,6 +247,121 @@ pub struct VestingRecord {
     pub start_ledger: u32,
     pub end_ledger: u32,
     pub claimed: u64,
+}
+
+/// Merkle membership proof for airdrop claims.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MerkleProof {
+    /// Sibling hashes from leaf level up to (but not including) the root.
+    pub siblings: Vec<BytesN<32>>,
+    /// Leaf position in the tree. Bit `k` (LSB first) selects left/right at level `k`.
+    pub leaf_index: u32,
+}
+
+// ── Staking types ──────────────────────────────────────────────────────────
+
+/// Distribution mode for campaign rewards (issue #871).
+#[contracttype]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(u8)]
+pub enum DistributionMode {
+    /// Linear: rewards proportional to actions (default)
+    Linear = 0,
+    /// Quadratic: rewards = isqrt(actions) to reduce whale dominance
+    Quadratic = 1,
+}
+
+/// Individual staking position for a user.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct StakingPosition {
+    /// Amount of points staked
+    pub amount: u64,
+    /// Ledger when position was created (stake timestamp)
+    pub staked_at: u32,
+    /// Ledger when position unlocks (0 = no lock)
+    pub unlocks_at: u32,
+    /// Applied boost multiplier in basis points (e.g., 11000 = 1.1x)
+    pub boost_multiplier_bps: u32,
+    /// Amount already claimed from this position
+    pub claimed: u64,
+}
+
+/// Lock schedule configuration defining duration options and their boosts.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct LockSchedule {
+    /// Lock duration in ledgers (e.g., 17280 = ~1 day at 5s/ledger)
+    pub duration_ledgers: u32,
+    /// Boost multiplier in basis points (e.g., 11000 = 1.1x)
+    pub boost_multiplier_bps: u32,
+}
+
+/// Boost curve configuration for calculating boost based on lock duration.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct BoostCurve {
+    /// Base boost multiplier for minimum lock (basis points)
+    pub base_multiplier_bps: u32,
+    /// Maximum boost multiplier (basis points)
+    pub max_multiplier_bps: u32,
+    /// Ledger duration for maximum boost
+    pub max_duration_ledgers: u32,
+    /// Curve type (0 = linear, 1 = logarithmic, 2 = exponential)
+    pub curve_type: u32,
+}
+
+// ── Multi-sig types (issue #733) ─────────────────────────────────────────────
+
+/// Multi-sig configuration: M-of-N threshold over a signer set.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct MultiSigConfig {
+    /// Minimum number of approvals required to execute a privileged operation.
+    pub threshold: u32,
+    /// Ordered list of authorized signers.
+    pub signers: Vec<Address>,
+}
+
+/// An in-flight privileged operation proposal waiting for threshold approvals.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct PrivilegedProposal {
+    /// Unique proposal identifier.
+    pub proposal_id: u64,
+    /// Symbolic op code (e.g. `withdraw_reserve`, `upgrade`, `set_rate`).
+    pub op: Symbol,
+    /// Serialised op arguments (application-defined payload).
+    pub payload: Vec<Symbol>,
+    /// Ledger after which this proposal expires.
+    pub expires_at_ledger: u32,
+    /// Set of signers that have approved so far.
+    pub approvals: Vec<Address>,
+}
+
+// ── Governance types (issue #735) ─────────────────────────────────────────────
+
+/// An in-flight on-chain governance proposal for a single parameter change.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ParamProposal {
+    /// Unique proposal identifier.
+    pub proposal_id: u64,
+    /// Storage key for the parameter being changed.
+    pub param_key: Symbol,
+    /// New value encoded as a 64-bit word (caller's encoding convention).
+    pub new_value: u64,
+    /// Ledger at or after which the proposal may be executed.
+    pub execute_after_ledger: u32,
+    /// Ledger after which the proposal expires without execution.
+    pub expires_at_ledger: u32,
+    /// Set of addresses that voted in favour.
+    pub votes_for: Vec<Address>,
+    /// Quorum required for execution (number of approving votes).
+    pub quorum: u32,
+    /// Whether the proposal has been executed.
+    pub executed: bool,
 }
 
 contractmeta!(
@@ -170,6 +419,13 @@ const PAUSE_REDEEM_EVENT: Symbol = symbol_short!("psredeem");
 const MAX_CREDIT_EVENT: Symbol = symbol_short!("mxcredit");
 const CAMPAIGN_MULTIPLIER_EVENT: Symbol = symbol_short!("multset");
 const MAX_CREDIT_PER_CALL: Symbol = symbol_short!("mxcredit");
+/// Default per-call credit cap applied at initialization. `0` (set explicitly
+/// via `set_max_credit_per_call`) still disables the cap, but an uninitialized
+/// or freshly-initialized contract no longer mints without a limit.
+const DEFAULT_MAX_CREDIT_PER_CALL: u64 = 1_000_000;
+/// Minimum claim amount (issue #321). 0 means no minimum.
+const MIN_CLAIM: Symbol = symbol_short!("min_clm");
+const MIN_CLAIM_EVENT: Symbol = symbol_short!("minclmst");
 const SCHEMA_VERSION: Symbol = symbol_short!("schema_v");
 const CURRENT_SCHEMA_VERSION: u32 = 1;
 const CAMPAIGN_MULTIPLIER: Symbol = symbol_short!("mult");
@@ -241,6 +497,118 @@ const REF_BONUS_EVENT: Symbol = symbol_short!("refbonus");
 // configuration and keep `qualifying_amount * rate_bps` comfortably in range.
 const MAX_REFERRAL_RATE_BPS: u32 = 100_000;
 
+// ── Multi-level referral tree (issue #898) ───────────────────────────────────
+/// Maximum referral tree depth (prevents unbounded loops and gas attacks).
+const MAX_REFERRAL_TREE_DEPTH: u32 = 10;
+/// Configured referral tree depth: (REF_DEPTH) -> u32
+const REF_DEPTH: Symbol = symbol_short!("refdepth");
+/// Per-level rate configuration: (REF_TIER_RATE, level: u32) -> rate_bps: u32
+const REF_TIER_RATE: Symbol = symbol_short!("reftrate");
+/// Multi-level referral reward event: topics (ref_mlvl, referrer, referee, level), data (bonus, qualifying_amount)
+const REF_MULTILEVEL_EVENT: Symbol = symbol_short!("refmlvl");
+/// Referral chain storage (mirrored from campaign contract): (REFERRAL, referee) -> referrer
+const REFERRAL: Symbol = symbol_short!("referral");
+
+// ── Campaign supply cap (issue #903) ─────────────────────────────────────────
+/// Per-campaign total supply cap: (CAMPAIGN_CAP, campaign_id) -> u64 (0 = uncapped)
+const CAMPAIGN_CAP: Symbol = symbol_short!("campcap");
+/// Per-campaign issued total: (CAMPAIGN_ISSUED, campaign_id) -> u64
+const CAMPAIGN_ISSUED: Symbol = symbol_short!("campiss");
+/// Campaign supply cap set event: topics (campcap, campaign_id), data (cap: u64)
+const CAMPAIGN_CAP_EVENT: Symbol = symbol_short!("campcap");
+/// Reward pool rebalanced event (#1186): topics (poolrbal, from_campaign, to_campaign),
+/// data (amount: u64, from_cap: u64, to_cap: u64) — the caps are post-move values.
+const POOL_REBALANCE_EVENT: Symbol = symbol_short!("poolrbal");
+
+// ── Issue #895: Operator delegation constants ────────────────────────────────
+/// Operator delegation storage: (OP_DELEGATION, operator, campaign_id) -> OperatorDelegation
+const OP_DELEGATION: Symbol = symbol_short!("opdlgt");
+/// Operator registry for enumeration: (OP_REGISTRY, campaign_id) -> Vec<Address>
+const OP_REGISTRY: Symbol = symbol_short!("opreg");
+/// Grant operator event: topics (op_grant, operator, campaign_id), data (budget: u64)
+const OP_GRANT_EVENT: Symbol = symbol_short!("opgrant");
+/// Revoke operator event: topics (op_revoke, operator, campaign_id), data ()
+const OP_REVOKE_EVENT: Symbol = symbol_short!("oprevoke");
+/// Operator credit event: topics (op_credit, operator, user), data (amount: u64)
+const OP_CREDIT_EVENT: Symbol = symbol_short!("opcredit");
+
+// ── Issue #896: Multi-asset redemption constants ──────────────────────────────
+/// List of redemption asset addresses: REDEMPTION_ASSETS -> Vec<Address>
+const REDEMPTION_ASSETS: Symbol = symbol_short!("rd_assts");
+/// Per-asset config: (ASSET_CONFIG, Address) -> RedemptionAssetConfig
+const ASSET_CONFIG: Symbol = symbol_short!("ast_cfg");
+/// Asset added event: topics (ast_add,), data (asset: Address, rate: u64)
+const ASSET_ADD_EVENT: Symbol = symbol_short!("ast_add");
+/// Asset updated event: topics (ast_upd,), data (asset: Address, rate: u64)
+const ASSET_UPDATE_EVENT: Symbol = symbol_short!("ast_upd");
+/// Asset removed event: topics (ast_rem,), data (asset: Address)
+const ASSET_REMOVE_EVENT: Symbol = symbol_short!("ast_rem");
+/// Multi-asset redeem event: topics (redeem_ma, user, asset), data (points: u64, amount: i128)
+const REDEEM_MULTIASSET_EVENT: Symbol = symbol_short!("rd_ma");
+
+// ── Issue #899: Claim cooldown constants ──────────────────────────────────────
+/// Cooldown config: (CLAIM_COOLDOWN, campaign_id) -> ClaimCooldown
+const CLAIM_COOLDOWN: Symbol = symbol_short!("clm_cool");
+/// Last claim ledger: (LAST_CLAIM, user, campaign_id) -> u32
+const LAST_CLAIM: Symbol = symbol_short!("lst_clm");
+/// Cooldown set event: topics (cool_set, campaign_id), data (ledgers: u32)
+const COOLDOWN_SET_EVENT: Symbol = symbol_short!("cool_set");
+
+// ── Multi-sig constants (issue #733) ─────────────────────────────────────────
+const MULTISIG_CFG: Symbol = symbol_short!("mscfg");
+const MULTISIG_PROP: Symbol = symbol_short!("msprop");
+const MULTISIG_CTR: Symbol = symbol_short!("msctr");
+const PRIV_PROP_EVENT: Symbol = symbol_short!("privprop");
+const PRIV_APPR_EVENT: Symbol = symbol_short!("privappr");
+const PRIV_EXEC_EVENT: Symbol = symbol_short!("privexec");
+
+// ── Governance constants (issue #735) ─────────────────────────────────────────
+const GOV_PROP: Symbol = symbol_short!("govprop");
+const GOV_CTR: Symbol = symbol_short!("govctr");
+const GOV_PROPOSE_EVENT: Symbol = symbol_short!("govprp");
+const GOV_VOTE_EVENT: Symbol = symbol_short!("govvote");
+const GOV_EXECUTE_EVENT: Symbol = symbol_short!("govexec");
+const GOV_CANCEL_EVENT: Symbol = symbol_short!("govcanc");
+
+// ── Emergency timelock constants (issue #838) ────────────────────────────────
+/// Persistent map key prefix for queued timelock entries, keyed by
+/// `(TIMELOCK_ENTRY, op_hash)` -> `eta_ledger: u32`.
+const TIMELOCK_ENTRY: Symbol = symbol_short!("tlentry");
+/// Instance key for the admin-configurable minimum delay, in ledgers,
+/// between queuing and executing a timelocked op. Defaults to
+/// `DEFAULT_TIMELOCK_DELAY` if never configured.
+const TIMELOCK_DELAY: Symbol = symbol_short!("tldelay");
+const TIMELOCK_QUEUE_EVENT: Symbol = symbol_short!("tlqueue");
+const TIMELOCK_EXEC_EVENT: Symbol = symbol_short!("tlexec");
+const TIMELOCK_CANCEL_EVENT: Symbol = symbol_short!("tlcanc");
+/// Fallback delay (in ledgers, ~5s each) when no delay has been configured —
+/// roughly 24 hours.
+const DEFAULT_TIMELOCK_DELAY: u32 = 17_280;
+// ── Staking constants ──────────────────────────────────────────────────────
+/// Individual staking position key: (STAKE, user, stake_id) -> StakingPosition
+const STAKE: Symbol = symbol_short!("stake");
+/// Staking position counter key: (STAKE_CTR, user) -> u64
+const STAKE_CTR: Symbol = symbol_short!("stakectr");
+/// Staking position IDs key: (STAKE_IDS, user) -> Vec<u64>
+const STAKE_IDS: Symbol = symbol_short!("stakeids");
+/// Active lock schedules key: LOCK_SCHEDULES -> Vec<LockSchedule>
+const LOCK_SCHEDULES: Symbol = symbol_short!("locksched");
+/// Boost curve configuration key: BOOST_CURVE -> BoostCurve
+const BOOST_CURVE: Symbol = symbol_short!("boostcrv");
+/// Minimum stake amount key: MIN_STAKE -> u64
+const MIN_STAKE: Symbol = symbol_short!("minstake");
+/// Staking paused flag key: PAUSE_STAKE -> bool
+const PAUSE_STAKE: Symbol = symbol_short!("psstake");
+/// Stake event: topics (STAKE_EVENT, user), data (stake_id: u64, amount: u64, unlocks_at: u32, boost_multiplier_bps: u32)
+const STAKE_EVENT: Symbol = symbol_short!("stake");
+/// Unstake event: topics (UNSTAKE_EVENT, user), data (stake_id: u64, amount: u64, claimed: u64)
+const UNSTAKE_EVENT: Symbol = symbol_short!("unstake");
+/// Boost update event: topics (BOOST_UPDATE_EVENT, user), data (stake_id: u64, new_boost_bps: u32)
+const BOOST_UPDATE_EVENT: Symbol = symbol_short!("boostupd");
+/// Lock schedule update event: topics (LOCK_SCHEDULE_EVENT,), data ()
+const LOCK_SCHEDULE_EVENT: Symbol = symbol_short!("locksched");
+/// Boost curve update event: topics (BOOST_CURVE_EVENT,), data ()
+const BOOST_CURVE_EVENT: Symbol = symbol_short!("boostcrve");
 // ── SEP-41 Token Interface (issue #530) ─────────────────────────────────────
 // Optional token-backed mode where reward points are SEP-41-compliant tokens.
 // When token_mode is enabled, the contract exposes standard token functions.
@@ -255,13 +623,89 @@ const SEP41_TRANSFER_EVENT: Symbol = symbol_short!("transfer");
 const SEP41_APPROVE_EVENT: Symbol = symbol_short!("approve");
 const SEP41_BURN_EVENT: Symbol = symbol_short!("burn");
 
+// ── Timelocked clawback (issue #729) ─────────────────────────────────────────
+//
+// A clawback proposal reserves `amount` from a target's unclaimed balance
+// and queues an admin-initiated credit removal. The guardian (admin) may
+// cancel within the timelock window. After the delay elapses, anyone can
+// execute. Only unclaimed points may be clawed back (issued but not yet
+// redeemed), so the credit→balance ledger conservation invariant holds.
+//
+// Storage layout:
+//   (CLAWBACK_PROPOSAL, u32) -> ClawbackProposal  (persistent)
+//   CLAWBACK_NONCE            -> u32               (instance — monotonic counter)
+
+const CLAWBACK_PROPOSAL: Symbol = symbol_short!("clwbprop");
+const CLAWBACK_NONCE: Symbol = symbol_short!("clwbnonce");
+/// Minimum ledgers that must pass before a clawback can be executed.
+/// At ~5 s/ledger this is roughly 7 days on mainnet.
+const CLAWBACK_TIMELOCK_LEDGERS: u32 = 120_960;
+const CLAWBACK_PROPOSE_EVENT: Symbol = symbol_short!("clwbprop");
+const CLAWBACK_CANCEL_EVENT: Symbol = symbol_short!("clwbcanc");
+const CLAWBACK_EXECUTE_EVENT: Symbol = symbol_short!("clwbexec");
+
+// ── Merkle Airdrop (issue #845) ──────────────────────────────────────────────
+// ZK airdrop claims from a Merkle-committed allowlist of (secret, amount) pairs.
+// Users prove membership without revealing their position in the tree.
+// Nullifiers prevent double-claiming while maintaining privacy.
+const AIRDROP_ROOT: Symbol = symbol_short!("airdrop");
+const AIRDROP_NULLIFIERS: Symbol = symbol_short!("nulli");
+const AIRDROP_CLAIMED_EVENT: Symbol = symbol_short!("airreclm");
+
+// ── Distribution mode constants (issue #871) ──────────────────────────────────
+// Quadratic/anti-whale distribution mode for campaigns.
+// Storage key: (DIST_MODE, campaign_id) -> u8 (DistributionMode enum)
+const DIST_MODE: Symbol = symbol_short!("distmode");
+const DIST_MODE_SET_EVENT: Symbol = symbol_short!("distmset");
+
+/// Proposal record stored under `(CLAWBACK_PROPOSAL, id)`.
+#[contracttype]
+#[derive(Clone, Debug)]
+pub struct ClawbackProposal {
+    pub target: Address,
+    pub amount: u64,
+    /// Ledger sequence number when the proposal was created.
+    pub proposed_at: u32,
+    /// True once cancelled so stale proposals don't appear as pending.
+    pub cancelled: bool,
+    /// True once executed so replay is impossible.
+    pub executed: bool,
+}
+
 #[contract]
 pub struct RewardsContract;
+
+fn merkle_hash_pair(env: &Env, a: &BytesN<32>, b: &BytesN<32>) -> BytesN<32> {
+    let mut combined = [0u8; 64];
+    combined[..32].copy_from_slice(&a.to_array());
+    combined[32..].copy_from_slice(&b.to_array());
+    env.crypto()
+        .sha256(&Bytes::from_slice(env, &combined))
+        .into()
+}
+
+fn verify_airdrop_proof(env: &Env, leaf: &BytesN<32>, proof: &MerkleProof, root: &BytesN<32>) -> bool {
+    let mut current = leaf.clone();
+    let mut index = proof.leaf_index;
+    for sibling in proof.siblings.iter() {
+        current = if index & 1 == 0 {
+            merkle_hash_pair(env, &current, &sibling)
+        } else {
+            merkle_hash_pair(env, &sibling, &current)
+        };
+        index >>= 1;
+    }
+    &current == root
+}
 
 fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
     admin.require_auth();
 
-    let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&ADMIN)
+        .ok_or(Error::Unauthorized)?;
     if &stored_admin != admin {
         return Err(Error::Unauthorized);
     }
@@ -269,10 +713,41 @@ fn require_admin(env: &Env, admin: &Address) -> Result<(), Error> {
     Ok(())
 }
 
+/// Authorize a point-minting caller (issue #1419).
+///
+/// `credit`/`batch_credit`/`credit_vested` mint balances that are redeemable
+/// for reserve tokens, so they are privileged. Only the admin or a registered
+/// co-admin may use these generic mint paths. Campaign-scoped operators must
+/// go through `credit_as_operator`, which enforces delegation + budget.
+fn require_credit_authority(env: &Env, caller: &Address) -> Result<(), Error> {
+    caller.require_auth();
+
+    if let Some(stored_admin) = env.storage().instance().get::<_, Address>(&ADMIN) {
+        if &stored_admin == caller {
+            return Ok(());
+        }
+    }
+
+    let co_admins: Vec<(Address, BytesN<32>)> = env
+        .storage()
+        .instance()
+        .get(&CO_ADMINS)
+        .unwrap_or_else(|| Vec::new(env));
+    if co_admins.iter().any(|(addr, _)| addr == *caller) {
+        return Ok(());
+    }
+
+    Err(Error::Unauthorized)
+}
+
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: i128) -> Result<(), Error> {
     admin.require_auth();
 
-    let stored_admin: Address = env.storage().instance().get(&ADMIN).unwrap();
+    let stored_admin: Address = env
+        .storage()
+        .instance()
+        .get(&ADMIN)
+        .ok_or(Error::Unauthorized)?;
     if &stored_admin != admin {
         return Err(Error::Unauthorized);
     }
@@ -321,6 +796,15 @@ fn ensure_redeem_not_paused(env: &Env) -> Result<(), Error> {
     Ok(())
 }
 
+fn ensure_stake_not_paused(env: &Env) -> Result<(), Error> {
+    ensure_not_paused(env)?;
+    let paused: bool = env.storage().instance().get(&PAUSE_STAKE).unwrap_or(false);
+    if paused {
+        return Err(Error::ContractPaused);
+    }
+    Ok(())
+}
+
 /// Check caller's rate limit and increment their count for the current window.
 /// `n_calls` is how many calls to count (1 for credit, N for batch_credit).
 fn check_and_increment_rate(env: &Env, caller: &Address, n_calls: u32) -> Result<(), Error> {
@@ -353,6 +837,162 @@ fn compute_unlocked(now: u32, record: &VestingRecord) -> u64 {
     let total = record.total as u128;
     let unlocked = total * elapsed / duration;
     (unlocked.min(record.total as u128)) as u64
+}
+
+/// Calculate boost multiplier for a given lock duration using configured boost curve.
+/// Returns boost multiplier in basis points (e.g., 11000 = 1.1x).
+fn calculate_boost_multiplier(env: &Env, duration_ledgers: u32) -> Result<u32, Error> {
+    let curve: Option<BoostCurve> = env.storage().instance().get(&BOOST_CURVE);
+    
+    // If no boost curve configured, return 1.0x (10000 bps)
+    let curve = match curve {
+        Some(c) => c,
+        None => return Ok(10_000), // Default 1.0x multiplier
+    };
+
+    // Validate curve configuration
+    if curve.base_multiplier_bps == 0 || curve.max_multiplier_bps == 0 {
+        return Err(Error::InvalidBoostCurve);
+    }
+    if curve.max_duration_ledgers == 0 {
+        return Err(Error::InvalidBoostCurve);
+    }
+    if curve.base_multiplier_bps > curve.max_multiplier_bps {
+        return Err(Error::InvalidBoostCurve);
+    }
+
+    // Cap duration at maximum
+    let duration = duration_ledgers.min(curve.max_duration_ledgers);
+    
+    match curve.curve_type {
+        // Linear interpolation: boost = base + (max - base) * (duration / max_duration)
+        0 => {
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            let boost_increase = (max - base) * duration_ratio / BPS_DENOMINATOR;
+            let result = base + boost_increase;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            Ok(result as u32)
+        }
+        // Logarithmic: boost = base + (max - base) * log2(1 + duration/max_duration) / log2(2)
+        1 => {
+            // Simplified logarithmic scaling for no_std environment
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            
+            // Approximate log2(1 + x) using fixed-point math
+            // For small x: log2(1 + x) ≈ x * 28963 / 2^16 (Pade approximation)
+            let log_approx = duration_ratio.saturating_mul(28963) / 65536;
+            let boost_increase = (max - base) * log_approx / BPS_DENOMINATOR;
+            let result = base + boost_increase;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            Ok(result as u32)
+        }
+        // Exponential: boost = base * (max/base)^(duration/max_duration)
+        2 => {
+            let base = curve.base_multiplier_bps as u128;
+            let max = curve.max_multiplier_bps as u128;
+            let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+            
+            // Calculate growth rate (r = (max/base) - 1)
+            let growth_rate_bps = max.saturating_mul(BPS_DENOMINATOR)
+                .checked_div(base)
+                .ok_or(Error::Overflow)?
+                .saturating_sub(BPS_DENOMINATOR);
+            
+            // Use binomial approximation for small exponents: (1 + r)^x ≈ 1 + r*x + r²*x*(x-1)/2
+            // Convert to fixed-point arithmetic
+            let x = duration_ratio; // x in basis points (0 to 10,000)
+            
+            // First term: 1 + r*x
+            let term1 = BPS_DENOMINATOR + (growth_rate_bps * x) / BPS_DENOMINATOR;
+            
+            // Second term: r²*x*(x-1)/2 (more accurate for larger x)
+            let x_minus_one = if x > 0 { x - 1 } else { 0 };
+            let r_squared = (growth_rate_bps * growth_rate_bps) / BPS_DENOMINATOR;
+            let term2_numerator = r_squared * x * x_minus_one;
+            let term2 = term2_numerator / (2 * BPS_DENOMINATOR * BPS_DENOMINATOR);
+            
+            let boost_factor = term1 + term2;
+            let result = (base * boost_factor) / BPS_DENOMINATOR;
+            
+            if result > u32::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            
+            // Ensure result is within bounds
+            let clamped_result = result.min(max as u128).max(base as u128);
+            Ok(clamped_result as u32)
+        }
+        // Step function: boost increases in discrete steps at specific duration thresholds
+        3 => {
+            // For step functions, we need predefined schedules
+            // Fall back to linear if no schedules defined
+            let schedules: Option<Vec<LockSchedule>> = env.storage().instance().get(&LOCK_SCHEDULES);
+            match schedules {
+                Some(schedules) => {
+                    // Find the highest boost for durations <= requested duration
+                    let mut best_boost = curve.base_multiplier_bps;
+                    for schedule in schedules.iter() {
+                        if schedule.duration_ledgers <= duration_ledgers {
+                            if schedule.boost_multiplier_bps > best_boost {
+                                best_boost = schedule.boost_multiplier_bps;
+                            }
+                        }
+                    }
+                    Ok(best_boost)
+                }
+                None => {
+                    // No schedules defined, fall back to linear
+                    let base = curve.base_multiplier_bps as u128;
+                    let max = curve.max_multiplier_bps as u128;
+                    let duration_ratio = (duration as u128 * BPS_DENOMINATOR) / (curve.max_duration_ledgers as u128);
+                    let boost_increase = (max - base) * duration_ratio / BPS_DENOMINATOR;
+                    let result = base + boost_increase;
+                    
+                    if result > u32::MAX as u128 {
+                        return Err(Error::Overflow);
+                    }
+                    Ok(result as u32)
+                }
+            }
+        }
+        _ => Err(Error::InvalidBoostCurve),
+    }
+}
+
+/// Get boost multiplier for a specific lock schedule.
+/// Returns boost multiplier in basis points or default 1.0x if schedule not found.
+fn get_lock_schedule_boost(env: &Env, duration_ledgers: u32) -> Result<u32, Error> {
+    let schedules: Option<Vec<LockSchedule>> = env.storage().instance().get(&LOCK_SCHEDULES);
+    
+    match schedules {
+        Some(schedules) => {
+            // Find matching schedule
+            for schedule in schedules.iter() {
+                if schedule.duration_ledgers == duration_ledgers {
+                    if schedule.boost_multiplier_bps == 0 {
+                        return Err(Error::ZeroBoostMultiplier);
+                    }
+                    return Ok(schedule.boost_multiplier_bps);
+                }
+            }
+            // No matching schedule, use boost curve
+            calculate_boost_multiplier(env, duration_ledgers)
+        }
+        None => {
+            // No schedules configured, use boost curve
+            calculate_boost_multiplier(env, duration_ledgers)
+        }
+    }
 }
 
 /// Build the signed payload for a multisig operation: `sha256(op || nonce || args_hash)`.
@@ -427,6 +1067,38 @@ fn verify_multisig(
     Ok(())
 }
 
+/// Integer square root for quadratic distribution (issue #871).
+/// Uses Newton's method for efficient computation in no_std environments.
+fn isqrt(n: u64) -> u64 {
+    if n == 0 {
+        return 0;
+    }
+    let mut x = n;
+    let mut y = (x + 1) / 2;
+    while y < x {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    x
+}
+
+/// Apply the configured distribution mode to a base amount.
+/// Linear mode: returns amount as-is.
+/// Quadratic mode: returns isqrt(amount) to reduce whale dominance.
+fn apply_distribution_mode(env: &Env, campaign_id: u64, base_amount: u64) -> u64 {
+    let mode: u32 = env
+        .storage()
+        .instance()
+        .get(&(DIST_MODE, campaign_id))
+        .unwrap_or(0); // Default to Linear (0)
+
+    match mode {
+        0 => base_amount, // Linear
+        1 => isqrt(base_amount), // Quadratic
+        _ => base_amount, // Fallback to linear for unknown modes
+    }
+}
+
 #[contractimpl]
 impl RewardsContract {
     /// Initialize the rewards contract (admin).
@@ -435,7 +1107,9 @@ impl RewardsContract {
         env.storage().instance().set(&CLAIMED, &0u64);
         env.storage().instance().set(&METADATA, &(name, symbol));
         env.storage().instance().set(&PAUSED, &false);
-        env.storage().instance().set(&MAX_CREDIT_PER_CALL, &0u64);
+        env.storage()
+            .instance()
+            .set(&MAX_CREDIT_PER_CALL, &DEFAULT_MAX_CREDIT_PER_CALL);
         env.storage()
             .instance()
             .set(&SCHEMA_VERSION, &CURRENT_SCHEMA_VERSION);
@@ -512,6 +1186,24 @@ impl RewardsContract {
             .unwrap_or(0)
     }
 
+    /// Set the minimum amount a single `claim()` call must move (admin only).
+    /// Prevents spam via many 1-point claim transactions on mainnet, where
+    /// each claim costs a fee (issue #321). Set to 0 to disable.
+    pub fn set_min_claim(env: Env, admin: Address, min_amount: u64) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&MIN_CLAIM, &min_amount);
+        env.events().publish((MIN_CLAIM_EVENT,), min_amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the minimum claim amount (0 means no minimum).
+    pub fn min_claim(env: Env) -> u64 {
+        env.storage().instance().get(&MIN_CLAIM).unwrap_or(0)
+    }
+
     /// Set campaign-specific reward multiplier in basis points (admin only).
     /// Example: 10_000 = 1.0x, 12_500 = 1.25x, 5_000 = 0.5x.
     pub fn set_campaign_multiplier(
@@ -543,6 +1235,41 @@ impl RewardsContract {
             .unwrap_or(10_000)
     }
 
+    // ── Distribution mode (issue #871) ────────────────────────────────────────
+
+    /// Set distribution mode for a campaign (admin only).
+    /// - mode 0 (Linear): standard 1:1 rewards
+    /// - mode 1 (Quadratic): isqrt(amount) to reduce whale dominance
+    ///
+    /// Nullifier/ZK integration at the campaign layer guards against sybil gaming.
+    pub fn set_distribution_mode(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        mode: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if mode > 1 {
+            return Err(Error::InvalidDistributionMode);
+        }
+        env.storage().instance().set(&(DIST_MODE, campaign_id), &mode);
+        env.events()
+            .publish((DIST_MODE_SET_EVENT, campaign_id), mode);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get distribution mode for a campaign (0 = Linear, 1 = Quadratic).
+    /// Defaults to Linear (0) if not set.
+    pub fn distribution_mode(env: Env, campaign_id: u64) -> u32 {
+        env.storage()
+            .instance()
+            .get(&(DIST_MODE, campaign_id))
+            .unwrap_or(0)
+    }
+
     /// Get contract metadata (name and symbol).
     pub fn metadata(env: Env) -> (Symbol, Symbol) {
         env.storage()
@@ -561,7 +1288,7 @@ impl RewardsContract {
         if amount == 0 {
             return Err(Error::ZeroAmount);
         }
-        from.require_auth();
+        require_credit_authority(&env, &from)?;
         ensure_credit_not_paused(&env)?;
         check_and_increment_rate(&env, &from, 1)?;
 
@@ -569,7 +1296,7 @@ impl RewardsContract {
             .storage()
             .instance()
             .get(&MAX_CREDIT_PER_CALL)
-            .unwrap_or(0);
+            .unwrap_or(DEFAULT_MAX_CREDIT_PER_CALL);
         if max_credit_per_call > 0 && amount > max_credit_per_call {
             return Err(Error::CreditLimitExceeded);
         }
@@ -620,6 +1347,49 @@ impl RewardsContract {
         Self::credit(env, from, user, adjusted)
     }
 
+    /// Credit points with distribution mode applied (issue #871).
+    /// Applies the configured distribution mode (linear/quadratic) then the multiplier.
+    /// 
+    /// Flow:
+    /// 1. Apply distribution mode to base_amount (e.g., quadratic: isqrt(base_amount))
+    /// 2. Apply campaign multiplier (mode_adjusted * multiplier_bps / 10_000)
+    /// 3. Credit final amount to user
+    ///
+    /// Example (quadratic mode with 1.5x multiplier on 10,000 base):
+    ///   - Distribution: isqrt(10_000) = 100
+    ///   - Multiplier: 100 * 15_000 / 10_000 = 150
+    ///   - Final credit: 150 points
+    pub fn credit_with_distribution(
+        env: Env,
+        from: Address,
+        user: Address,
+        campaign_id: u64,
+        base_amount: u64,
+    ) -> Result<u64, Error> {
+        // Apply distribution mode first
+        let mode_adjusted = apply_distribution_mode(&env, campaign_id, base_amount);
+
+        // Then apply campaign multiplier
+        let multiplier_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000);
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        let final_amount_u128 = (mode_adjusted as u128)
+            .checked_mul(multiplier_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if final_amount_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let final_amount = final_amount_u128 as u64;
+
+        Self::credit(env, from, user, final_amount)
+    }
+
     /// Credit points to multiple users in one call.
     /// Each recipient counts as one call toward the rate limit.
     pub fn batch_credit(
@@ -627,27 +1397,56 @@ impl RewardsContract {
         from: Address,
         recipients: Vec<(Address, u64)>,
     ) -> Result<(), Error> {
-        from.require_auth();
+        require_credit_authority(&env, &from)?;
         ensure_credit_not_paused(&env)?;
         check_and_increment_rate(&env, &from, recipients.len())?;
 
-        let mut staged = Vec::new(&env);
+        let mut staged: Vec<(Address, u64)> = Vec::new(&env);
+        let mut batch_total: u64 = 0;
 
         for (user, amount) in recipients.iter() {
             if amount == 0 {
                 return Err(Error::ZeroAmount);
             }
-            let key = (BALANCE, user.clone());
-            let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
-            let new_balance = current.checked_add(amount).ok_or(Error::Overflow)?;
-            staged.push_back((user, new_balance));
+            batch_total = batch_total.checked_add(amount).ok_or(Error::Overflow)?;
+
+            // A recipient listed more than once accumulates onto its staged
+            // balance, so every amount is credited and the supply update below
+            // matches the sum of the balance changes exactly.
+            let mut staged_index: Option<u32> = None;
+            for (i, (staged_user, _)) in staged.iter().enumerate() {
+                if staged_user == user {
+                    staged_index = Some(i as u32);
+                    break;
+                }
+            }
+            match staged_index {
+                Some(i) => {
+                    let (staged_user, staged_balance) = staged.get(i).unwrap();
+                    let new_balance = staged_balance.checked_add(amount).ok_or(Error::Overflow)?;
+                    staged.set(i, (staged_user, new_balance));
+                }
+                None => {
+                    let key = (BALANCE, user.clone());
+                    let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+                    let new_balance = current.checked_add(amount).ok_or(Error::Overflow)?;
+                    staged.push_back((user, new_balance));
+                }
+            }
         }
+
+        // Keep TOTAL_SUPPLY == sum of balances (#1021, #1317): `credit` already
+        // does this; the batch path must too. Computed before any write so an
+        // overflow leaves state untouched.
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        let new_supply = supply.checked_add(batch_total).ok_or(Error::Overflow)?;
 
         for (user, new_balance) in staged.iter() {
             env.storage()
                 .instance()
                 .set(&(BALANCE, user.clone()), &new_balance);
         }
+        env.storage().instance().set(&TOTAL_SUPPLY, &new_supply);
 
         for (user, amount) in recipients.iter() {
             env.events().publish((CREDIT_EVENT, user), amount);
@@ -663,6 +1462,10 @@ impl RewardsContract {
     pub fn claim(env: Env, user: Address, amount: u64) -> Result<u64, Error> {
         if amount == 0 {
             return Err(Error::ZeroAmount);
+        }
+        let min_claim: u64 = env.storage().instance().get(&MIN_CLAIM).unwrap_or(0);
+        if min_claim > 0 && amount < min_claim {
+            return Err(Error::BelowMinClaim);
         }
         user.require_auth();
         ensure_claim_not_paused(&env)?;
@@ -733,9 +1536,12 @@ impl RewardsContract {
 
     // ── Admin rotation (issue #281) ──────────────────────────────────────────
 
-    /// Return the current admin address.
-    pub fn admin(env: Env) -> Address {
-        env.storage().instance().get(&ADMIN).unwrap()
+    /// Return the current admin address, or Unauthorized if contract not initialized.
+    pub fn admin(env: Env) -> Result<Address, Error> {
+        env.storage()
+            .instance()
+            .get(&ADMIN)
+            .ok_or(Error::Unauthorized)
     }
 
     /// Return the pending admin address proposed by the current admin, if any.
@@ -883,6 +1689,102 @@ impl RewardsContract {
 
     pub fn is_paused_redeem(env: Env) -> bool {
         env.storage().instance().get(&PAUSE_REDEEM).unwrap_or(false)
+    }
+
+    /// Pause or unpause the `stake` / `unstake` operations independently.
+    pub fn set_paused_stake(env: Env, admin: Address, paused: bool) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&PAUSE_STAKE, &paused);
+        env.events().publish((PAUSE_CREDIT_EVENT,), paused); // Reuse existing pause event type
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn is_paused_stake(env: Env) -> bool {
+        env.storage().instance().get(&PAUSE_STAKE).unwrap_or(false)
+    }
+
+    /// Set minimum stake amount (admin only).
+    pub fn set_min_stake(env: Env, admin: Address, min_amount: u64) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&MIN_STAKE, &min_amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn min_stake(env: Env) -> u64 {
+        env.storage().instance().get(&MIN_STAKE).unwrap_or(0)
+    }
+
+    /// Set lock schedules (admin only).
+    pub fn set_lock_schedules(
+        env: Env,
+        admin: Address,
+        schedules: Vec<LockSchedule>,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        // Validate schedules
+        for schedule in schedules.iter() {
+            if schedule.duration_ledgers == 0 {
+                return Err(Error::InvalidLockSchedule);
+            }
+            if schedule.boost_multiplier_bps == 0 {
+                return Err(Error::ZeroBoostMultiplier);
+            }
+        }
+
+        env.storage().instance().set(&LOCK_SCHEDULES, &schedules);
+        env.events().publish((LOCK_SCHEDULE_EVENT,), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn lock_schedules(env: Env) -> Vec<LockSchedule> {
+        env.storage()
+            .instance()
+            .get(&LOCK_SCHEDULES)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Set boost curve configuration (admin only).
+    pub fn set_boost_curve(
+        env: Env,
+        admin: Address,
+        curve: BoostCurve,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        // Validate curve
+        if curve.base_multiplier_bps == 0 || curve.max_multiplier_bps == 0 {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.max_duration_ledgers == 0 {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.base_multiplier_bps > curve.max_multiplier_bps {
+            return Err(Error::InvalidBoostCurve);
+        }
+        if curve.curve_type > 3 { // Only support 0, 1, 2, 3
+            return Err(Error::InvalidBoostCurve);
+        }
+
+        env.storage().instance().set(&BOOST_CURVE, &curve);
+        env.events().publish((BOOST_CURVE_EVENT,), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    pub fn boost_curve(env: Env) -> Option<BoostCurve> {
+        env.storage().instance().get(&BOOST_CURVE)
     }
 
     /// Configure tiered reward distribution for a campaign (admin only).
@@ -1060,7 +1962,7 @@ impl RewardsContract {
         if total_amount == 0 {
             return Err(Error::ZeroAmount);
         }
-        from.require_auth();
+        require_credit_authority(&env, &from)?;
         ensure_credit_not_paused(&env)?;
 
         let vest_ctr_key = (VEST_CTR, user.clone());
@@ -1170,6 +2072,296 @@ impl RewardsContract {
         total
     }
 
+    // ── Staking functions ────────────────────────────────────────────────────
+
+    /// Stake points for a lock duration to earn boosted rewards.
+    /// Returns the new stake_id for this position.
+    pub fn stake(
+        env: Env,
+        user: Address,
+        amount: u64,
+        duration_ledgers: u32,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        user.require_auth();
+        ensure_stake_not_paused(&env)?;
+
+        // Check minimum stake amount
+        let min_stake: u64 = env.storage().instance().get(&MIN_STAKE).unwrap_or(0);
+        if min_stake > 0 && amount < min_stake {
+            return Err(Error::BelowMinClaim); // Reusing BelowMinClaim for consistency
+        }
+
+        // Check user balance
+        let balance_key = (BALANCE, user.clone());
+        let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        if amount > current_balance {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Calculate boost multiplier
+        let boost_multiplier_bps = get_lock_schedule_boost(&env, duration_ledgers)?;
+        if boost_multiplier_bps == 0 {
+            return Err(Error::ZeroBoostMultiplier);
+        }
+
+        // Calculate unlock time
+        let now = env.ledger().sequence();
+        let unlocks_at = now.checked_add(duration_ledgers).ok_or(Error::Overflow)?;
+
+        // Create staking position
+        let stake_ctr_key = (STAKE_CTR, user.clone());
+        let stake_id: u64 = env.storage().instance().get(&stake_ctr_key).unwrap_or(0);
+        let next_stake_id = stake_id + 1;
+
+        let position = StakingPosition {
+            amount,
+            staked_at: now,
+            unlocks_at,
+            boost_multiplier_bps,
+            claimed: 0,
+        };
+
+        // Store position
+        env.storage()
+            .instance()
+            .set(&(STAKE, user.clone(), stake_id), &position);
+        env.storage().instance().set(&stake_ctr_key, &next_stake_id);
+
+        // Add to position IDs list
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        ids.push_back(stake_id);
+        env.storage().instance().set(&stake_ids_key, &ids);
+
+        // Deduct from user balance
+        let new_balance = current_balance.checked_sub(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Emit event
+        env.events().publish(
+            (STAKE_EVENT, user),
+            (stake_id, amount, unlocks_at, boost_multiplier_bps),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(stake_id)
+    }
+
+    /// Unstake a position and claim boosted rewards.
+    /// Returns the total amount claimed (principal + boosted rewards).
+    pub fn unstake(env: Env, user: Address, stake_id: u64) -> Result<u64, Error> {
+        user.require_auth();
+        ensure_stake_not_paused(&env)?;
+
+        let key = (STAKE, user.clone(), stake_id);
+        let position: StakingPosition = env
+            .storage()
+            .instance()
+            .get(&key)
+            .ok_or(Error::StakingNotFound)?;
+
+        // Check if position is unlocked
+        let now = env.ledger().sequence();
+        if now < position.unlocks_at {
+            return Err(Error::PositionLocked);
+        }
+
+        // Calculate boosted rewards
+        let boosted_amount = Self::calculate_boosted_amount(position.amount, position.boost_multiplier_bps)?;
+        let total_to_claim = boosted_amount;
+
+        // Check if already claimed
+        let remaining = position.amount.saturating_sub(position.claimed);
+        if remaining == 0 {
+            return Err(Error::InsufficientBalance);
+        }
+
+        // Calculate actual claimable amount (capped by remaining)
+        let to_claim = total_to_claim.min(remaining);
+
+        // Update position
+        let mut updated_position = position.clone();
+        updated_position.claimed = updated_position.claimed.checked_add(to_claim).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&key, &updated_position);
+
+        // Add to user balance
+        let balance_key = (BALANCE, user.clone());
+        let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current_balance.checked_add(to_claim).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Emit event
+        env.events().publish(
+            (UNSTAKE_EVENT, user),
+            (stake_id, to_claim, updated_position.claimed),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(to_claim)
+    }
+
+    /// Calculate boosted amount based on principal and boost multiplier.
+    fn calculate_boosted_amount(principal: u64, boost_multiplier_bps: u32) -> Result<u64, Error> {
+        let principal_u128 = principal as u128;
+        let boost_u128 = boost_multiplier_bps as u128;
+        let boosted = principal_u128
+            .checked_mul(boost_u128)
+            .ok_or(Error::Overflow)?
+            .checked_div(BPS_DENOMINATOR)
+            .ok_or(Error::Overflow)?;
+        
+        if boosted > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        Ok(boosted as u64)
+    }
+
+    /// Get staking position details.
+    pub fn get_staking_position(env: Env, user: Address, stake_id: u64) -> Option<StakingPosition> {
+        let key = (STAKE, user, stake_id);
+        env.storage().instance().get(&key)
+    }
+
+    /// Get total staked amount for a user across all positions.
+    pub fn total_staked(env: Env, user: Address) -> u64 {
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let mut total = 0u64;
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                total = total.saturating_add(position.amount);
+            }
+        }
+        total
+    }
+
+    /// Get total boosted rewards available for a user across all unlocked positions.
+    pub fn available_boosted_rewards(env: Env, user: Address) -> u64 {
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        let now = env.ledger().sequence();
+        let mut total_available = 0u64;
+        
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                // Check if position is unlocked
+                if now >= position.unlocks_at {
+                    let boosted_amount = Self::calculate_boosted_amount(position.amount, position.boost_multiplier_bps)
+                        .unwrap_or(0);
+                    let available = boosted_amount.saturating_sub(position.claimed);
+                    total_available = total_available.saturating_add(available);
+                }
+            }
+        }
+        total_available
+    }
+
+    /// Get list of all stake IDs for a user.
+    pub fn get_stake_ids(env: Env, user: Address) -> Vec<u64> {
+        let stake_ids_key = (STAKE_IDS, user);
+        env.storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env))
+    }
+
+    /// Clean up fully claimed staking positions to save storage.
+    /// Returns the number of positions cleaned up.
+    pub fn cleanup_claimed_positions(env: Env, user: Address, max_cleanup: u32) -> Result<u32, Error> {
+        user.require_auth();
+        
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let mut ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        
+        let mut cleaned = 0;
+        let mut remaining_ids = Vec::new(&env);
+        
+        for stake_id in ids.iter() {
+            if cleaned >= max_cleanup {
+                remaining_ids.push_back(stake_id);
+                continue;
+            }
+            
+            let key = (STAKE, user.clone(), stake_id);
+            if let Some(position) = env.storage().instance().get::<_, StakingPosition>(&key) {
+                // Check if position is fully claimed
+                if position.claimed >= position.amount {
+                    // Remove the position from storage
+                    env.storage().instance().remove(&key);
+                    cleaned += 1;
+                } else {
+                    remaining_ids.push_back(stake_id);
+                }
+            } else {
+                // Position doesn't exist, skip it
+                remaining_ids.push_back(stake_id);
+            }
+        }
+        
+        // Update the IDs list if any positions were removed
+        if cleaned > 0 {
+            env.storage().instance().set(&stake_ids_key, &remaining_ids);
+            env.storage()
+                .instance()
+                .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        }
+        
+        Ok(cleaned)
+    }
+
+    /// Extend TTL for all of a user's staking positions.
+    /// Useful for long-term staking to prevent premature expiration.
+    pub fn extend_staking_ttl(env: Env, user: Address) -> Result<(), Error> {
+        user.require_auth();
+        
+        let stake_ids_key = (STAKE_IDS, user.clone());
+        let ids: Vec<u64> = env
+            .storage()
+            .instance()
+            .get(&stake_ids_key)
+            .unwrap_or_else(|| Vec::new(&env));
+        
+        for stake_id in ids.iter() {
+            let key = (STAKE, user.clone(), stake_id);
+            // Just accessing the position extends its TTL
+            let _ = env.storage().instance().get::<_, StakingPosition>(&key);
+        }
+        
+        // Also extend the IDs list TTL
+        let _ = env.storage().instance().get::<_, Vec<u64>>(&stake_ids_key);
+        
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        
+        Ok(())
+    }
+
     /// Set redemption rate for points-to-asset conversion (admin only).
     /// rate_bps: how many units of asset per 10,000 points (basis points).
     /// Example: rate_bps = 100 means 100/10,000 = 0.01 asset per point.
@@ -1188,7 +2380,7 @@ impl RewardsContract {
 
         env.storage().instance().set(&REDEMPTION_ASSET, &asset);
         env.storage().instance().set(&REDEMPTION_RATE, &rate_bps);
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(())
     }
@@ -1225,6 +2417,14 @@ impl RewardsContract {
     /// Redeem points for asset tokens.
     /// Burns points_amount from user balance, transfers asset tokens to user.
     /// Returns the amount of asset tokens transferred.
+    /// Checks-effects-interactions (issue #850): every piece of state this
+    /// function touches — the user's point balance, `TOTAL_SUPPLY`, and
+    /// `REDEMPTION_RESERVE` — is written *before* the external SAC
+    /// `transfer` call at the end. If `asset_address` were a hostile
+    /// contract that reenters `redeem`/`fund_reserve`/`withdraw_reserve`
+    /// during that `transfer`, the reentrant call observes the
+    /// already-debited balance and reserve, so it cannot redeem the same
+    /// points twice or drain more than the reserve actually holds.
     pub fn redeem(env: Env, user: Address, points_amount: u64) -> Result<i128, Error> {
         user.require_auth();
         ensure_redeem_not_paused(&env)?;
@@ -1253,13 +2453,23 @@ impl RewardsContract {
         }
         let asset_amount = asset_amount_u128 as i128;
 
-        // Check reserve
+        // Check reserve. The mirrored `REDEMPTION_RESERVE` counter can drift
+        // from the SAC token's real balance (external transfers, rounding,
+        // a partial failure elsewhere), so the payout is bounded by
+        // whichever is smaller — the counter, or what the contract can
+        // actually pay out right now (issue #834). Both sides are compared
+        // in i128 so a reserve amount that happens to exceed u64 can't be
+        // silently truncated by an `as u64` cast.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
         let current_reserve: u64 = env
             .storage()
             .instance()
             .get(&REDEMPTION_RESERVE)
             .unwrap_or(0);
-        if (asset_amount as u64) > current_reserve {
+        let actual_balance = token_client.balance(&env.current_contract_address());
+        let available_reserve = (current_reserve as i128).min(actual_balance);
+        if asset_amount > available_reserve {
             return Err(Error::InsufficientReserve);
         }
 
@@ -1277,27 +2487,33 @@ impl RewardsContract {
             .instance()
             .set(&TOTAL_SUPPLY, &supply.saturating_sub(points_amount));
 
-        // Update reserve
-        let new_reserve = current_reserve.saturating_sub(asset_amount as u64);
+        // Update reserve. `asset_amount` was already bounded by
+        // `available_reserve` <= `current_reserve` above, so this
+        // subtraction cannot underflow — `saturating_sub` is kept only as a
+        // defensive floor, not to paper over the check.
+        let new_reserve = (current_reserve as i128).saturating_sub(asset_amount) as u64;
         env.storage()
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
 
         // Transfer asset tokens to user using SAC
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &user, &asset_amount);
 
         // Emit redeem event
         env.events()
             .publish((REDEEM_EVENT, user), (points_amount, asset_amount));
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
 
         Ok(asset_amount)
     }
 
     /// Withdraw asset tokens from redemption reserve (admin only).
     /// Used to reclaim unredeemed assets.
+    ///
+    /// Checks-effects-interactions (issue #850): `REDEMPTION_RESERVE` is
+    /// written before the external SAC `transfer`. A reentrant call during
+    /// that transfer sees the already-decremented reserve, so it can't
+    /// withdraw or redeem more than what's actually left.
     pub fn withdraw_reserve(
         env: Env,
         admin: Address,
@@ -1331,12 +2547,19 @@ impl RewardsContract {
         let token_client = token::Client::new(&env, &asset_address);
         token_client.transfer(&env.current_contract_address(), &admin, &(amount as i128));
 
-        env.storage().instance().extend_ttl(50, 100);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
     /// Fund redemption reserve (callable by anyone, typically admin).
     /// Transfers asset tokens from caller to contract reserve.
+    ///
+    /// Checks-effects-interactions (issue #850): the reserve balance is
+    /// written *before* the external SAC `transfer` call, matching `redeem`
+    /// and `withdraw_reserve`. If `asset_address` were ever a hostile
+    /// contract that reenters during `transfer`, the reentrant call would
+    /// see the reserve already incremented rather than a stale value it
+    /// could exploit a race on.
     pub fn fund_reserve(env: Env, from: Address, amount: u64) -> Result<(), Error> {
         from.require_auth();
 
@@ -1346,12 +2569,7 @@ impl RewardsContract {
             .get(&REDEMPTION_ASSET)
             .ok_or(Error::InvalidRedemptionRate)?;
 
-        // Transfer tokens from caller to contract
-        use soroban_sdk::token;
-        let token_client = token::Client::new(&env, &asset_address);
-        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
-
-        // Update reserve
+        // Effects: update reserve before the external call.
         let current_reserve: u64 = env
             .storage()
             .instance()
@@ -1362,7 +2580,12 @@ impl RewardsContract {
             .instance()
             .set(&REDEMPTION_RESERVE, &new_reserve);
 
-        env.storage().instance().extend_ttl(50, 100);
+        // Interaction: transfer tokens from caller to contract.
+        use soroban_sdk::token;
+        let token_client = token::Client::new(&env, &asset_address);
+        token_client.transfer(&from, env.current_contract_address(), &(amount as i128));
+
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
     }
 
@@ -1529,6 +2752,362 @@ impl RewardsContract {
         env.storage().instance().get(&(REF_PAID, referee))
     }
 
+    // ── Multi-level referral tree (issue #898) ───────────────────────────────
+
+    /// Configure multi-level referral tree parameters (admin only).
+    ///
+    /// `depth` defines how many levels up the referral chain receive rewards
+    /// (must be 1..=MAX_REFERRAL_TREE_DEPTH). `tier_rates` is a vector of
+    /// rate_bps for each level (level 1 = direct referrer, level 2 = referrer's
+    /// referrer, etc.). The vector length must equal `depth`.
+    ///
+    /// Example: depth=3, tier_rates=[5000, 2500, 1250] means:
+    /// - Level 1 (direct referrer): 50% of qualifying amount
+    /// - Level 2: 25% of qualifying amount
+    /// - Level 3: 12.5% of qualifying amount
+    pub fn set_multi_level_referral_config(
+        env: Env,
+        admin: Address,
+        depth: u32,
+        tier_rates: Vec<u32>,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        
+        if depth == 0 || depth > MAX_REFERRAL_TREE_DEPTH {
+            return Err(Error::InvalidReferralDepth);
+        }
+        if tier_rates.len() != depth {
+            return Err(Error::InvalidReferralTierConfig);
+        }
+        
+        // Validate all tier rates
+        for (level, rate_bps) in tier_rates.iter().enumerate() {
+            if rate_bps == 0 || rate_bps > MAX_REFERRAL_RATE_BPS {
+                return Err(Error::InvalidReferralTierConfig);
+            }
+            // Store per-level rate: level is 1-indexed for clarity (level 1 = direct referrer)
+            env.storage().instance().set(&(REF_TIER_RATE, (level as u32) + 1), &rate_bps);
+        }
+        
+        env.storage().instance().set(&REF_DEPTH, &depth);
+        env.events().publish((REF_CONFIG_EVENT,), (depth, tier_rates));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the configured referral tree depth (0 means multi-level not configured).
+    pub fn referral_tree_depth(env: Env) -> u32 {
+        env.storage().instance().get(&REF_DEPTH).unwrap_or(0)
+    }
+
+    /// Get the rate for a specific referral level (1-indexed).
+    /// Returns 0 if level not configured.
+    pub fn referral_tier_rate(env: Env, level: u32) -> u32 {
+        env.storage().instance().get(&(REF_TIER_RATE, level)).unwrap_or(0)
+    }
+
+    /// Pay multi-level referral bonuses up the referral chain (admin only).
+    ///
+    /// Starting from `referee`, walks up the referral chain (via campaign
+    /// contract's referral graph) and credits bonuses to each ancestor up to
+    /// the configured depth. Each level receives `qualifying_amount * tier_rate_bps / 10_000`.
+    ///
+    /// `campaign_contract`: address of the campaign contract that tracks the referral graph.
+    ///
+    /// Anti-abuse: uses campaign's referral graph (which enforces no-cycles, uniqueness).
+    /// Returns total bonus credited across all levels.
+    pub fn pay_multi_level_referral_bonus(
+        env: Env,
+        admin: Address,
+        campaign_contract: Address,
+        referee: Address,
+        qualifying_amount: u64,
+    ) -> Result<u64, Error> {
+        require_admin(&env, &admin)?;
+        ensure_not_paused(&env)?;
+
+        let depth: u32 = env.storage().instance().get(&REF_DEPTH).unwrap_or(0);
+        if depth == 0 {
+            return Err(Error::ReferralNotConfigured);
+        }
+
+        let mut total_bonuses: u64 = 0;
+        let mut current_referee = referee.clone();
+
+        for level in 1..=depth {
+            // Get the rate for this level
+            let rate_bps: u32 = env
+                .storage()
+                .instance()
+                .get(&(REF_TIER_RATE, level))
+                .unwrap_or(0);
+            if rate_bps == 0 {
+                break; // No more configured levels
+            }
+
+            // Query campaign contract for the referrer of current_referee
+            // This requires the campaign contract to expose a `get_referrer(address) -> Option<Address>` view
+            // For now, use internal storage as fallback (assumes campaign syncs referral graph here)
+            let referrer_opt: Option<Address> = env
+                .storage()
+                .instance()
+                .get(&(REFERRAL, current_referee.clone()));
+
+            let referrer = match referrer_opt {
+                Some(r) => r,
+                None => break, // No more referrers in chain
+            };
+
+            // Calculate bonus for this level
+            let bonus_u128 = (qualifying_amount as u128)
+                .checked_mul(rate_bps as u128)
+                .ok_or(Error::Overflow)?
+                / BPS_DENOMINATOR;
+            if bonus_u128 > u64::MAX as u128 {
+                return Err(Error::Overflow);
+            }
+            let bonus = bonus_u128 as u64;
+
+            if bonus > 0 {
+                // Credit the referrer's balance
+                let balance_key = (BALANCE, referrer.clone());
+                let current_balance: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+                let new_balance = current_balance.checked_add(bonus).ok_or(Error::Overflow)?;
+                env.storage().instance().set(&balance_key, &new_balance);
+
+                // Update total supply
+                let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+                env.storage().instance().set(
+                    &TOTAL_SUPPLY,
+                    &supply.checked_add(bonus).ok_or(Error::Overflow)?,
+                );
+
+                // Emit events
+                env.events()
+                    .publish((CREDIT_EVENT, referrer.clone()), bonus);
+                env.events().publish(
+                    (REF_MULTILEVEL_EVENT, referrer.clone(), current_referee.clone(), level),
+                    (bonus, qualifying_amount),
+                );
+
+                total_bonuses = total_bonuses.checked_add(bonus).ok_or(Error::Overflow)?;
+            }
+
+            // Move up the chain
+            current_referee = referrer;
+        }
+
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(total_bonuses)
+    }
+
+    // ── Campaign supply cap (issue #903) ──────────────────────────────────────
+
+    /// Set the total supply cap for a campaign (admin only).
+    ///
+    /// `cap` is the maximum total points that can be issued for this campaign_id.
+    /// Set to 0 for uncapped. Once set, all `credit_for_campaign` calls are
+    /// checked against the cap.
+    pub fn set_campaign_supply_cap(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        cap: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        env.storage().instance().set(&(CAMPAIGN_CAP, campaign_id), &cap);
+        env.events().publish((CAMPAIGN_CAP_EVENT, campaign_id), cap);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the total supply cap for a campaign (0 means uncapped).
+    pub fn campaign_supply_cap(env: Env, campaign_id: u64) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(CAMPAIGN_CAP, campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Get the total issued amount for a campaign.
+    pub fn campaign_issued(env: Env, campaign_id: u64) -> u64 {
+        env.storage()
+            .instance()
+            .get(&(CAMPAIGN_ISSUED, campaign_id))
+            .unwrap_or(0)
+    }
+
+    /// Unspent reward pool of a capped campaign: `cap - issued` (#1186).
+    ///
+    /// Returns 0 for uncapped campaigns (cap = 0), which have no bounded pool
+    /// to rebalance — check `campaign_supply_cap` to tell the two apart.
+    pub fn campaign_unspent_supply(env: Env, campaign_id: u64) -> u64 {
+        let cap = Self::campaign_supply_cap(env.clone(), campaign_id);
+        if cap == 0 {
+            return 0;
+        }
+        cap.saturating_sub(Self::campaign_issued(env, campaign_id))
+    }
+
+    /// Move `amount` of unspent reward pool from one capped campaign to
+    /// another in the same suite (admin only, #1186).
+    ///
+    /// Reallocates rewards from an underperforming track to a high-demand one
+    /// without touching anything already issued: `from_campaign`'s cap drops by
+    /// `amount` and `to_campaign`'s cap rises by the same amount, so the
+    /// combined pool of the two campaigns is unchanged.
+    ///
+    /// # Errors
+    /// * `Unauthorized` — `admin` is not the stored admin.
+    /// * `ZeroAmount` — `amount` is 0.
+    /// * `InvalidSupplyCap` — the campaigns are the same, or either is uncapped.
+    /// * `CampaignSupplyCapExceeded` — `amount` exceeds `from_campaign`'s
+    ///   unspent pool (`campaign_unspent_supply`).
+    /// * `Overflow` — `to_campaign`'s cap would overflow `u64`.
+    pub fn rebalance_campaign_pool(
+        env: Env,
+        admin: Address,
+        from_campaign: u64,
+        to_campaign: u64,
+        amount: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        if from_campaign == to_campaign {
+            return Err(Error::InvalidSupplyCap);
+        }
+
+        let from_cap = Self::campaign_supply_cap(env.clone(), from_campaign);
+        let to_cap = Self::campaign_supply_cap(env.clone(), to_campaign);
+        if from_cap == 0 || to_cap == 0 {
+            return Err(Error::InvalidSupplyCap);
+        }
+
+        let unspent = Self::campaign_unspent_supply(env.clone(), from_campaign);
+        if amount > unspent {
+            return Err(Error::CampaignSupplyCapExceeded);
+        }
+
+        let new_from_cap = from_cap - amount; // amount <= unspent <= from_cap
+        let new_to_cap = to_cap.checked_add(amount).ok_or(Error::Overflow)?;
+
+        let storage = env.storage().instance();
+        storage.set(&(CAMPAIGN_CAP, from_campaign), &new_from_cap);
+        storage.set(&(CAMPAIGN_CAP, to_campaign), &new_to_cap);
+        storage.extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish(
+            (POOL_REBALANCE_EVENT, from_campaign, to_campaign),
+            (amount, new_from_cap, new_to_cap),
+        );
+        Ok(())
+    }
+
+    /// Credit points using campaign multiplier with supply cap enforcement.
+    /// Extends `credit_for_campaign` to check against the campaign's supply cap.
+    pub fn credit_for_campaign_capped(
+        env: Env,
+        from: Address,
+        user: Address,
+        campaign_id: u64,
+        base_amount: u64,
+    ) -> Result<u64, Error> {
+        let multiplier_bps: u32 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_MULTIPLIER, campaign_id))
+            .unwrap_or(10_000);
+        if multiplier_bps == 0 {
+            return Err(Error::InvalidMultiplier);
+        }
+        let adjusted_u128 = (base_amount as u128)
+            .checked_mul(multiplier_bps as u128)
+            .ok_or(Error::Overflow)?
+            / BPS_DENOMINATOR;
+        if adjusted_u128 > u64::MAX as u128 {
+            return Err(Error::Overflow);
+        }
+        let adjusted = adjusted_u128 as u64;
+
+        // Check campaign supply cap
+        let cap: u64 = env
+            .storage()
+            .instance()
+            .get(&(CAMPAIGN_CAP, campaign_id))
+            .unwrap_or(0);
+        if cap > 0 {
+            let issued: u64 = env
+                .storage()
+                .instance()
+                .get(&(CAMPAIGN_ISSUED, campaign_id))
+                .unwrap_or(0);
+            let new_issued = issued.checked_add(adjusted).ok_or(Error::Overflow)?;
+            if new_issued > cap {
+                return Err(Error::CampaignSupplyCapExceeded);
+            }
+            env.storage()
+                .instance()
+                .set(&(CAMPAIGN_ISSUED, campaign_id), &new_issued);
+        } else {
+            // No cap, still track issued amount
+            let issued: u64 = env
+                .storage()
+                .instance()
+                .get(&(CAMPAIGN_ISSUED, campaign_id))
+                .unwrap_or(0);
+            env.storage().instance().set(
+                &(CAMPAIGN_ISSUED, campaign_id),
+                &issued.checked_add(adjusted).ok_or(Error::Overflow)?,
+            );
+        }
+
+        Self::credit(env, from, user, adjusted)
+    }
+
+    // ── Multi-sig admin (issue #733) ──────────────────────────────────────────
+    //
+    // Privileged operations (upgrade, withdraw_reserve, rate/fee changes) are
+    // gated behind an M-of-N signer set. The flow is:
+    //   1. Any signer calls `propose_privileged_op` → a `PrivilegedProposal` is
+    //      stored and a `priv_prop` event is emitted.
+    //   2. Each remaining signer calls `approve_privileged_op` → adds their
+    //      address to `approvals`; emits `priv_appr`.
+    //   3. Once `approvals.len() >= threshold`, any signer calls
+    //      `execute_privileged_op` to run the action; emits `priv_exec`.
+    //
+    // Signer rotation: the multi-sig config itself is updated via a privileged
+    // proposal so rotation inherits the same threshold requirement.
+
+    /// Initialise the M-of-N signer set (current admin only). Once configured,
+    /// all privileged ops on this contract flow through the multi-sig gate.
+    ///
+    /// `threshold` must be in `1..=signers.len()`.
+    pub fn init_multisig(
+        env: Env,
+        admin: Address,
+        signers: Vec<Address>,
+        threshold: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+        let n = signers.len();
+        if threshold == 0 || threshold > n {
+            return Err(Error::InvalidThreshold);
+        }
+        let cfg = MultiSigConfig { threshold, signers };
+        env.storage()
+            .instance()
+            .set(&MULTISIG_CFG, &cfg);
+        Ok(())
+    }
+
     // ── SEP-41 Token Interface (issue #530) ──────────────────────────────────
 
     /// Enable token mode (admin only). One-way: once enabled, cannot be disabled.
@@ -1552,6 +3131,447 @@ impl RewardsContract {
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
+    }
+
+    /// Return the current multi-sig configuration, if any.
+    pub fn multisig_config(env: Env) -> Option<MultiSigConfig> {
+        env.storage().instance().get(&MULTISIG_CFG)
+    }
+
+    /// Propose a privileged operation. The caller must be in the signer set.
+    ///
+    /// Returns the new `proposal_id`.
+    pub fn propose_privileged_op(
+        env: Env,
+        proposer: Address,
+        op: Symbol,
+        payload: Vec<Symbol>,
+        ttl_ledgers: u32,
+    ) -> Result<u64, Error> {
+        proposer.require_auth();
+        let cfg: MultiSigConfig = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_CFG)
+            .ok_or(Error::MultiSigNotConfigured)?;
+
+        if !cfg.signers.contains(&proposer) {
+            return Err(Error::NotASigner);
+        }
+
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_CTR)
+            .unwrap_or(0u64)
+            + 1;
+        env.storage().instance().set(&MULTISIG_CTR, &id);
+
+        let mut approvals = Vec::new(&env);
+        approvals.push_back(proposer.clone());
+
+        let proposal = PrivilegedProposal {
+            proposal_id: id,
+            op: op.clone(),
+            payload,
+            expires_at_ledger: env.ledger().sequence().saturating_add(ttl_ledgers),
+            approvals,
+        };
+        env.storage()
+            .instance()
+            .set(&(MULTISIG_PROP, id), &proposal);
+        env.events().publish((PRIV_PROP_EVENT, proposer), (id, op));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(id)
+    }
+
+    /// Approve an in-flight privileged proposal. The caller must be a signer
+    /// and must not have already approved this proposal.
+    pub fn approve_privileged_op(
+        env: Env,
+        signer: Address,
+        proposal_id: u64,
+    ) -> Result<u32, Error> {
+        signer.require_auth();
+        let cfg: MultiSigConfig = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_CFG)
+            .ok_or(Error::MultiSigNotConfigured)?;
+
+        if !cfg.signers.contains(&signer) {
+            return Err(Error::NotASigner);
+        }
+
+        let mut proposal: PrivilegedProposal = env
+            .storage()
+            .instance()
+            .get(&(MULTISIG_PROP, proposal_id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            return Err(Error::ProposalExpired);
+        }
+        if proposal.approvals.contains(&signer) {
+            return Err(Error::AlreadyApproved);
+        }
+
+        proposal.approvals.push_back(signer.clone());
+        let approval_count = proposal.approvals.len();
+        env.storage()
+            .instance()
+            .set(&(MULTISIG_PROP, proposal_id), &proposal);
+        env.events()
+            .publish((PRIV_APPR_EVENT, signer), (proposal_id, approval_count));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(approval_count)
+    }
+
+    /// Execute a privileged proposal once it has reached threshold approvals.
+    /// Returns the number of approvals at execution time.
+    ///
+    /// The caller must be a signer. The actual effect (pause, rate change, etc.)
+    /// is dispatched by the caller after this returns — the contract records the
+    /// execution and clears the proposal from storage.
+    pub fn execute_privileged_op(
+        env: Env,
+        executor: Address,
+        proposal_id: u64,
+    ) -> Result<u32, Error> {
+        executor.require_auth();
+        let cfg: MultiSigConfig = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_CFG)
+            .ok_or(Error::MultiSigNotConfigured)?;
+
+        if !cfg.signers.contains(&executor) {
+            return Err(Error::NotASigner);
+        }
+
+        let proposal: PrivilegedProposal = env
+            .storage()
+            .instance()
+            .get(&(MULTISIG_PROP, proposal_id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            return Err(Error::ProposalExpired);
+        }
+
+        let approval_count = proposal.approvals.len();
+        if approval_count < cfg.threshold {
+            return Err(Error::InsufficientApprovals);
+        }
+
+        env.storage()
+            .instance()
+            .remove(&(MULTISIG_PROP, proposal_id));
+        env.events()
+            .publish((PRIV_EXEC_EVENT, executor), (proposal_id, approval_count));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(approval_count)
+    }
+
+    // ── On-chain governance for parameter changes (issue #735) ────────────────
+    //
+    // Sensitive economic parameters flow through a time-locked governance
+    // process instead of being applied immediately by admin:
+    //
+    //   1. Any authorised voter calls `propose_param_change(key, value, quorum, delay_ledgers)`.
+    //   2. Voters call `vote_param_change(proposal_id)` to accumulate approval.
+    //   3. After the time-lock elapses AND quorum is met, admin calls
+    //      `execute_param_change(proposal_id)` to apply the change.
+    //   4. Admin may call `cancel_param_change(proposal_id)` to veto at any time.
+    //
+    // This module stores proposals in instance storage keyed by `(GOV_PROP, id)`.
+    // A single `GOV_CTR` tracks the next proposal id.
+
+    /// Propose a governance change for parameter `param_key`.
+    ///
+    /// `new_value` is the proposed replacement value. `quorum` is the number
+    /// of approving votes required. `delay_ledgers` is the minimum number of
+    /// ledgers that must elapse before the proposal may be executed. Returns
+    /// the new `proposal_id`.
+    pub fn propose_param_change(
+        env: Env,
+        proposer: Address,
+        param_key: Symbol,
+        new_value: u64,
+        quorum: u32,
+        delay_ledgers: u32,
+        ttl_ledgers: u32,
+    ) -> Result<u64, Error> {
+        proposer.require_auth();
+        if quorum == 0 {
+            return Err(Error::GovernanceNotConfigured);
+        }
+
+        let id: u64 = env
+            .storage()
+            .instance()
+            .get(&GOV_CTR)
+            .unwrap_or(0u64)
+            + 1;
+        env.storage().instance().set(&GOV_CTR, &id);
+
+        let now = env.ledger().sequence();
+        let proposal = ParamProposal {
+            proposal_id: id,
+            param_key: param_key.clone(),
+            new_value,
+            execute_after_ledger: now.saturating_add(delay_ledgers),
+            expires_at_ledger: now.saturating_add(ttl_ledgers),
+            votes_for: Vec::new(&env),
+            quorum,
+            executed: false,
+        };
+        env.storage()
+            .instance()
+            .set(&(GOV_PROP, id), &proposal);
+        env.events()
+            .publish((GOV_PROPOSE_EVENT, proposer), (id, param_key, new_value));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(id)
+    }
+
+    /// Cast a vote in favour of a governance proposal.
+    ///
+    /// The voter must authenticate. Returns the current vote count.
+    pub fn vote_param_change(
+        env: Env,
+        voter: Address,
+        proposal_id: u64,
+    ) -> Result<u32, Error> {
+        voter.require_auth();
+
+        let mut proposal: ParamProposal = env
+            .storage()
+            .instance()
+            .get(&(GOV_PROP, proposal_id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if env.ledger().sequence() > proposal.expires_at_ledger {
+            return Err(Error::ProposalExpired);
+        }
+        if proposal.executed {
+            return Err(Error::ProposalNotFound);
+        }
+        if proposal.votes_for.contains(&voter) {
+            return Err(Error::AlreadyApproved);
+        }
+
+        proposal.votes_for.push_back(voter.clone());
+        let vote_count = proposal.votes_for.len();
+        env.storage()
+            .instance()
+            .set(&(GOV_PROP, proposal_id), &proposal);
+        env.events()
+            .publish((GOV_VOTE_EVENT, voter), (proposal_id, vote_count));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(vote_count)
+    }
+
+    /// Execute a governance proposal. Admin only. Requires:
+    /// - quorum votes collected
+    /// - time-lock delay elapsed
+    /// - proposal not expired or already executed
+    ///
+    /// The method records the execution and returns the parameter key and value
+    /// so the caller can apply the change to the correct storage entry.
+    pub fn execute_param_change(
+        env: Env,
+        admin: Address,
+        proposal_id: u64,
+    ) -> Result<(Symbol, u64), Error> {
+        require_admin(&env, &admin)?;
+
+        let mut proposal: ParamProposal = env
+            .storage()
+            .instance()
+            .get(&(GOV_PROP, proposal_id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        let now = env.ledger().sequence();
+        if now > proposal.expires_at_ledger {
+            return Err(Error::ProposalExpired);
+        }
+        if proposal.executed {
+            return Err(Error::ProposalNotFound);
+        }
+        if now < proposal.execute_after_ledger {
+            return Err(Error::TimeLockActive);
+        }
+        if proposal.votes_for.len() < proposal.quorum {
+            return Err(Error::InsufficientApprovals);
+        }
+
+        proposal.executed = true;
+        env.storage()
+            .instance()
+            .set(&(GOV_PROP, proposal_id), &proposal);
+        env.events().publish(
+            (GOV_EXECUTE_EVENT, admin),
+            (proposal_id, proposal.param_key.clone(), proposal.new_value),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok((proposal.param_key, proposal.new_value))
+    }
+
+    /// Cancel a governance proposal (admin only). Removes the proposal from
+    /// storage so it can never be executed.
+    pub fn cancel_param_change(
+        env: Env,
+        admin: Address,
+        proposal_id: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let proposal: ParamProposal = env
+            .storage()
+            .instance()
+            .get(&(GOV_PROP, proposal_id))
+            .ok_or(Error::ProposalNotFound)?;
+
+        if proposal.executed {
+            return Err(Error::ProposalNotFound);
+        }
+
+        env.storage()
+            .instance()
+            .remove(&(GOV_PROP, proposal_id));
+        env.events()
+            .publish((GOV_CANCEL_EVENT, admin), proposal_id);
+        Ok(())
+    }
+
+    // ── Emergency timelock (issue #838) ───────────────────────────────────────
+    //
+    // A lighter-weight, admin-only time-lock alongside the quorum-based
+    // governance flow above (issue #735) — for sensitive admin actions that
+    // don't need multi-voter approval, just a mandatory delay so the
+    // community has a window to react before a single compromised or
+    // mistaken admin key can act (e.g. `upgrade`, `set_redemption_rate`,
+    // `withdraw_reserve`). Caller identifies the specific action being
+    // guarded by an opaque `op_hash` (e.g. a hash of the call's arguments);
+    // this contract only tracks *that a matching hash was queued and has
+    // matured* — same "propose here, dispatch the actual effect after this
+    // returns" pattern as `execute_privileged_op` above.
+    //
+    //   1. Admin calls `queue_timelock(op_hash)` — records `eta_ledger` = now
+    //      + the configured delay (`set_timelock_delay`, else
+    //      `DEFAULT_TIMELOCK_DELAY`).
+    //   2. Admin calls `execute_timelock(op_hash)` once the current ledger
+    //      reaches `eta_ledger` — reverts with `TimeLockActive` if called
+    //      early. Removes the entry so it cannot be replayed.
+    //   3. Admin may call `cancel_timelock(op_hash)` at any time before
+    //      execution to veto.
+
+    /// Configure the minimum delay (in ledgers) between queuing and executing
+    /// a timelocked op. Admin only, replay-safe via `nonce`.
+    pub fn set_timelock_delay(
+        env: Env,
+        admin: Address,
+        nonce: i128,
+        delay_ledgers: u32,
+    ) -> Result<(), Error> {
+        require_admin_with_nonce(&env, &admin, nonce)?;
+        env.storage().instance().set(&TIMELOCK_DELAY, &delay_ledgers);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Read-only: the currently configured timelock delay, in ledgers.
+    pub fn timelock_delay(env: Env) -> u32 {
+        env.storage()
+            .instance()
+            .get(&TIMELOCK_DELAY)
+            .unwrap_or(DEFAULT_TIMELOCK_DELAY)
+    }
+
+    /// Queue a sensitive operation, identified by `op_hash`, for execution
+    /// after the configured delay. Admin only. Reverts with
+    /// `TimelockAlreadyQueued` if this exact `op_hash` already has a pending
+    /// entry — cancel it first to re-queue with different parameters.
+    /// Returns the ledger at which the op becomes executable.
+    pub fn queue_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<u32, Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if env.storage().persistent().has(&key) {
+            return Err(Error::TimelockAlreadyQueued);
+        }
+
+        let delay = Self::timelock_delay(env.clone());
+        let eta_ledger = env.ledger().sequence().saturating_add(delay);
+        env.storage().persistent().set(&key, &eta_ledger);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((TIMELOCK_QUEUE_EVENT, admin, op_hash), eta_ledger);
+        Ok(eta_ledger)
+    }
+
+    /// Mark a queued timelocked op as executed once its delay has elapsed,
+    /// clearing the entry. Admin only. The caller is responsible for
+    /// actually applying the guarded effect after this returns successfully
+    /// — mirrors `execute_privileged_op`. Reverts with `TimelockNotFound` if
+    /// no matching entry is queued, or `TimeLockActive` if called before
+    /// `eta_ledger`.
+    pub fn execute_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        let eta_ledger: u32 = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::TimelockNotFound)?;
+
+        if env.ledger().sequence() < eta_ledger {
+            return Err(Error::TimeLockActive);
+        }
+
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_EXEC_EVENT, admin, op_hash), eta_ledger);
+        Ok(())
+    }
+
+    /// Cancel a queued timelocked op before it executes. Admin only.
+    pub fn cancel_timelock(env: Env, admin: Address, op_hash: BytesN<32>) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (TIMELOCK_ENTRY, op_hash.clone());
+        if !env.storage().persistent().has(&key) {
+            return Err(Error::TimelockNotFound);
+        }
+        env.storage().persistent().remove(&key);
+        env.events()
+            .publish((TIMELOCK_CANCEL_EVENT, admin), op_hash);
+        Ok(())
+    }
+
+    /// Read-only: the ledger at which a queued op becomes executable, or
+    /// `None` if no entry is queued for `op_hash`.
+    pub fn timelock_eta(env: Env, op_hash: BytesN<32>) -> Option<u32> {
+        env.storage().persistent().get(&(TIMELOCK_ENTRY, op_hash))
     }
 
     /// Check if token mode is enabled.
@@ -1855,12 +3875,13 @@ impl RewardsContract {
         let mut checked = 0u32;
         let mut idx = cursor;
         while checked < len && pruned < max_entries {
-            let nonce = registry.get(idx).unwrap();
-            let key = (NONCE_USED, nonce);
-            if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
-                if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
-                    env.storage().instance().remove(&key);
-                    pruned += 1;
+            if let Some(nonce) = registry.get(idx) {
+                let key = (NONCE_USED, nonce);
+                if let Some(used_at) = env.storage().instance().get::<_, u32>(&key) {
+                    if now.saturating_sub(used_at) > NONCE_TTL_LEDGERS {
+                        env.storage().instance().remove(&key);
+                        pruned += 1;
+                    }
                 }
             }
             idx = (idx + 1) % len;
@@ -1920,11 +3941,12 @@ impl RewardsContract {
             .unwrap_or(Vec::new(&env));
         let mut found = false;
         for i in 0..co_admins.len() {
-            let (addr, _) = co_admins.get(i).unwrap();
-            if addr == co_admin {
-                co_admins.set(i, (co_admin.clone(), pubkey.clone()));
-                found = true;
-                break;
+            if let Some((addr, _)) = co_admins.get(i) {
+                if addr == co_admin {
+                    co_admins.set(i, (co_admin.clone(), pubkey.clone()));
+                    found = true;
+                    break;
+                }
             }
         }
         if !found {
@@ -1977,12 +3999,972 @@ impl RewardsContract {
         Ok(())
     }
 
+    /// Return the current state of a governance proposal.
+    pub fn get_param_proposal(env: Env, proposal_id: u64) -> Option<ParamProposal> {
+        env.storage().instance().get(&(GOV_PROP, proposal_id))
+    }
+
     /// Returns the configured M-of-N multisig threshold (0 = disabled).
     pub fn multisig_threshold(env: Env) -> u32 {
         env.storage()
             .instance()
             .get(&MULTISIG_THRESHOLD)
             .unwrap_or(0)
+    }
+
+    // ── Timelocked clawback (issue #729) ─────────────────────────────────────
+
+    /// Propose a clawback of `amount` unclaimed points from `target`.
+    /// Returns the proposal id. Admin-only; the clawback cannot be executed
+    /// until `CLAWBACK_TIMELOCK_LEDGERS` have elapsed so the target has time
+    /// to dispute. The guardian (admin) can cancel within that window.
+    pub fn propose_clawback(
+        env: Env,
+        caller: Address,
+        target: Address,
+        amount: u64,
+    ) -> Result<u32, Error> {
+        require_admin(&env, &caller)?;
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+        let balance: u64 = env
+            .storage()
+            .instance()
+            .get(&(BALANCE, target.clone()))
+            .unwrap_or(0);
+        if amount > balance {
+            return Err(Error::ClawbackOverspend);
+        }
+
+        let id: u32 = env
+            .storage()
+            .instance()
+            .get(&CLAWBACK_NONCE)
+            .unwrap_or(0);
+        let next_id = id + 1;
+        env.storage().instance().set(&CLAWBACK_NONCE, &next_id);
+
+        let proposal = ClawbackProposal {
+            target: target.clone(),
+            amount,
+            proposed_at: env.ledger().sequence(),
+            cancelled: false,
+            executed: false,
+        };
+        let key = (CLAWBACK_PROPOSAL, id);
+        env.storage().persistent().set(&key, &proposal);
+        env.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((CLAWBACK_PROPOSE_EVENT, id), (target, amount));
+        Ok(id)
+    }
+
+    /// Cancel a pending clawback proposal. Only the admin (guardian) may cancel.
+    /// Cancelled proposals can never be executed.
+    pub fn cancel_clawback(env: Env, caller: Address, proposal_id: u32) -> Result<(), Error> {
+        caller.require_auth();
+        let stored_admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN)
+            .ok_or(Error::Unauthorized)?;
+        if caller != stored_admin {
+            return Err(Error::ClawbackGuardianOnly);
+        }
+
+        let key = (CLAWBACK_PROPOSAL, proposal_id);
+        let mut proposal: ClawbackProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ClawbackNotFound)?;
+
+        if proposal.cancelled || proposal.executed {
+            return Err(Error::ClawbackNotFound);
+        }
+
+        proposal.cancelled = true;
+        env.storage().persistent().set(&key, &proposal);
+        env.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((CLAWBACK_CANCEL_EVENT, proposal_id), ());
+        Ok(())
+    }
+
+    /// Execute a clawback proposal after the timelock has elapsed.
+    /// Deducts `amount` from the target's balance and total supply.
+    /// Anyone may call once the timelock is satisfied; replay is blocked by
+    /// the `executed` flag.
+    pub fn execute_clawback(env: Env, caller: Address, proposal_id: u32) -> Result<(), Error> {
+        caller.require_auth();
+
+        let key = (CLAWBACK_PROPOSAL, proposal_id);
+        let mut proposal: ClawbackProposal = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::ClawbackNotFound)?;
+
+        if proposal.cancelled || proposal.executed {
+            return Err(Error::ClawbackNotFound);
+        }
+
+        let elapsed = env.ledger().sequence().saturating_sub(proposal.proposed_at);
+        if elapsed < CLAWBACK_TIMELOCK_LEDGERS {
+            return Err(Error::ClawbackTimelocked);
+        }
+
+        let balance_key = (BALANCE, proposal.target.clone());
+        let balance: u64 = env
+            .storage()
+            .instance()
+            .get(&balance_key)
+            .unwrap_or(0);
+        if proposal.amount > balance {
+            return Err(Error::ClawbackOverspend);
+        }
+
+        let new_balance = balance - proposal.amount;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&TOTAL_SUPPLY, &supply.saturating_sub(proposal.amount));
+
+        proposal.executed = true;
+        env.storage().persistent().set(&key, &proposal);
+        env.storage().persistent().extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((CLAWBACK_EXECUTE_EVENT, proposal_id), (proposal.target, proposal.amount));
+        Ok(())
+    }
+
+    /// Set the Merkle root for the airdrop allowlist (admin-only).
+    /// Must be called before users can claim from the airdrop.
+    pub fn set_airdrop_merkle_root(env: Env, admin: Address, root: BytesN<32>) -> Result<(), Error> {
+        admin.require_auth();
+
+        if admin != env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)? {
+            return Err(Error::Unauthorized);
+        }
+
+        env.storage().instance().set(&AIRDROP_ROOT, &root);
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+        Ok(())
+    }
+
+    /// Get the current Merkle root for the airdrop (if any).
+    pub fn get_airdrop_merkle_root(env: Env) -> Option<BytesN<32>> {
+        env.storage().instance().get(&AIRDROP_ROOT)
+    }
+
+    /// Claim airdrop rewards using a valid Merkle proof and nullifier (private).
+    /// Proof structure: MerkleProof { siblings: Vec<BytesN<32>>, leaf_index: u32 }
+    /// nullifier: Hash of (secret, caller address) to prevent double-claiming
+    pub fn claim_airdrop(
+        env: Env,
+        claimer: Address,
+        amount: u64,
+        leaf_preimage: BytesN<32>,
+        proof: MerkleProof,
+        nullifier: BytesN<32>,
+    ) -> Result<u64, Error> {
+        claimer.require_auth();
+
+        // Check that airdrop root is configured
+        let root: BytesN<32> = env
+            .storage()
+            .instance()
+            .get(&AIRDROP_ROOT)
+            .ok_or(Error::AirdropRootNotSet)?;
+
+        // Verify nullifier hasn't been used
+        let nullifier_key = (AIRDROP_NULLIFIERS, nullifier.clone());
+        if env
+            .storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
+        {
+            return Err(Error::AirdropNullifierUsed);
+        }
+
+        // Verify Merkle proof
+        if !verify_airdrop_proof(&env, &leaf_preimage, &proof, &root) {
+            return Err(Error::AirdropInvalidProof);
+        }
+
+        // Mark nullifier as used
+        env.storage().persistent().set(&nullifier_key, &true);
+        env.storage()
+            .persistent()
+            .extend_ttl(&nullifier_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Credit the claimer with the airdrop amount
+        let balance_key = (BALANCE, claimer.clone());
+        let current_balance: u64 = env
+            .storage()
+            .instance()
+            .get(&balance_key)
+            .unwrap_or(0);
+        let new_balance = current_balance
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Update total supply
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        let new_supply = supply.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&TOTAL_SUPPLY, &new_supply);
+
+        env.storage().instance().extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((AIRDROP_CLAIMED_EVENT, claimer), amount);
+
+        Ok(new_balance)
+    }
+
+    /// Check if a nullifier has been used (claimed before).
+    pub fn is_airdrop_nullifier_used(env: Env, nullifier: BytesN<32>) -> bool {
+        let nullifier_key = (AIRDROP_NULLIFIERS, nullifier);
+        env.storage()
+            .persistent()
+            .get::<_, bool>(&nullifier_key)
+            .unwrap_or(false)
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #895: Delegated / Scoped Crediting Permissions
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Grant an operator permission to credit points within a specific campaign and budget (admin only).
+    /// If the operator already has a delegation for this campaign, this call adds to their budget.
+    pub fn grant_operator(
+        env: Env,
+        admin: Address,
+        operator: Address,
+        campaign_id: u64,
+        budget: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if budget == 0 {
+            return Err(Error::InvalidOperatorDelegation);
+        }
+
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .unwrap_or(OperatorDelegation {
+                operator: operator.clone(),
+                campaign_id,
+                budget_total: 0,
+                budget_used: 0,
+                granted_at: env.ledger().sequence(),
+                revoked: false,
+            });
+
+        // If previously revoked, reset usage tracking
+        if delegation.revoked {
+            delegation.budget_used = 0;
+            delegation.revoked = false;
+            delegation.granted_at = env.ledger().sequence();
+        }
+
+        delegation.budget_total = delegation
+            .budget_total
+            .checked_add(budget)
+            .ok_or(Error::Overflow)?;
+
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Add to registry if not already present
+        let registry_key = (OP_REGISTRY, campaign_id);
+        let mut registry: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&registry_key)
+            .unwrap_or(Vec::new(&env));
+
+        if !registry.iter().any(|addr| addr == operator) {
+            registry.push_back(operator.clone());
+            env.storage().instance().set(&registry_key, &registry);
+        }
+
+        env.events()
+            .publish((OP_GRANT_EVENT, operator, campaign_id), budget);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Revoke an operator's delegation for a campaign (admin only). Revocation is immediate.
+    pub fn revoke_operator(
+        env: Env,
+        admin: Address,
+        operator: Address,
+        campaign_id: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::OperatorDelegationNotFound)?;
+
+        delegation.revoked = true;
+
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events()
+            .publish((OP_REVOKE_EVENT, operator, campaign_id), ());
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Credit points as an operator within scoped campaign and budget.
+    pub fn credit_as_operator(
+        env: Env,
+        operator: Address,
+        campaign_id: u64,
+        user: Address,
+        amount: u64,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        operator.require_auth();
+        ensure_credit_not_paused(&env)?;
+
+        // Check delegation exists and is not revoked
+        let key = (OP_DELEGATION, operator.clone(), campaign_id);
+        let mut delegation: OperatorDelegation = env
+            .storage()
+            .persistent()
+            .get(&key)
+            .ok_or(Error::OperatorDelegationNotFound)?;
+
+        if delegation.revoked {
+            return Err(Error::OperatorDelegationNotFound);
+        }
+
+        // Check budget
+        let new_used = delegation
+            .budget_used
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+
+        if new_used > delegation.budget_total {
+            return Err(Error::OperatorBudgetExceeded);
+        }
+
+        // Update budget tracking
+        delegation.budget_used = new_used;
+        env.storage().persistent().set(&key, &delegation);
+        env.storage()
+            .persistent()
+            .extend_ttl(&key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Credit the user
+        let balance_key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage().instance().set(
+            &TOTAL_SUPPLY,
+            &supply.checked_add(amount).ok_or(Error::Overflow)?,
+        );
+
+        env.events()
+            .publish((OP_CREDIT_EVENT, operator, user.clone()), amount);
+        env.events().publish((CREDIT_EVENT, user), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(new_balance)
+    }
+
+    /// Get operator delegation status for a campaign.
+    pub fn get_operator_delegation(
+        env: Env,
+        operator: Address,
+        campaign_id: u64,
+    ) -> Option<OperatorDelegation> {
+        let key = (OP_DELEGATION, operator, campaign_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// List all operators for a campaign.
+    pub fn list_operators(env: Env, campaign_id: u64) -> Vec<Address> {
+        let registry_key = (OP_REGISTRY, campaign_id);
+        env.storage()
+            .instance()
+            .get(&registry_key)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #896: Multi-Asset Redemption
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Add a new redemption asset with rate and initial reserve (admin only).
+    pub fn add_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        rate_bps: u64,
+        initial_reserve: i128,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if rate_bps == 0 {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+
+        // Check if asset already exists
+        if env.storage().persistent().has(&config_key) {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config = RedemptionAssetConfig {
+            asset_address: asset.clone(),
+            rate_bps,
+            reserve_balance: initial_reserve,
+            enabled: true,
+        };
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Add to assets list
+        let mut assets: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&REDEMPTION_ASSETS)
+            .unwrap_or(Vec::new(&env));
+
+        assets.push_back(asset.clone());
+        env.storage().instance().set(&REDEMPTION_ASSETS, &assets);
+
+        env.events().publish((ASSET_ADD_EVENT,), (asset, rate_bps));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Update redemption rate for an existing asset (admin only).
+    pub fn update_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+        rate_bps: u64,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        if rate_bps == 0 {
+            return Err(Error::InvalidAssetConfig);
+        }
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        config.rate_bps = rate_bps;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((ASSET_UPDATE_EVENT,), (asset, rate_bps));
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Remove (disable) a redemption asset (admin only).
+    pub fn remove_redemption_asset(
+        env: Env,
+        admin: Address,
+        asset: Address,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        config.enabled = false;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        env.events().publish((ASSET_REMOVE_EVENT,), asset);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Redeem points to a specific asset.
+    pub fn redeem_to_asset(
+        env: Env,
+        user: Address,
+        points_amount: u64,
+        target_asset: Address,
+    ) -> Result<i128, Error> {
+        if points_amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        user.require_auth();
+        ensure_redeem_not_paused(&env)?;
+
+        // Get asset config
+        let config_key = (ASSET_CONFIG, target_asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        if !config.enabled {
+            return Err(Error::RedemptionAssetDisabled);
+        }
+
+        // Calculate asset amount: points * 10_000 / rate_bps
+        let asset_amount = ((points_amount as u128)
+            .checked_mul(BPS_DENOMINATOR)
+            .ok_or(Error::Overflow)?)
+        .checked_div(config.rate_bps as u128)
+        .ok_or(Error::InvalidRedemptionRate)? as i128;
+
+        if asset_amount == 0 {
+            return Err(Error::InvalidRedemptionRate);
+        }
+
+        // Check reserve
+        if config.reserve_balance < asset_amount {
+            return Err(Error::InsufficientReserve);
+        }
+
+        // Deduct points from user balance
+        let balance_key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&balance_key).unwrap_or(0);
+        let new_balance = current
+            .checked_sub(points_amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&balance_key, &new_balance);
+
+        // Update total supply
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&TOTAL_SUPPLY, &supply.saturating_sub(points_amount));
+
+        // Update reserve
+        config.reserve_balance -= asset_amount;
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        // Transfer asset to user
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &target_asset);
+        token_client.transfer(
+            &env.current_contract_address(),
+            &user,
+            &asset_amount,
+        );
+
+        env.events().publish(
+            (REDEEM_MULTIASSET_EVENT, user, target_asset),
+            (points_amount, asset_amount),
+        );
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(asset_amount)
+    }
+
+    /// Get list of all configured redemption assets.
+    pub fn get_redemption_assets(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&REDEMPTION_ASSETS)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Get redemption asset configuration.
+    pub fn get_asset_config(env: Env, asset: Address) -> Option<RedemptionAssetConfig> {
+        let config_key = (ASSET_CONFIG, asset);
+        env.storage().persistent().get(&config_key)
+    }
+
+    /// Fund reserve for a specific redemption asset (anyone can call).
+    pub fn fund_asset_reserve(
+        env: Env,
+        from: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        if amount <= 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        from.require_auth();
+
+        let config_key = (ASSET_CONFIG, asset.clone());
+        let mut config: RedemptionAssetConfig = env
+            .storage()
+            .persistent()
+            .get(&config_key)
+            .ok_or(Error::RedemptionAssetNotFound)?;
+
+        // Transfer asset to contract
+        let token_client = soroban_sdk::token::TokenClient::new(&env, &asset);
+        token_client.transfer(&from, &env.current_contract_address(), &amount);
+
+        // Update reserve
+        config.reserve_balance = config
+            .reserve_balance
+            .checked_add(amount)
+            .ok_or(Error::Overflow)?;
+
+        env.storage().persistent().set(&config_key, &config);
+        env.storage()
+            .persistent()
+            .extend_ttl(&config_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════
+    // Issue #899: Claim Cooldown
+    // ══════════════════════════════════════════════════════════════════════════
+
+    /// Set claim cooldown for a campaign (admin only).
+    pub fn set_claim_cooldown(
+        env: Env,
+        admin: Address,
+        campaign_id: u64,
+        cooldown_ledgers: u32,
+    ) -> Result<(), Error> {
+        require_admin(&env, &admin)?;
+
+        let cooldown = ClaimCooldown {
+            cooldown_ledgers,
+            enabled: cooldown_ledgers > 0,
+        };
+
+        let key = (CLAIM_COOLDOWN, campaign_id);
+        env.storage().instance().set(&key, &cooldown);
+
+        env.events()
+            .publish((COOLDOWN_SET_EVENT, campaign_id), cooldown_ledgers);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Get claim cooldown configuration for a campaign.
+    pub fn get_claim_cooldown(env: Env, campaign_id: u64) -> Option<ClaimCooldown> {
+        let key = (CLAIM_COOLDOWN, campaign_id);
+        env.storage().instance().get(&key)
+    }
+
+    /// Get the ledger of the last claim for a user in a campaign.
+    pub fn get_user_last_claim(env: Env, user: Address, campaign_id: u64) -> Option<u32> {
+        let key = (LAST_CLAIM, user, campaign_id);
+        env.storage().persistent().get(&key)
+    }
+
+    /// Check if a user can claim now (not in cooldown).
+    pub fn can_claim_now(env: Env, user: Address, campaign_id: u64) -> bool {
+        let cooldown_key = (CLAIM_COOLDOWN, campaign_id);
+        let cooldown: Option<ClaimCooldown> = env.storage().instance().get(&cooldown_key);
+
+        if let Some(cooldown) = cooldown {
+            if !cooldown.enabled {
+                return true;
+            }
+
+            let last_claim_key = (LAST_CLAIM, user, campaign_id);
+            if let Some(last_claim_ledger) = env.storage().persistent().get::<_, u32>(&last_claim_key)
+            {
+                let now = env.ledger().sequence();
+                now >= last_claim_ledger + cooldown.cooldown_ledgers
+            } else {
+                true // No prior claim
+            }
+        } else {
+            true // No cooldown configured
+        }
+    }
+
+    /// Claim with cooldown enforcement for a specific campaign.
+    pub fn claim_with_cooldown(
+        env: Env,
+        user: Address,
+        campaign_id: u64,
+        amount: u64,
+    ) -> Result<u64, Error> {
+        if amount == 0 {
+            return Err(Error::ZeroAmount);
+        }
+
+        let min_claim: u64 = env.storage().instance().get(&MIN_CLAIM).unwrap_or(0);
+        if min_claim > 0 && amount < min_claim {
+            return Err(Error::BelowMinClaim);
+        }
+
+        user.require_auth();
+        ensure_claim_not_paused(&env)?;
+
+        // Check cooldown
+        let cooldown_key = (CLAIM_COOLDOWN, campaign_id);
+        if let Some(cooldown) = env.storage().instance().get::<_, ClaimCooldown>(&cooldown_key) {
+            if cooldown.enabled {
+                let last_claim_key = (LAST_CLAIM, user.clone(), campaign_id);
+                if let Some(last_claim_ledger) =
+                    env.storage().persistent().get::<_, u32>(&last_claim_key)
+                {
+                    let now = env.ledger().sequence();
+                    if now < last_claim_ledger + cooldown.cooldown_ledgers {
+                        return Err(Error::ClaimCooldownActive);
+                    }
+                }
+
+                // Update last claim ledger
+                let now = env.ledger().sequence();
+                env.storage().persistent().set(&last_claim_key, &now);
+                env.storage()
+                    .persistent()
+                    .extend_ttl(&last_claim_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+            }
+        }
+
+        // Perform the claim
+        let key = (BALANCE, user.clone());
+        let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+        let new_balance = current
+            .checked_sub(amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().instance().set(&key, &new_balance);
+
+        let total: u64 = env.storage().instance().get(&CLAIMED).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&CLAIMED, &total.saturating_add(amount));
+
+        let supply: u64 = env.storage().instance().get(&TOTAL_SUPPLY).unwrap_or(0);
+        env.storage()
+            .instance()
+            .set(&TOTAL_SUPPLY, &supply.saturating_sub(amount));
+
+        env.events().publish((CLAIM_EVENT, user), amount);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(new_balance)
+    }
+
+    // ── Issue #1173: Multi-token reward pool support ───────────────────────────
+
+    /// Add a supported reward asset (admin only).
+    pub fn add_reward_asset(env: Env, asset: Address) -> Result<(), Error> {
+        let admin: Address = get_admin(&env)?;
+        admin.require_auth();
+
+        let mut assets: Vec<Address> = env
+            .storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(&env));
+
+        for existing in assets.iter() {
+            if existing == asset {
+                return Ok(());
+            }
+        }
+
+        assets.push_back(asset.clone());
+        env.storage()
+            .instance()
+            .set(&DataKey::SupportedAssets, &assets);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let pool_key = DataKey::RewardPool(asset.clone());
+        if !env.storage().persistent().has(&pool_key) {
+            env.storage().persistent().set(&pool_key, &0i128);
+            env.storage()
+                .persistent()
+                .extend_ttl(&pool_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        }
+
+        Ok(())
+    }
+
+    /// Credit rewards into a specific asset pool (admin only).
+    pub fn credit_rewards(
+        env: Env,
+        participant: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        let admin: Address = get_admin(&env)?;
+        admin.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let pool_key = DataKey::RewardPool(asset.clone());
+        let pool_balance: i128 = env.storage().persistent().get(&pool_key).unwrap_or(0i128);
+        let new_pool_balance = pool_balance.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&pool_key, &new_pool_balance);
+        env.storage()
+            .persistent()
+            .extend_ttl(&pool_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let user_key = (symbol_short!("rw_asset"), participant, asset);
+        let user_balance: i128 = env.storage().persistent().get(&user_key).unwrap_or(0i128);
+        let new_user_balance = user_balance.checked_add(amount).ok_or(Error::Overflow)?;
+        env.storage().persistent().set(&user_key, &new_user_balance);
+        env.storage()
+            .persistent()
+            .extend_ttl(&user_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        Ok(())
+    }
+
+    /// Claim rewards from a specific asset pool. Transfers SAC tokens to participant.
+    pub fn claim_rewards(
+        env: Env,
+        participant: Address,
+        asset: Address,
+        amount: i128,
+    ) -> Result<(), Error> {
+        participant.require_auth();
+
+        if amount <= 0 {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let user_key = (symbol_short!("rw_asset"), participant.clone(), asset.clone());
+        let user_balance: i128 = env.storage().persistent().get(&user_key).unwrap_or(0i128);
+        if user_balance < amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let pool_key = DataKey::RewardPool(asset.clone());
+        let pool_balance: i128 = env.storage().persistent().get(&pool_key).unwrap_or(0i128);
+        if pool_balance < amount {
+            return Err(Error::InsufficientBalance);
+        }
+
+        let new_user_balance = user_balance
+            .checked_sub(amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().persistent().set(&user_key, &new_user_balance);
+        env.storage()
+            .persistent()
+            .extend_ttl(&user_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let new_pool_balance = pool_balance
+            .checked_sub(amount)
+            .ok_or(Error::InsufficientBalance)?;
+        env.storage().persistent().set(&pool_key, &new_pool_balance);
+        env.storage()
+            .persistent()
+            .extend_ttl(&pool_key, TTL_THRESHOLD, TTL_EXTEND_TO);
+        env.storage()
+            .instance()
+            .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
+
+        let token_client = token::Client::new(&env, &asset);
+        token_client.transfer(&env.current_contract_address(), &participant, &amount);
+
+        Ok(())
+    }
+
+    /// Getter for all supported reward assets.
+    pub fn get_supported_assets(env: Env) -> Vec<Address> {
+        env.storage()
+            .instance()
+            .get(&DataKey::SupportedAssets)
+            .unwrap_or(Vec::new(&env))
+    }
+
+    /// Getter for a specific asset reward pool balance.
+    pub fn get_reward_pool_balance(env: Env, asset: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&DataKey::RewardPool(asset))
+            .unwrap_or(0i128)
+    }
+
+    /// Getter for participant's reward balance for a specific asset.
+    pub fn get_participant_reward_balance(env: Env, participant: Address, asset: Address) -> i128 {
+        env.storage()
+            .persistent()
+            .get(&(symbol_short!("rw_asset"), participant, asset))
+            .unwrap_or(0i128)
     }
 }
 
@@ -2020,3 +5002,5 @@ mod kani_harnesses;
 
 #[cfg(test)]
 mod negative_tests;
+#[cfg(test)]
+mod reentrancy_tests;

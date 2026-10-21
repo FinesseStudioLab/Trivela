@@ -14,7 +14,7 @@ their organization scope.
 - **Indexes**: Created composite indexes for efficient org-scoped queries
 - **PostgreSQL Support**: Updated PostgreSQL schema with corresponding changes
 
-### 2. Enhanced Audit Log Repository
+### 2. Enhanced Audit Log Repository.
 
 - **Organization Scoping**: All audit log queries can now be filtered by organization
 - **Advanced Filtering**: Support for filtering by actor, action, entity, date ranges
@@ -42,7 +42,7 @@ their organization scope.
 - **Permission-Based**: Requires `audit:read` permission
 - **API Key Authentication**: Integrated with existing auth middleware
 
-## Technical Details
+## Technical Details.
 
 ### Database Schema Changes
 

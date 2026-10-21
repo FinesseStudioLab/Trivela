@@ -3,11 +3,12 @@
 Runnable integration examples for common Trivela use cases. Each example targets the local dev stack
 (`compose up` from repo root) but works against any Trivela deployment.
 
-| Example                      | Description                                 |
-| ---------------------------- | ------------------------------------------- |
-| [loyalty/](loyalty/)         | Point-based loyalty campaign with XLM claim |
-| [airdrop/](airdrop/)         | Bulk XLM airdrop from a CSV wallet list     |
-| [dao-rewards/](dao-rewards/) | Weighted DAO governance reward distribution |
+| Example                                      | Description                                       |
+| -------------------------------------------- | ------------------------------------------------- |
+| [loyalty/](loyalty/)                         | Point-based loyalty campaign with XLM claim       |
+| [airdrop/](airdrop/)                         | Bulk XLM airdrop from a CSV wallet list           |
+| [dao-rewards/](dao-rewards/)                 | Weighted DAO governance reward distribution       |
+| [partner-integration/](partner-integration/) | Webhook verification & interaction crediting demo |
 
 ## Quick start
 

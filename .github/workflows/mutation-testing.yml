@@ -1,0 +1,90 @@
+name: Mutation Testing (cargo-mutants)
+
+# Issue #888: measure test-suite strength on the contracts beyond line
+# coverage (which contracts-ci.yml already gates at >=60%, but coverage alone
+# doesn't catch weak assertions -- a mutant that coverage-only tooling can't
+# see, e.g. flipping `>` to `>=` in a bounds check with no test that actually
+# exercises the boundary).
+#
+# Deliberately NOT run on every PR: cargo-mutants re-runs the full test suite
+# once per surviving mutation candidate, which is far slower than the rest of
+# contracts-ci.yml (potentially tens of minutes to hours for a workspace this
+# size). Runs weekly on a schedule, plus on-demand via workflow_dispatch, so
+# it doesn't become a bottleneck on every contributor's PR.
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+jobs:
+  mutants:
+    name: cargo-mutants (rewards + campaign contracts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32v1-none
+
+      - name: Cache cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-mutants-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mutants-cargo-
+
+      - name: Install cargo-mutants
+        uses: taiki-e/install-action@cargo-mutants
+
+      # Excludes contracts/integration -- it's cross-contract wiring tests,
+      # not logic with its own mutable surface -- and each contract runs as
+      # its own invocation so one contract's mutants don't get lost in the
+      # other's output.
+      - name: Run cargo-mutants — rewards contract
+        working-directory: contracts/rewards
+        run: cargo mutants --no-shuffle --timeout-multiplier 3 --output ../../mutants-rewards
+        continue-on-error: true
+
+      - name: Run cargo-mutants — campaign contract
+        working-directory: contracts/campaign
+        run: cargo mutants --no-shuffle --timeout-multiplier 3 --output ../../mutants-campaign
+        continue-on-error: true
+
+      - name: Upload mutation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-${{ github.run_id }}
+          path: |
+            mutants-rewards/
+            mutants-campaign/
+          retention-days: 90
+
+      - name: Summarize survivors
+        if: always()
+        run: |
+          echo "## Mutation Testing Summary" >> "$GITHUB_STEP_SUMMARY"
+          for dir in mutants-rewards mutants-campaign; do
+            if [ -f "$dir/outcomes.json" ]; then
+              echo "### ${dir#mutants-}" >> "$GITHUB_STEP_SUMMARY"
+              python3 - "$dir/outcomes.json" <<'PYEOF'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          outcomes = data.get("outcomes", [])
+          survived = [o for o in outcomes if o.get("summary") == "MissedMutant"]
+          caught = [o for o in outcomes if o.get("summary") == "CaughtMutant"]
+          print(f"- Caught: {len(caught)}")
+          print(f"- Survived (test gap): {len(survived)}")
+          for o in survived[:20]:
+              scenario = o.get("scenario", {})
+              print(f"  - {scenario.get('Mutant', scenario)}")
+          PYEOF
+            fi
+          done

@@ -120,9 +120,10 @@ repeatedly fail authentication on a guarded route.
 
 ## DLQ Investigation
 
-Triggered by the `DLQGrowth` alert, or a rising `trivela_dlq_size_total` / `trivela_job_queue_dead_total`
-on `/metrics`. Both background job queues (the in-memory `jobRunner` and the persistent
-`durableJobQueue`) write to the same `failed_jobs` table once a job exhausts `maxAttempts`.
+Triggered by the `DLQGrowth` alert, or a rising `trivela_dlq_size_total` /
+`trivela_job_queue_dead_total` on `/metrics`. Both background job queues (the in-memory `jobRunner`
+and the persistent `durableJobQueue`) write to the same `failed_jobs` table once a job exhausts
+`maxAttempts`.
 
 1. List recent dead-letter entries to see which job `type` is failing and why:
    - In-memory `jobRunner` failures: `GET /api/v1/jobs/failed`

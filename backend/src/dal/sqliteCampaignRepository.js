@@ -14,6 +14,40 @@ export function isFts5Available(db) {
 
 export const DEFAULT_CATEGORIES = ['DeFi', 'NFT', 'Community', 'Airdrop'];
 
+export const DECAY_KINDS = ['linear', 'exponential'];
+
+/**
+ * Validate a decay policy object.
+ * @param {unknown} policy
+ * @returns {{ kind: string, rate_bps: number, period_ledgers: number, cliff_ledgers: number }}
+ * @throws {Error} when the policy is structurally invalid
+ */
+export function validateDecayPolicy(policy) {
+  if (policy === null || policy === undefined) {
+    throw new Error('Decay policy must not be null; call clearDecayPolicy to remove it');
+  }
+  if (typeof policy !== 'object' || Array.isArray(policy)) {
+    throw new Error('Decay policy must be an object');
+  }
+
+  const { kind, rate_bps, period_ledgers, cliff_ledgers } = policy;
+
+  if (!DECAY_KINDS.includes(kind)) {
+    throw new Error(`Decay policy kind must be one of: ${DECAY_KINDS.join(', ')}`);
+  }
+  if (!Number.isInteger(rate_bps) || rate_bps < 1 || rate_bps > 10_000) {
+    throw new Error('Decay policy rate_bps must be an integer in 1–10 000');
+  }
+  if (!Number.isInteger(period_ledgers) || period_ledgers < 1) {
+    throw new Error('Decay policy period_ledgers must be a positive integer');
+  }
+  if (!Number.isInteger(cliff_ledgers) || cliff_ledgers < 0) {
+    throw new Error('Decay policy cliff_ledgers must be a non-negative integer');
+  }
+
+  return { kind, rate_bps, period_ledgers, cliff_ledgers };
+}
+
 /**
  * @param {string | undefined} raw
  * @returns {string[]}
@@ -95,6 +129,17 @@ function parseTranslationsFromRow(row) {
   }
 }
 
+function parseDecayPolicyFromRow(row) {
+  if (!row.decay_policy) return null;
+  try {
+    const parsed = JSON.parse(row.decay_policy);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 function rowToCampaign(row) {
   const rawTranslations = parseTranslationsFromRow(row);
   const campaign = {
@@ -115,8 +160,10 @@ function rowToCampaign(row) {
     tags: parseTagsFromRow(row),
     category: row.category ?? null,
     status: row.status ?? 'draft',
+    decayPolicy: parseDecayPolicyFromRow(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? row.created_at,
+    deletedAt: row.deleted_at ?? null,
     available_locales: Object.keys(rawTranslations),
     _rawTranslations: rawTranslations,
   };
@@ -171,16 +218,31 @@ export function createSqliteCampaignRepository({
    *   tags?: string[],
    *   category?: string,
    *   includeHidden?: boolean,
+   *   includeDeleted?: boolean,
    *   status?: 'draft' | 'published' | 'archived' | 'all',
    *   sort?: string,
    *   order?: 'asc' | 'desc'
    * }} [opts]
    */
-  function list({ active, q, tags, category, includeHidden = false, status, sort, order } = {}) {
+  function list({
+    active,
+    q,
+    tags,
+    category,
+    includeHidden = false,
+    includeDeleted = false,
+    status,
+    sort,
+    order,
+  } = {}) {
     const where = [];
     const params = [];
     const hasQuery = typeof q === 'string' && q.length > 0;
     const useFts = hasQuery && ftsAvailable;
+
+    if (!includeDeleted) {
+      where.push('campaigns.deleted_at IS NULL');
+    }
 
     if (!includeHidden) {
       where.push('campaigns.hidden = 0');
@@ -250,7 +312,7 @@ export function createSqliteCampaignRepository({
         `
       SELECT category AS name, COUNT(*) AS count
       FROM campaigns
-      WHERE category IS NOT NULL AND category != '' AND hidden = 0
+      WHERE category IS NOT NULL AND category != '' AND hidden = 0 AND deleted_at IS NULL
       GROUP BY category
       ORDER BY count DESC, category ASC
     `,
@@ -264,7 +326,7 @@ export function createSqliteCampaignRepository({
         `
       SELECT lower(json_each.value) AS name, COUNT(*) AS count
       FROM campaigns, json_each(campaigns.tags)
-      WHERE campaigns.hidden = 0
+      WHERE campaigns.hidden = 0 AND campaigns.deleted_at IS NULL
       GROUP BY lower(json_each.value)
       ORDER BY count DESC, name ASC
       LIMIT ?
@@ -273,13 +335,15 @@ export function createSqliteCampaignRepository({
       .all(limit);
   }
 
-  function getById(id) {
-    const row = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(Number(id));
+  function getById(id, { includeDeleted = false } = {}) {
+    const where = includeDeleted ? 'id = ?' : 'id = ? AND deleted_at IS NULL';
+    const row = db.prepare(`SELECT * FROM campaigns WHERE ${where}`).get(Number(id));
     return row ? rowToCampaign(row) : undefined;
   }
 
-  function getBySlug(slug) {
-    const row = db.prepare('SELECT * FROM campaigns WHERE slug = ?').get(slug);
+  function getBySlug(slug, { includeDeleted = false } = {}) {
+    const where = includeDeleted ? 'slug = ?' : 'slug = ? AND deleted_at IS NULL';
+    const row = db.prepare(`SELECT * FROM campaigns WHERE ${where}`).get(slug);
     return row ? rowToCampaign(row) : undefined;
   }
 
@@ -300,10 +364,17 @@ export function createSqliteCampaignRepository({
     tags = [],
     category = null,
     status = 'draft',
+    decayPolicy = null,
   }) {
     const normalizedTags = normalizeTags(tags);
     validateTags(normalizedTags);
     validateCategory(category, allowedCategories);
+
+    let serializedDecayPolicy = null;
+    if (decayPolicy !== null && decayPolicy !== undefined) {
+      const validated = validateDecayPolicy(decayPolicy);
+      serializedDecayPolicy = JSON.stringify(validated);
+    }
 
     const createdAt = new Date().toISOString();
     const finalSlug = slug ?? generateSlug(name);
@@ -312,8 +383,8 @@ export function createSqliteCampaignRepository({
         `INSERT INTO campaigns (
           name, slug, description, active, reward_per_action, referral_bonus_points,
           start_date, end_date, featured, hidden, hidden_reason, contract_id,
-          image_url, tags, category, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          image_url, tags, category, status, decay_policy, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         name,
@@ -332,6 +403,7 @@ export function createSqliteCampaignRepository({
         JSON.stringify(normalizedTags),
         category,
         status,
+        serializedDecayPolicy,
         createdAt,
         createdAt,
       );
@@ -356,6 +428,7 @@ export function createSqliteCampaignRepository({
       'tags',
       'category',
       'status',
+      'decayPolicy',
     ];
     const columnMap = {
       name: 'name',
@@ -373,6 +446,7 @@ export function createSqliteCampaignRepository({
       tags: 'tags',
       category: 'category',
       status: 'status',
+      decayPolicy: 'decay_policy',
     };
     const booleanFields = new Set(['active', 'featured', 'hidden']);
     const sets = [];
@@ -388,6 +462,9 @@ export function createSqliteCampaignRepository({
       }
       if (key === 'category') {
         validateCategory(value, allowedCategories);
+      }
+      if (key === 'decayPolicy') {
+        value = value === null || value === undefined ? null : JSON.stringify(validateDecayPolicy(value));
       }
 
       sets.push(`${columnMap[key]} = ?`);
@@ -408,8 +485,52 @@ export function createSqliteCampaignRepository({
   }
 
   function remove(id) {
+    const campaign = getById(id);
+    if (!campaign) return false;
+    const deletedAt = new Date().toISOString();
+    const info = db
+      .prepare(
+        'UPDATE campaigns SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+      )
+      .run(deletedAt, deletedAt, Number(id));
+    return info.changes > 0;
+  }
+
+  function restore(id) {
+    const row = db
+      .prepare('SELECT * FROM campaigns WHERE id = ? AND deleted_at IS NOT NULL')
+      .get(Number(id));
+    if (!row) return undefined;
+    const updatedAt = new Date().toISOString();
+    db.prepare('UPDATE campaigns SET deleted_at = NULL, updated_at = ? WHERE id = ?').run(
+      updatedAt,
+      Number(id),
+    );
+    return getById(id);
+  }
+
+  function hardDelete(id) {
+    const row = db.prepare('SELECT * FROM campaigns WHERE id = ?').get(Number(id));
+    if (!row) return false;
     const info = db.prepare('DELETE FROM campaigns WHERE id = ?').run(Number(id));
     return info.changes > 0;
+  }
+
+  /**
+   * @param {{ limit?: number, olderThanDays?: number }} [opts]
+   */
+  function listDeleted({ limit = 100, olderThanDays } = {}) {
+    const where = ['deleted_at IS NOT NULL'];
+    const params = [];
+    if (olderThanDays) {
+      where.push(`deleted_at < datetime('now', '-${olderThanDays} days')`);
+    }
+    return db
+      .prepare(
+        `SELECT * FROM campaigns WHERE ${where.join(' AND ')} ORDER BY deleted_at ASC LIMIT ?`,
+      )
+      .all(...params, limit)
+      .map(rowToCampaign);
   }
 
   function clone(id, overrides = {}) {
@@ -462,6 +583,13 @@ export function createSqliteCampaignRepository({
    * Validates required fields before publishing
    */
   function publish(id) {
+    const deletedCampaign = db
+      .prepare('SELECT * FROM campaigns WHERE id = ? AND deleted_at IS NOT NULL')
+      .get(Number(id));
+    if (deletedCampaign) {
+      throw new Error('Cannot publish a deleted campaign');
+    }
+
     const campaign = getById(id);
     if (!campaign) {
       throw new Error('Campaign not found');
@@ -497,6 +625,13 @@ export function createSqliteCampaignRepository({
    * Can only archive published campaigns
    */
   function archive(id) {
+    const deletedCampaign = db
+      .prepare('SELECT * FROM campaigns WHERE id = ? AND deleted_at IS NOT NULL')
+      .get(Number(id));
+    if (deletedCampaign) {
+      throw new Error('Cannot archive a deleted campaign');
+    }
+
     const campaign = getById(id);
     if (!campaign) {
       throw new Error('Campaign not found');
@@ -516,6 +651,53 @@ export function createSqliteCampaignRepository({
       Number(id),
     );
     return getById(id);
+  }
+
+  // ── Decay policy CRUD ──────────────────────────────────────────────────────
+
+  /**
+   * Set (or replace) the decay policy for a campaign.
+   *
+   * @param {string | number} id
+   * @param {{ kind: string, rate_bps: number, period_ledgers: number, cliff_ledgers: number }} policy
+   */
+  function setDecayPolicy(id, policy) {
+    const validated = validateDecayPolicy(policy);
+    const updatedAt = new Date().toISOString();
+    const info = db
+      .prepare('UPDATE campaigns SET decay_policy = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+      .run(JSON.stringify(validated), updatedAt, Number(id));
+    if (info.changes === 0) {
+      throw new Error(`Campaign ${id} not found or is deleted`);
+    }
+    return getById(id);
+  }
+
+  /**
+   * Remove the decay policy from a campaign (sets column to NULL).
+   *
+   * @param {string | number} id
+   */
+  function clearDecayPolicy(id) {
+    const updatedAt = new Date().toISOString();
+    const info = db
+      .prepare('UPDATE campaigns SET decay_policy = NULL, updated_at = ? WHERE id = ? AND deleted_at IS NULL')
+      .run(updatedAt, Number(id));
+    if (info.changes === 0) {
+      throw new Error(`Campaign ${id} not found or is deleted`);
+    }
+    return getById(id);
+  }
+
+  /**
+   * Return the parsed decay policy for a campaign, or null if not set.
+   *
+   * @param {string | number} id
+   */
+  function getDecayPolicy(id) {
+    const row = db.prepare('SELECT decay_policy FROM campaigns WHERE id = ? AND deleted_at IS NULL').get(Number(id));
+    if (!row) return undefined;
+    return parseDecayPolicyFromRow(row);
   }
 
   /** @param {string | number} id @returns {Record<string, { name?: string, description?: string }>} */
@@ -567,12 +749,18 @@ export function createSqliteCampaignRepository({
     create,
     update,
     delete: remove,
+    restore,
+    hardDelete,
+    listDeleted,
     clone,
     publish,
     archive,
     getTranslations,
     upsertTranslation,
     deleteTranslation,
+    setDecayPolicy,
+    clearDecayPolicy,
+    getDecayPolicy,
     ftsAvailable,
   };
 }

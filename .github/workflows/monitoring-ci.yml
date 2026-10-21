@@ -59,12 +59,16 @@ jobs:
 
       - name: Check Alertmanager routing config
         env:
-          # amtool needs the referenced env var to resolve for `check-config`
-          # to fully parse the receiver; the real value is only needed at
+          # amtool doesn't expand ${VAR} references itself — envsubst renders
+          # a throwaway copy with placeholder values so `check-config` can
+          # fully parse the receivers; the real values are only needed at
           # runtime, not for structural validation.
           SLACK_WEBHOOK_URL: 'https://hooks.slack.com/services/placeholder'
+          PAGERDUTY_SERVICE_KEY: 'placeholder'
         working-directory: monitoring
-        run: amtool check-config alertmanager.yml
+        run: |
+          envsubst < alertmanager.yml > alertmanager.rendered.yml
+          amtool check-config alertmanager.rendered.yml
 
       - name: Validate Grafana dashboard JSON
         run: |

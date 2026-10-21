@@ -14,15 +14,27 @@ const Explore = lazy(() => import('./Explore'));
 const CampaignDetail = lazy(() => import('./CampaignDetail'));
 const CampaignLeaderboard = lazy(() => import('./CampaignLeaderboard'));
 const ReferralLeaderboard = lazy(() => import('./ReferralLeaderboard'));
+const ReferralLinkGenerator = lazy(() => import('./ReferralLinkGenerator'));
 const CampaignAnalytics = lazy(() => import('./CampaignAnalytics'));
+const OperatorAnalytics = lazy(() => import('./OperatorAnalytics'));
 const AdminCampaigns = lazy(() => import('./AdminCampaigns'));
 const About = lazy(() => import('./About'));
 const TransactionHistory = lazy(() => import('./TransactionHistory'));
+const ProofOfReserves = lazy(() => import('./ProofOfReserves'));
 const EmbedCampaign = lazy(() => import('./pages/EmbedCampaign'));
 const PublicProfile = lazy(() => import('./pages/PublicProfile'));
 const UserProfile = lazy(() => import('./pages/UserProfile'));
 const WebhookManagement = lazy(() => import('./pages/WebhookManagement'));
-import { applyTheme, getPreferredTheme, THEME_STORAGE_KEY } from './theme';
+import {
+  applyTheme,
+  getPreferredTheme,
+  getStoredTheme,
+  getThemePreference,
+  persistTheme,
+  resolveAutoTheme,
+  subscribeToSystemTheme,
+  THEME_AUTO,
+} from './theme';
 import { getRuntimeConfig, initializeRuntimeConfig, setRuntimeStellarNetwork } from './config';
 import {
   connectWallet as connectWalletProvider,
@@ -37,6 +49,9 @@ import { useToast } from './lib/toast/ToastProvider';
 
 export default function App() {
   const toast = useToast();
+  const [themePreference, setThemePreference] = useState(
+    () => getThemePreference() ?? THEME_AUTO,
+  );
   const [theme, setTheme] = useState(() => getPreferredTheme());
   const [runtimeConfig, setRuntimeConfig] = useState(() => getRuntimeConfig());
   const [walletAddress, setWalletAddress] = useState('');
@@ -50,12 +65,32 @@ export default function App() {
   const { showHelpModal, setShowHelpModal, announcement } = useKeyboardShortcuts(true);
 
   useEffect(() => {
-    applyTheme(theme);
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    if (themePreference === THEME_AUTO) {
+      setTheme(resolveAutoTheme());
+      persistTheme(THEME_AUTO);
+      const interval = setInterval(() => setTheme(resolveAutoTheme()), 60_000);
+      return () => clearInterval(interval);
     }
+    persistTheme(themePreference);
+    setTheme(themePreference);
+    return undefined;
+  }, [themePreference]);
+
+  useEffect(() => {
+    applyTheme(theme);
   }, [theme]);
+
+  // Follow the OS preference until the user picks a theme themselves; an
+  // explicit choice (saved by toggleTheme) always wins.
+  useEffect(
+    () =>
+      subscribeToSystemTheme((systemTheme) => {
+        if (!getStoredTheme()) {
+          setTheme(systemTheme);
+        }
+      }),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -78,7 +113,11 @@ export default function App() {
   }, []);
 
   const toggleTheme = () => {
-    setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'));
+    setThemePreference((current) => {
+      if (current === 'dark') return 'light';
+      if (current === 'light') return THEME_AUTO;
+      return 'dark';
+    });
   };
 
   const loadWalletBalance = async (address) => {
@@ -257,6 +296,23 @@ export default function App() {
             }
           />
           <Route
+            path="/campaign/:id/referrals"
+            element={
+              <ReferralLinkGenerator
+                theme={theme}
+                onToggleTheme={toggleTheme}
+                stellarNetwork={runtimeConfig.stellar.network}
+                onChangeStellarNetwork={handleChangeStellarNetwork}
+                walletAddress={walletAddress}
+                walletBalance={walletBalance}
+                isWalletLoading={isWalletLoading}
+                isWalletBalanceLoading={isWalletBalanceLoading}
+                onConnectWallet={openWalletModal}
+                onDisconnectWallet={disconnectWallet}
+              />
+            }
+          />
+          <Route
             path="/campaign/:id/referrals/leaderboard"
             element={
               <ReferralLeaderboard
@@ -336,6 +392,29 @@ export default function App() {
             }
           />
           <Route
+            path="/admin/analytics"
+            element={
+              <RequireAdmin
+                walletAddress={walletAddress}
+                onConnectWallet={openWalletModal}
+                isWalletLoading={isWalletLoading}
+              >
+                <OperatorAnalytics
+                  theme={theme}
+                  onToggleTheme={toggleTheme}
+                  stellarNetwork={runtimeConfig.stellar.network}
+                  onChangeStellarNetwork={handleChangeStellarNetwork}
+                  walletAddress={walletAddress}
+                  walletBalance={walletBalance}
+                  isWalletLoading={isWalletLoading}
+                  isWalletBalanceLoading={isWalletBalanceLoading}
+                  onConnectWallet={openWalletModal}
+                  onDisconnectWallet={disconnectWallet}
+                />
+              </RequireAdmin>
+            }
+          />
+          <Route
             path="/admin/webhooks"
             element={
               <RequireAdmin
@@ -381,6 +460,7 @@ export default function App() {
               />
             }
           />
+          <Route path="/proof-of-reserves" element={<ProofOfReserves theme={theme} />} />
           <Route path="/embed/campaign/:id" element={<EmbedCampaign />} />
           <Route path="/u/:address" element={<PublicProfile />} />
           <Route
@@ -505,7 +585,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -518,7 +598,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -531,7 +611,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -542,7 +622,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -555,7 +635,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -566,7 +646,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -579,7 +659,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -590,7 +670,7 @@ export default function App() {
                 then{' '}
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -603,7 +683,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',
@@ -616,7 +696,7 @@ export default function App() {
               <li>
                 <kbd
                   style={{
-                    background: '#334155',
+                    background: 'var(--bg-card, #121c29)',
                     padding: '2px 6px',
                     borderRadius: '4px',
                     marginRight: '8px',

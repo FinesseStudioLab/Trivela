@@ -80,8 +80,8 @@ TRIVELA_API_KEYS="new-key"
 
 ### Managed API keys (`/api/v1/admin/api-keys`) — scopes and rate tiers (#924)
 
-`TRIVELA_API_KEYS` above is a static, env-configured credential shared by every trusted caller.
-For partner integrations, prefer a **managed key**: a database-backed, individually scoped and
+`TRIVELA_API_KEYS` above is a static, env-configured credential shared by every trusted caller. For
+partner integrations, prefer a **managed key**: a database-backed, individually scoped and
 rate-tiered credential issued and revoked through the admin API (gated by `TRIVELA_MASTER_KEY`).
 
 ```bash
@@ -98,8 +98,8 @@ curl -X POST "$API_URL/api/v1/admin/api-keys" \
 # → 201 { "key": "tk_...", "metadata": { ... } }  — the raw key is shown once, store it now.
 ```
 
-- **Scopes** (`campaigns:read`, `campaigns:write`, `allowlist:write`, `admin`) gate individual
-  write routes via `requireScope()`. Grant the minimum set a partner needs.
+- **Scopes** (`campaigns:read`, `campaigns:write`, `allowlist:write`, `admin`) gate individual write
+  routes via `requireScope()`. Grant the minimum set a partner needs.
 - **Rate tiers** (`standard` = 60 req/min, `pro` = 300 req/min, `enterprise` = 1000 req/min) are
   enforced per key by the rate limiter. Change a key's tier without rotating its credential:
   ```bash

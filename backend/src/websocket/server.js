@@ -1,4 +1,4 @@
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer as WsServer } from 'ws';
 import { EventEmitter } from 'events';
 import { log as logger } from '../middleware/logger.js';
 
@@ -6,15 +6,26 @@ import { log as logger } from '../middleware/logger.js';
  * WebSocket server for real-time updates
  * Handles: campaign updates, participant changes, reward notifications
  */
+export const ACTIVITY_ROOM = 'activity';
+
+/** GABCD…WXYZ — keeps the feed social without broadcasting full addresses. */
+export function maskWallet(wallet) {
+  const value = String(wallet ?? '');
+  return value.length > 10 ? `${value.slice(0, 4)}…${value.slice(-4)}` : value;
+}
+
 class WebSocketServer extends EventEmitter {
   constructor(httpServer, options = {}) {
     super();
 
-    this.wss = new WebSocket.Server({
+    this.wss = new WsServer({
       server: httpServer,
       path: options.path || '/ws',
       verifyClient: options.verifyClient,
     });
+
+    /** @type {((campaignId: string) => object) | null} */
+    this.leaderboardSnapshot = options.leaderboardSnapshot ?? null;
 
     this.clients = new Map(); // clientId -> { ws, subscriptions, metadata }
     this.rooms = new Map(); // roomId -> Set of clientIds
@@ -140,6 +151,15 @@ class WebSocketServer extends EventEmitter {
       channel: roomId,
       timestamp: new Date().toISOString(),
     });
+
+    // Greet leaderboard subscribers with the current standings (#1257).
+    if (channel === 'leaderboard' && campaignId && this.leaderboardSnapshot) {
+      try {
+        this.send(clientId, this.leaderboardSnapshot(String(campaignId)));
+      } catch (error) {
+        logger.error(`Failed to send leaderboard snapshot to ${clientId}:`, error);
+      }
+    }
   }
 
   handleUnsubscribe(clientId, message) {
@@ -286,6 +306,32 @@ class WebSocketServer extends EventEmitter {
     };
 
     this.broadcastToRooms([walletRoomId, campaignRoomId], message);
+  }
+
+  /**
+   * Publish a platform-wide activity event (registration or reward claim) to
+   * every client subscribed to the `activity` channel (#1201). Wallets are
+   * masked before leaving the server.
+   * @param {{kind: 'registration'|'claim', wallet: string, campaignId?: string|null,
+   *   amount?: string|null, ledger?: number|null, txHash?: string|null}} activity
+   * @returns {number} number of clients the event was sent to
+   */
+  publishActivity(activity) {
+    if (!activity || !['registration', 'claim'].includes(activity.kind)) return 0;
+    const message = {
+      type: 'activity',
+      // Never embed the full wallet here -- the id is sent to every client.
+      id: activity.txHash
+        ? `${activity.kind}:${activity.txHash}`
+        : `${activity.kind}:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+      kind: activity.kind,
+      wallet: maskWallet(activity.wallet),
+      campaignId: activity.campaignId ?? null,
+      amount: activity.amount ?? null,
+      ledger: activity.ledger ?? null,
+      timestamp: new Date().toISOString(),
+    };
+    return this.broadcast(ACTIVITY_ROOM, message);
   }
 
   /**

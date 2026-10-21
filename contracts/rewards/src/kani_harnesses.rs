@@ -154,4 +154,37 @@ mod kani_harnesses {
             );
         }
     }
+
+    /// Kani harness for the redemption reserve check in `redeem()` (issue
+    /// #840, invariant: reserve >= redeemable liabilities).
+    ///
+    /// Proves that whenever `redeem()`'s bound
+    /// `asset_amount <= min(mirrored_reserve, actual_balance)` holds, the
+    /// resulting `new_reserve = mirrored_reserve - asset_amount` (computed in
+    /// i128, per the #834 fix) never goes negative — i.e. the reserve
+    /// checked_sub in `redeem()` can never underflow given that guard, for
+    /// any i128 values in the SAC's valid non-negative balance range.
+    #[kani::proof]
+    #[kani::unwind(0)]
+    pub fn redemption_reserve_non_negative() {
+        let mirrored_reserve: u64 = kani::any();
+        let actual_balance: i128 = kani::any();
+        let asset_amount: i128 = kani::any();
+
+        // Constraints matching what redeem() and a real SAC balance can
+        // actually produce.
+        kani::assume(actual_balance >= 0);
+        kani::assume(asset_amount >= 0);
+
+        let available_reserve = (mirrored_reserve as i128).min(actual_balance);
+
+        // This mirrors `redeem()`'s guard: `if asset_amount > available_reserve { revert }`.
+        if asset_amount <= available_reserve {
+            let new_reserve = (mirrored_reserve as i128).saturating_sub(asset_amount);
+            assert!(
+                new_reserve >= 0,
+                "reserve must never go negative once bounded by available_reserve"
+            );
+        }
+    }
 }

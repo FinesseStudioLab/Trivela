@@ -93,9 +93,7 @@ export function createSqliteJobQueueRepository({ db }) {
 
   const countDeadStmt = db.prepare(`SELECT COUNT(*) AS n FROM job_queue WHERE status = 'dead'`);
 
-  const countByStatusStmt = db.prepare(
-    `SELECT COUNT(*) AS n FROM job_queue WHERE status = ?`,
-  );
+  const countByStatusStmt = db.prepare(`SELECT COUNT(*) AS n FROM job_queue WHERE status = ?`);
 
   const findByIdStmt = db.prepare('SELECT * FROM job_queue WHERE id = ? LIMIT 1');
 

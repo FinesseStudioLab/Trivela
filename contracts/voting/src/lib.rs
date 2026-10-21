@@ -23,6 +23,8 @@
 
 #![no_std]
 
+pub mod zk_ballot;
+
 use soroban_sdk::{
     contract, contracterror, contractimpl, contractmeta, contracttype, symbol_short, Address,
     BytesN, Env, Symbol, Vec,

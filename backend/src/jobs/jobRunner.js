@@ -59,10 +59,7 @@ export function createJobRunner({
           typeof job.enqueuedAt === 'number' ? new Date(job.enqueuedAt).toISOString() : null,
       });
     } catch (storeError) {
-      logger.error?.(
-        { type: job.type, err: storeError },
-        'job:dead_letter_store_failed',
-      );
+      logger.error?.({ type: job.type, err: storeError }, 'job:dead_letter_store_failed');
     }
   }
 
@@ -100,10 +97,7 @@ export function createJobRunner({
     try {
       logger.info?.({ type: job.type, attempt: job.attempt }, 'job:start');
       await handler(job.payload);
-      logger.info?.(
-        { type: job.type, durationMs: timeProvider.now() - startedAt },
-        'job:success',
-      );
+      logger.info?.({ type: job.type, durationMs: timeProvider.now() - startedAt }, 'job:success');
     } catch (error) {
       const attemptsRemaining = job.maxAttempts - job.attempt;
       logger.warn?.(

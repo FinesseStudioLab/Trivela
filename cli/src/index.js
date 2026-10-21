@@ -18,6 +18,7 @@ import { makeAllowlistCommand } from './commands/allowlist.js';
 import { makeRewardsCommand } from './commands/rewards.js';
 import { makeStatsCommand } from './commands/stats.js';
 import { makeConfigCommand } from './commands/config.js';
+import { makeStateCommand } from './commands/state.js';
 
 const program = new Command();
 
@@ -32,6 +33,7 @@ program.addCommand(makeAllowlistCommand());
 program.addCommand(makeRewardsCommand());
 program.addCommand(makeStatsCommand());
 program.addCommand(makeConfigCommand());
+program.addCommand(makeStateCommand());
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err.message);

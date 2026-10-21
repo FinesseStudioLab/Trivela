@@ -94,8 +94,12 @@ proptest! {
             if should_retry && !participants.is_empty() {
                 let idx = participants.len() / 2;
                 let p = &participants[idx];
-                let registered = client.register(p, &leaf, &proof, &None, &None);
-                assert!(!registered, "Re-registration should return false");
+                let registered = client.try_register(p, &leaf, &proof, &None, &None);
+                assert_eq!(
+                    registered,
+                    Err(Ok(Error::NullifierAlreadyUsed)),
+                    "Re-registration should hit the participation barrier"
+                );
             }
         }
 
@@ -493,5 +497,98 @@ proptest! {
             // Nonce monotonicity
             assert_eq!(client.admin_nonce(), nonce);
         }
+    }
+}
+
+// ── #803: Merkle proof fuzzing ────────────────────────────────────────────────
+//
+// Verifies that the on-chain Merkle-allowlist gating cannot be bypassed with
+// malformed, truncated, or randomly mutated proof bytes. Any proof that does
+// not actually verify against the committed root must be rejected with
+// `Error::NotInAllowlist` — the contract must never accept a garbage proof.
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(200))]
+
+    /// **Invariant**: A randomly generated leaf + proof cannot bypass the
+    /// Merkle allowlist. The registration must fail with `NotInAllowlist`
+    /// for any (leaf, proof) pair that wasn't constructed from the real tree.
+    #[test]
+    fn fuzz_merkle_random_leaf_rejected(
+        leaf_bytes in prop::array::uniform32(any::<u8>()),
+        proof_len in 0usize..=8usize,
+        proof_bytes in prop::collection::vec(
+            prop::array::uniform32(any::<u8>()),
+            0..=8
+        ),
+    ) {
+        let (env, _contract_id, client) = setup_fuzz();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        // Set a non-zero merkle root so the allowlist check is active.
+        // The root value is arbitrary — no valid proof exists against it for
+        // random inputs, so all registrations must fail.
+        let root = BytesN::from_array(&env, &[0xdeu8, 0xad, 0xbe, 0xef,
+            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
+            0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
+            0x19, 0x1a, 0x1b, 0x1c]);
+        client.set_merkle_root(&admin, &0, &root, &Vec::new(&env));
+
+        let leaf = BytesN::from_array(&env, &leaf_bytes);
+        let mut proof: Vec<BytesN<32>> = Vec::new(&env);
+        for i in 0..proof_len.min(proof_bytes.len()) {
+            proof.push_back(BytesN::from_array(&env, &proof_bytes[i]));
+        }
+
+        let participant = Address::generate(&env);
+        let result = client.try_register(&participant, &leaf, &proof, &None, &None);
+
+        // Any random input must be rejected — never accepted.
+        assert_eq!(
+            result,
+            Err(Ok(Error::NotInAllowlist)),
+            "Random merkle proof must not be accepted"
+        );
+        assert_eq!(client.get_participant_count(), 0);
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(100))]
+
+    /// **Invariant**: Mutating a single byte of a proof node must invalidate
+    /// the proof. Uses the zero-root / zero-leaf path as a baseline: even
+    /// when the leaf matches, a bit-flipped sibling must fail.
+    #[test]
+    fn fuzz_merkle_bit_flip_in_proof_rejected(
+        flip_byte_index in 0usize..32usize,
+        flip_bit in 0u8..8u8,
+    ) {
+        let (env, _contract_id, client) = setup_fuzz();
+        let admin = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
+
+        // Set a deterministic root different from all-zeros so any "proof"
+        // relying on zero siblings is invalid.
+        let mut root_bytes = [0u8; 32];
+        root_bytes[0] = 0xff;
+        let root = BytesN::from_array(&env, &root_bytes);
+        client.set_merkle_root(&admin, &0, &root, &Vec::new(&env));
+
+        // Build a bit-flipped proof node.
+        let mut node = [0u8; 32];
+        node[flip_byte_index] ^= 1u8 << flip_bit;
+
+        let leaf = BytesN::from_array(&env, &[0u8; 32]);
+        let mut proof: Vec<BytesN<32>> = Vec::new(&env);
+        proof.push_back(BytesN::from_array(&env, &node));
+
+        let participant = Address::generate(&env);
+        let result = client.try_register(&participant, &leaf, &proof, &None, &None);
+        assert_eq!(result, Err(Ok(Error::NotInAllowlist)));
     }
 }

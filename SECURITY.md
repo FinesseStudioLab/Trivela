@@ -1,93 +1,70 @@
-# Security Policy
+# Security Policy & Bug Bounty Program
 
-## Reporting Vulnerabilities
-
-If you discover a security vulnerability in Trivela, please report it responsibly by emailing
-**security@trivela.io** instead of using the public issue tracker.
-
-**Please include:**
-
-- A description of the vulnerability
-- Steps to reproduce (if applicable)
-- Potential impact assessment
-- Any proof-of-concept (POC) code (optional but helpful)
-
-We will acknowledge your report within 48 hours and work with you to understand and resolve the
-issue.
-
-## Security Standards
-
-Trivela follows these security practices:
-
-- **Smart Contracts**: Deployed on Stellar Testnet with formal verification where possible
-- **API Security**: Rate limiting, API key authentication, and CORS protection
-- **Data Protection**: PII is minimized; sensitive operations require authentication
-- **Dependencies**: Regular updates and vulnerability scanning via automated tools
-
-## Scope
-
-### In Scope
-
-- Smart contract vulnerabilities (integer overflow, access control, logic flaws)
-- API vulnerabilities (authentication bypass, authorization flaws, injection attacks)
-- Cryptographic weaknesses
-- Information disclosure issues
-- Denial-of-service vulnerabilities with high impact
-
-### Out of Scope
-
-- Vulnerabilities in third-party dependencies (report to upstream maintainers)
-- Social engineering or phishing attacks
-- Issues requiring access to private infrastructure
-- Minor UI/UX issues or styling inconsistencies
-- Already disclosed vulnerabilities
-
-## Rewards
-
-While Trivela is an open-source project, we recognize the value of security research:
-
-- Critical vulnerabilities: $5,000+ (negotiable based on impact)
-- High severity: $1,000 - $5,000
-- Medium severity: $500 - $1,000
-- Low severity: $100 - $500
-
-Rewards are offered at our discretion based on:
-
-- Severity and exploitability
-- Clarity and quality of the report
-- Cooperation in resolution
-
-## Responsible Disclosure Timeline
-
-1. **Day 0**: Initial report received
-2. **Day 1-2**: Triage and acknowledgment
-3. **Day 30**: Expected patch/mitigation (varies by severity)
-4. **Day 90**: Public disclosure permitted (unless active exploit)
-
-We request a **90-day responsible disclosure window** before public disclosure, allowing time for
-fixes and deployment.
-
-## Safe Harbor
-
-We will not pursue legal action against researchers who:
-
-- Report vulnerabilities in good faith
-- Avoid accessing data beyond what's necessary to demonstrate the vulnerability
-- Do not disrupt or degrade services
-- Do not demand ransom or compensation
-- Follow responsible disclosure practices
-
-## Out-of-Band Communication
-
-For particularly sensitive issues, researchers may request verification of their identity before
-disclosure. We use standard OpenPGP keys for encrypted communication (keys available upon request).
-
-## Security Contact
-
-- **Email**: security@trivela.io
-- **GitHub Security Advisories**:
-  [Create a private security advisory](https://github.com/FinesseStudioLab/Trivela/security/advisories)
+Trivela is committed to maintaining the highest security standards for financial safety, reserve integrity, smart contract execution, and backend data protection. We operate a formal bug bounty program and deeply appreciate responsible vulnerability disclosure from security researchers.
 
 ---
 
-**Last Updated**: 2025-07-25
+## Supported Versions
+
+| Component / Branch | Supported Versions | Security Status |
+| :--- | :--- | :--- |
+| `main` (Production Branch) | Current Release | :white_check_mark: Active Security Maintenance |
+| Soroban Contracts (`/contracts/`, `/soroban/`) | `>= 0.8.0` | :white_check_mark: Active Audit & Hotfix Coverage |
+| Backend Services (`/backend/`) | `>= 1.0.0` | :white_check_mark: Active Security Maintenance |
+| Client SDK & Frontend (`/sdk/`, `/frontend/`) | Current Release | :white_check_mark: Active Security Maintenance |
+| Legacy / Deprecated Branches | Prior Releases | :x: Unsupported (Upgrade Required) |
+
+---
+
+## Reporting a Vulnerability
+
+If you discover a security vulnerability in Trivela, please report it responsibly. **Do NOT** open a public GitHub issue or pull request before the vulnerability is resolved.
+
+### Reporting Channels
+1. **GitHub Private Security Advisory**: Open a private draft at [Trivela Security Advisories](https://github.com/FinesseStudioLab/Trivela/security/advisories/new).
+2. **Encrypted Security Email**: Contact the security team at **`security@finessestudiolab.com`** with subject line `[SECURITY DISCLOSURE] <Component/Title>`.
+
+### Report Requirements
+To help us triage and validate your report swiftly, please provide:
+- Detailed description of the vulnerability and its potential attack vector.
+- Step-by-step reproduction instructions or a minimal reproducible Proof of Concept (PoC).
+- Impact assessment on funds, reserves, authentication tokens, or contract state.
+- Suggested architectural remediation or defensive patch (if available).
+
+---
+
+## Bug Bounty Reward Program
+
+We offer structured financial rewards for verified vulnerabilities based on CVSS v3.1 severity scores and financial impact on the ecosystem:
+
+| Severity Tier | CVSS v3.1 Score | Impact Scope | Reward Tier (USD / Equivalent) |
+| :--- | :--- | :--- | :--- |
+| **Critical** | `9.0 – 10.0` | Direct theft/drain of user/reserve funds, arbitrary contract balance takeover, critical auth bypass | **$2,500 – $5,000+** |
+| **High** | `7.0 – 8.9` | Contract execution halt causing fund lockup, privilege escalation to admin/signer, sensitive credential leak | **$1,000 – $2,500** |
+| **Medium** | `4.0 – 6.9` | Gas/rent exhaustion attacks, logic flaws bypassing defensive limits, unauthorized access to user metadata | **$300 – $1,000** |
+| **Low / Informational** | `0.1 – 3.9` | Minor information disclosure, non-exploitable edge-case inconsistencies, defensive hardening | **$100 – $300** |
+
+---
+
+## Scope & Safe Harbor
+
+### In-Scope
+- Smart contracts (`/contracts/`, `/soroban/`)
+- Backend API and auth middleware (`/backend/`)
+- SDK and cryptographic signing libraries (`/sdk/`)
+- Frontend application boundaries (`/frontend/`)
+
+### Out-of-Scope
+- Denial of Service (DoS/DDoS) targeting public endpoints without state corruption
+- Social engineering, phishing, or physical attacks
+- Issues in third-party RPC providers or external node infrastructure
+
+### Safe Harbor
+Trivela will not pursue legal action against security researchers who report vulnerabilities in good faith and adhere to responsible disclosure principles.
+
+---
+
+## SLA & Response Time
+- **Initial Acknowledgment**: Within **24 to 48 hours**.
+- **Triage & Validation**: Within **5 business days**.
+- **Fix Deployment & Bounty Payout**: Immediate post-validation and coordinated release.

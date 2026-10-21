@@ -1,0 +1,43 @@
+name: Mainnet Deploy Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type DEPLOY to confirm you have reviewed MAINNET_READINESS.md'
+        required: true
+
+jobs:
+  readiness-gate:
+    name: Verify mainnet readiness checklist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Confirm deploy intent
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "DEPLOY" ]; then
+            echo "::error::You must type DEPLOY in the confirm field to proceed."
+            exit 1
+          fi
+
+      - name: Check for unchecked items in MAINNET_READINESS.md
+        run: |
+          UNCHECKED=$(grep -c '^\- \[ \]' docs/MAINNET_READINESS.md || true)
+          if [ "$UNCHECKED" -gt 0 ]; then
+            echo "::error::docs/MAINNET_READINESS.md has $UNCHECKED unchecked item(s). All items must be checked before deploying to mainnet."
+            grep '^\- \[ \]' docs/MAINNET_READINESS.md
+            exit 1
+          fi
+          echo "All readiness items checked. Proceeding."
+
+  # Add your real deploy steps here, dependent on readiness-gate passing.
+  deploy:
+    name: Deploy to mainnet
+    needs: readiness-gate
+    runs-on: ubuntu-latest
+    environment: mainnet
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy contracts
+        run: echo "Deploy steps go here — gated on readiness-gate passing."

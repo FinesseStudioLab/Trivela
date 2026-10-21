@@ -5,6 +5,7 @@ import PageMeta from './components/PageMeta';
 import CreateCampaign from './CreateCampaign';
 import AuditLog from './components/AuditLog';
 import AdminControlPanel from './components/AdminControlPanel';
+import RewardsAdminPanel from './components/RewardsAdminPanel';
 import AllowlistUpload from './components/AllowlistUpload';
 import EmptyState from './components/EmptyState';
 import ErrorBoundary from './ErrorBoundary';
@@ -112,6 +113,13 @@ export default function AdminCampaigns({
                   </li>
                 ))}
               </ul>
+              <Link
+                to="/admin/analytics"
+                className="btn btn-primary"
+                style={{ marginTop: '1rem', display: 'inline-block' }}
+              >
+                Operator Analytics Dashboard
+              </Link>
             </section>
           ) : null}
           {/* #294 — Merkle allowlist generator. Computes the tree
@@ -165,6 +173,19 @@ export default function AdminCampaigns({
               )}
             </section>
           )}
+
+          <section className="section admin-rewards-section">
+            <div className="admin-control-header">
+              <h3 className="section-title">Rewards Contract Management</h3>
+              <p className="section-subtitle">
+                Manage rewards contract settings including pause controls, rate limits, reserves,
+                and multisig.
+              </p>
+            </div>
+            <ErrorBoundary as="div">
+              <RewardsAdminPanel />
+            </ErrorBoundary>
+          </section>
         </section>
 
         <section className="section" style={{ marginTop: 0, paddingTop: 0 }}>

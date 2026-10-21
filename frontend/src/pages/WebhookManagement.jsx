@@ -430,9 +430,9 @@ export default function WebhookManagement() {
           style={{
             padding: 16,
             marginBottom: 16,
-            background: '#d1fae5',
+            background: 'var(--color-success-soft, rgba(51, 195, 127, 0.16))',
             borderRadius: 8,
-            border: '1px solid #6ee7b7',
+            border: '1px solid var(--color-success, #33c37f)',
           }}
         >
           <strong>Webhook created.</strong> Copy your signing secret now — it won&apos;t be shown
@@ -450,7 +450,7 @@ export default function WebhookManagement() {
               borderRadius: 4,
               border: 'none',
               cursor: 'pointer',
-              background: '#059669',
+              background: 'var(--color-success, #33c37f)',
               color: '#fff',
               fontSize: 12,
             }}
@@ -647,8 +647,8 @@ export default function WebhookManagement() {
                         padding: '5px 10px',
                         fontSize: 12,
                         borderRadius: 4,
-                        border: '1px solid #fca5a5',
-                        color: '#dc2626',
+                         border: '1px solid var(--color-danger-soft, rgba(255, 142, 142, 0.16))',
+                         color: 'var(--color-danger, #ff8e8e)',
                         background: 'none',
                         cursor: 'pointer',
                       }}

@@ -23,7 +23,8 @@
     "test:visual:report": "playwright show-report playwright-report-visual",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build",
-    "security:xss": "npm run lint && grep -r 'dangerouslySetInnerHTML' src/ || echo 'No dangerouslySetInnerHTML found - XSS audit passed'"
+    "security:xss": "npm run lint && grep -r 'dangerouslySetInnerHTML' src/ || echo 'No dangerouslySetInnerHTML found - XSS audit passed'",
+    "test:e2e:flow": "playwright test --config=playwright.flow.config.js"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.0.0",

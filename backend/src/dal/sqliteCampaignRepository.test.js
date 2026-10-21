@@ -5,6 +5,8 @@ import { runMigrations } from '../db/migrate.js';
 import {
   createSqliteCampaignRepository,
   computeCampaignStatus,
+  validateDecayPolicy,
+  DECAY_KINDS,
 } from './sqliteCampaignRepository.js';
 
 async function setupTestRepository(seed = []) {
@@ -500,4 +502,312 @@ test('clone generates unique slug for cloned campaign', async () => {
   assert.ok(cloned);
   assert.notEqual(cloned.slug, original.slug);
   assert.equal(cloned.slug, 'copy-of-test-campaign');
+});
+
+// ── Decay policy tests ────────────────────────────────────────────────────────
+
+const VALID_LINEAR_POLICY = {
+  kind: 'linear',
+  rate_bps: 1000,       // 10 % per period
+  period_ledgers: 100,
+  cliff_ledgers: 0,
+};
+
+const VALID_EXPONENTIAL_POLICY = {
+  kind: 'exponential',
+  rate_bps: 200,        // 2 % per period
+  period_ledgers: 500,
+  cliff_ledgers: 50,
+};
+
+// ── validateDecayPolicy (pure unit tests) ────────────────────────────────────
+
+test('validateDecayPolicy accepts a valid linear policy', () => {
+  const result = validateDecayPolicy(VALID_LINEAR_POLICY);
+  assert.equal(result.kind, 'linear');
+  assert.equal(result.rate_bps, 1000);
+  assert.equal(result.period_ledgers, 100);
+  assert.equal(result.cliff_ledgers, 0);
+});
+
+test('validateDecayPolicy accepts a valid exponential policy', () => {
+  const result = validateDecayPolicy(VALID_EXPONENTIAL_POLICY);
+  assert.equal(result.kind, 'exponential');
+  assert.equal(result.rate_bps, 200);
+});
+
+test('validateDecayPolicy rejects unknown kind', () => {
+  assert.throws(
+    () => validateDecayPolicy({ ...VALID_LINEAR_POLICY, kind: 'logarithmic' }),
+    /kind must be one of/,
+  );
+});
+
+test('validateDecayPolicy rejects rate_bps = 0', () => {
+  assert.throws(
+    () => validateDecayPolicy({ ...VALID_LINEAR_POLICY, rate_bps: 0 }),
+    /rate_bps/,
+  );
+});
+
+test('validateDecayPolicy rejects rate_bps > 10 000', () => {
+  assert.throws(
+    () => validateDecayPolicy({ ...VALID_LINEAR_POLICY, rate_bps: 10_001 }),
+    /rate_bps/,
+  );
+});
+
+test('validateDecayPolicy rejects period_ledgers = 0', () => {
+  assert.throws(
+    () => validateDecayPolicy({ ...VALID_LINEAR_POLICY, period_ledgers: 0 }),
+    /period_ledgers/,
+  );
+});
+
+test('validateDecayPolicy rejects negative cliff_ledgers', () => {
+  assert.throws(
+    () => validateDecayPolicy({ ...VALID_LINEAR_POLICY, cliff_ledgers: -1 }),
+    /cliff_ledgers/,
+  );
+});
+
+test('validateDecayPolicy rejects null', () => {
+  assert.throws(() => validateDecayPolicy(null), /must not be null/);
+});
+
+test('DECAY_KINDS contains linear and exponential', () => {
+  assert.ok(DECAY_KINDS.includes('linear'));
+  assert.ok(DECAY_KINDS.includes('exponential'));
+});
+
+// ── setDecayPolicy / getDecayPolicy / clearDecayPolicy ───────────────────────
+
+test('setDecayPolicy stores a linear policy and getDecayPolicy returns it', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({
+    name: 'Decay Campaign',
+    rewardPerAction: 10,
+    contractId: 'CTEST',
+    status: 'published',
+  });
+
+  repo.setDecayPolicy(campaign.id, VALID_LINEAR_POLICY);
+
+  const policy = repo.getDecayPolicy(campaign.id);
+  assert.deepEqual(policy, VALID_LINEAR_POLICY);
+});
+
+test('setDecayPolicy stores an exponential policy', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Exp Decay', rewardPerAction: 5, contractId: 'CEXP' });
+
+  repo.setDecayPolicy(campaign.id, VALID_EXPONENTIAL_POLICY);
+
+  const policy = repo.getDecayPolicy(campaign.id);
+  assert.equal(policy.kind, 'exponential');
+  assert.equal(policy.rate_bps, 200);
+  assert.equal(policy.cliff_ledgers, 50);
+});
+
+test('setDecayPolicy replaces an existing policy', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Replace Policy', rewardPerAction: 5 });
+
+  repo.setDecayPolicy(campaign.id, VALID_LINEAR_POLICY);
+  repo.setDecayPolicy(campaign.id, VALID_EXPONENTIAL_POLICY);
+
+  const policy = repo.getDecayPolicy(campaign.id);
+  assert.equal(policy.kind, 'exponential');
+});
+
+test('clearDecayPolicy removes the policy (getDecayPolicy returns null)', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Clear Policy', rewardPerAction: 5 });
+  repo.setDecayPolicy(campaign.id, VALID_LINEAR_POLICY);
+
+  repo.clearDecayPolicy(campaign.id);
+
+  assert.equal(repo.getDecayPolicy(campaign.id), null);
+});
+
+test('getDecayPolicy returns null when no policy is set', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'No Policy', rewardPerAction: 5 });
+  assert.equal(repo.getDecayPolicy(campaign.id), null);
+});
+
+test('setDecayPolicy throws for a non-existent campaign', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  assert.throws(
+    () => repo.setDecayPolicy(9999, VALID_LINEAR_POLICY),
+    /not found/,
+  );
+});
+
+test('setDecayPolicy throws for a deleted campaign', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Deleted', rewardPerAction: 5 });
+  repo.delete(campaign.id);
+
+  assert.throws(
+    () => repo.setDecayPolicy(campaign.id, VALID_LINEAR_POLICY),
+    /not found|deleted/,
+  );
+});
+
+test('setDecayPolicy rejects an invalid policy object', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Bad Policy', rewardPerAction: 5 });
+
+  assert.throws(
+    () => repo.setDecayPolicy(campaign.id, { kind: 'linear', rate_bps: 0, period_ledgers: 100, cliff_ledgers: 0 }),
+    /rate_bps/,
+  );
+});
+
+// ── decayPolicy persisted via create / update ────────────────────────────────
+
+test('create stores a decay policy supplied at creation time', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({
+    name: 'With Decay',
+    rewardPerAction: 10,
+    decayPolicy: VALID_LINEAR_POLICY,
+  });
+
+  assert.ok(campaign.decayPolicy, 'decayPolicy should be present on created campaign');
+  assert.equal(campaign.decayPolicy.kind, 'linear');
+  assert.equal(campaign.decayPolicy.rate_bps, 1000);
+});
+
+test('create with no decay policy stores null', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'No Decay', rewardPerAction: 10 });
+  assert.equal(campaign.decayPolicy, null);
+});
+
+test('update can set a decay policy on an existing campaign', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Update Decay', rewardPerAction: 10 });
+  assert.equal(campaign.decayPolicy, null);
+
+  const updated = repo.update(campaign.id, { decayPolicy: VALID_EXPONENTIAL_POLICY });
+  assert.equal(updated.decayPolicy.kind, 'exponential');
+});
+
+test('update can clear a decay policy by passing null', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({
+    name: 'Clear via Update',
+    rewardPerAction: 10,
+    decayPolicy: VALID_LINEAR_POLICY,
+  });
+  assert.ok(campaign.decayPolicy);
+
+  const updated = repo.update(campaign.id, { decayPolicy: null });
+  assert.equal(updated.decayPolicy, null);
+});
+
+test('update rejects an invalid decay policy', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const campaign = repo.create({ name: 'Invalid Update', rewardPerAction: 10 });
+
+  assert.throws(
+    () =>
+      repo.update(campaign.id, {
+        decayPolicy: { kind: 'linear', rate_bps: 10_001, period_ledgers: 100, cliff_ledgers: 0 },
+      }),
+    /rate_bps/,
+  );
+});
+
+// ── getById includes decayPolicy ─────────────────────────────────────────────
+
+test('getById includes decayPolicy in the returned campaign', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const created = repo.create({
+    name: 'Retrieve Decay',
+    rewardPerAction: 10,
+    decayPolicy: VALID_LINEAR_POLICY,
+  });
+
+  const fetched = repo.getById(created.id);
+  assert.ok(fetched.decayPolicy);
+  assert.equal(fetched.decayPolicy.kind, 'linear');
+});
+
+test('getById returns null decayPolicy when not set', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  const created = repo.create({ name: 'No Decay Fetch', rewardPerAction: 10 });
+  const fetched = repo.getById(created.id);
+  assert.equal(fetched.decayPolicy, null);
+});
+
+// ── list includes decayPolicy ─────────────────────────────────────────────────
+
+test('list includes decayPolicy on each campaign', async () => {
+  const db = new Database(':memory:');
+  await runMigrations(db);
+  const repo = createSqliteCampaignRepository({ db });
+
+  repo.create({
+    name: 'Listed Decay',
+    rewardPerAction: 10,
+    status: 'published',
+    decayPolicy: VALID_LINEAR_POLICY,
+  });
+  repo.create({ name: 'No Decay Listed', rewardPerAction: 5, status: 'published' });
+
+  const campaigns = repo.list({ status: 'published' });
+  const withPolicy = campaigns.filter((c) => c.decayPolicy !== null);
+  const withoutPolicy = campaigns.filter((c) => c.decayPolicy === null);
+
+  assert.equal(withPolicy.length, 1);
+  assert.equal(withPolicy[0].decayPolicy.kind, 'linear');
+  assert.equal(withoutPolicy.length, 1);
 });

@@ -15,6 +15,22 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // Apply the saved (or OS-preferred) theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var saved = window.localStorage.getItem('trivela-theme');
+          var theme =
+            saved === 'light' || saved === 'dark'
+              ? saved
+              : window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+        } catch (e) {}
+      })();
+    </script>
     <script src="https://cdn.jsdelivr.net/npm/@stellar/freighter-api@6.0.1/build/index.min.js"></script>
     <script type="module" src="/src/main.jsx"></script>
   </body>

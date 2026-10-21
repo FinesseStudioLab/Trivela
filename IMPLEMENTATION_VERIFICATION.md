@@ -7,7 +7,7 @@ in the current upstream codebase.
 
 ## Issue Verification
 
-### Issue #81: Add events to rewards contract for credit and claim
+### Issue #81: Add events to rewards contract for credit and claim.
 
 **Status**: ✅ IMPLEMENTED
 
@@ -29,7 +29,7 @@ in the current upstream codebase.
 
 ---
 
-### Issue #84: Add campaign cap (max participants) in campaign contract
+### Issue #84: Add campaign cap (max participants) in campaign contract.
 
 **Status**: ✅ IMPLEMENTED
 
@@ -47,7 +47,7 @@ in the current upstream codebase.
   - `get_participant_count()` function (lines 350-354) returns current count
   - Count incremented on successful registration (line 325)
 
-**Events**: `SET_MAX_CAP_EVENT` published when cap is updated
+**Events**: `SET_MAX_CAP_EVENT` published when cap is updated.
 
 ---
 
@@ -105,7 +105,7 @@ let (name, symbol) = metadata(env);
 
 All four issues have been comprehensively implemented in the current upstream codebase:
 
-- ✅ Events system is fully functional with proper event publishing
+- ✅ Events system is fully functional with proper event publishing.
 - ✅ Campaign cap enforcement prevents exceeding participant limits
 - ✅ Admin transfer capability allows point redistribution
 - ✅ Contract metadata provides name and symbol identification

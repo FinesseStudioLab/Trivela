@@ -23,8 +23,8 @@ tags = ["pem", "private-key"]
 
 [[rules]]
 id = "jwt-secret-env"
-description = "JWT_SECRET value assignment in env files or shell"
-regex = '''JWT_SECRET\s*=\s*['"]?[A-Za-z0-9+/=\-_]{16,}['"]?'''
+description = "JWT_SECRET value assignment in env files, shell, or YAML (k8s/helm/compose use ':', not '=')"
+regex = '''JWT_SECRET\s*[:=]\s*['"]?[A-Za-z0-9+/=\-_]{16,}['"]?'''
 tags = ["jwt", "secret"]
 
 [[rules]]
@@ -35,9 +35,23 @@ tags = ["generic", "secret"]
 
 [[rules]]
 id = "keeper-secret-key"
-description = "KEEPER_SECRET_KEY Stellar value"
-regex = '''KEEPER_SECRET_KEY\s*=\s*['"]?S[A-Z2-7]{55}['"]?'''
+description = "KEEPER_SECRET_KEY Stellar value, in env/shell or YAML"
+regex = '''KEEPER_SECRET_KEY\s*[:=]\s*['"]?S[A-Z2-7]{55}['"]?'''
 tags = ["stellar", "keeper"]
+
+[[rules]]
+id = "k8s-helm-compose-secret-value"
+description = "*_SECRET / *_PASSWORD / *_TOKEN / *_PRIVATE_KEY assigned a non-placeholder value via YAML colon syntax, scoped to deployment manifests (issue #854)"
+regex = '''(?i)[a-z0-9_]*(?:secret|password|token|private_key)[a-z0-9_]*\s*:\s*['"]?[A-Za-z0-9+/=_\-]{16,}['"]?'''
+path = '''(^|/)(k8s/|helm/|compose[^/]*\.ya?ml$|docker-compose[^/]*\.ya?ml$)'''
+tags = ["k8s", "helm", "compose", "yaml"]
+
+[[rules]]
+id = "k8s-secret-base64-data"
+description = "High-entropy base64 value under a Kubernetes/Helm Secret manifest's data: block (issue #854)"
+regex = '''^\s{2,}[A-Za-z0-9_.\-]+:\s*[A-Za-z0-9+/]{40,}={0,2}\s*$'''
+path = '''(^|/)(k8s|helm)/.*secret[^/]*\.ya?ml$'''
+tags = ["k8s", "helm", "secret", "base64"]
 
 [allowlist]
 description = "Safe paths — example files, test fixtures, docs, and example tokens"
@@ -75,4 +89,7 @@ regexes = [
   '''sandbox_your_key''',
   '''(?i)your[_-]?(api[_-]?)?key''',
   '''(?i)example[_-]?(api[_-]?)?key''',
+  # Deployment-manifest placeholders (k8s/secret.yaml, helm/values.yaml) that
+  # are meant to be replaced before a real deploy, not real secrets (#854).
+  '''(?i)change[_-]?me''',
 ]

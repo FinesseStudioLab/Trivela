@@ -97,9 +97,7 @@ export default function UserDashboard({
     setVestingLoading(true);
     setVestingError('');
     try {
-      const url = apiUrl(
-        `/index/addresses/${encodeURIComponent(walletAddress)}/vesting`,
-      );
+      const url = apiUrl(`/index/addresses/${encodeURIComponent(walletAddress)}/vesting`);
       const res = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!res.ok) throw new Error(`API returned ${res.status}`);
       const body = await res.json();
@@ -184,9 +182,7 @@ export default function UserDashboard({
 
             <section className="section">
               <h2 className="section-title">Vesting Schedule</h2>
-              <p className="section-subtitle">
-                Your vested rewards and their unlock status.
-              </p>
+              <p className="section-subtitle">Your vested rewards and their unlock status.</p>
 
               {vestingLoading && <p role="status">Loading vesting data…</p>}
 
@@ -289,20 +285,22 @@ export default function UserDashboard({
                 </table>
               )}
 
-              {!historyLoading && !historyError && (history.length > 0 || historyCursorStack.length > 1) && (
-                <div className="history-pagination">
-                  <button
-                    type="button"
-                    onClick={onPrevHistory}
-                    disabled={historyCursorStack.length <= 1}
-                  >
-                    ← Newer
-                  </button>
-                  <button type="button" onClick={onNextHistory} disabled={!historyCursor}>
-                    Older →
-                  </button>
-                </div>
-              )}
+              {!historyLoading &&
+                !historyError &&
+                (history.length > 0 || historyCursorStack.length > 1) && (
+                  <div className="history-pagination">
+                    <button
+                      type="button"
+                      onClick={onPrevHistory}
+                      disabled={historyCursorStack.length <= 1}
+                    >
+                      ← Newer
+                    </button>
+                    <button type="button" onClick={onNextHistory} disabled={!historyCursor}>
+                      Older →
+                    </button>
+                  </div>
+                )}
             </section>
           </>
         )}

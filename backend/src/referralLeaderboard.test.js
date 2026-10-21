@@ -55,9 +55,7 @@ test('GET /campaigns/:id/referrals/leaderboard ranks referrers by referral count
     await postReferral(baseUrl, campaignId, 'B', 'ref-b2');
     await postReferral(baseUrl, campaignId, 'C', 'ref-c1');
 
-    const response = await fetch(
-      `${baseUrl}/api/v1/campaigns/${campaignId}/referrals/leaderboard`,
-    );
+    const response = await fetch(`${baseUrl}/api/v1/campaigns/${campaignId}/referrals/leaderboard`);
     assert.equal(response.status, 200);
 
     const payload = await response.json();

@@ -1,0 +1,192 @@
+/* Modal / Dialog — design-system styles.
+   Themed entirely through CSS custom properties. */
+
+.ds-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--ds-z-overlay, 60);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--ds-space-4, 1rem);
+  background: rgba(0, 0, 0, 0.75);
+  animation: ds-modal-overlay-enter var(--ds-duration-fast, 120ms) var(--ds-easing, ease);
+}
+
+:root[data-theme='light'] .ds-modal-overlay {
+  background: rgba(15, 23, 42, 0.6);
+}
+
+@keyframes ds-modal-overlay-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ds-modal {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - var(--ds-space-5, 1.5rem) * 2);
+  background: var(--ds-overlay-bg, var(--bg-card-solid, #121c29));
+  border: 1px solid var(--ds-overlay-border, var(--border-strong, rgba(150, 176, 214, 0.36)));
+  border-radius: var(--ds-radius-lg, 14px);
+  box-shadow: var(--ds-shadow-overlay, 0 12px 32px rgba(0, 0, 0, 0.32));
+  animation: ds-modal-enter var(--ds-duration-medium, 180ms) var(--ds-easing, ease);
+}
+
+@keyframes ds-modal-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Size variants */
+.ds-modal--sm {
+  width: 100%;
+  max-width: 400px;
+}
+
+.ds-modal--md {
+  width: 100%;
+  max-width: 540px;
+}
+
+.ds-modal--lg {
+  width: 100%;
+  max-width: 720px;
+}
+
+.ds-modal--full {
+  width: calc(100% - var(--ds-space-5, 1.5rem) * 2);
+  max-width: 1200px;
+  height: calc(100vh - var(--ds-space-5, 1.5rem) * 2);
+}
+
+/* Header */
+.ds-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--ds-space-3, 0.75rem);
+  padding: var(--ds-space-4, 1rem) var(--ds-space-5, 1.5rem);
+  border-bottom: 1px solid var(--border, rgba(150, 176, 214, 0.2));
+}
+
+.ds-modal__title {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text, #edf4ff);
+  line-height: 1.4;
+}
+
+.ds-modal__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  margin: calc(var(--ds-space-1, 0.25rem) * -1);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--ds-radius-sm, 6px);
+  color: var(--text-muted, #a1b1c7);
+  cursor: pointer;
+  transition: background var(--ds-duration-fast, 120ms) var(--ds-easing, ease),
+    color var(--ds-duration-fast, 120ms) var(--ds-easing, ease);
+}
+
+.ds-modal__close:hover {
+  background: var(--accent-soft, rgba(76, 141, 255, 0.16));
+  color: var(--text, #edf4ff);
+}
+
+.ds-modal__close:focus-visible {
+  outline: 2px solid var(--accent, #4c8dff);
+  outline-offset: 2px;
+}
+
+/* Content */
+.ds-modal__content {
+  flex: 1 1 auto;
+  padding: var(--ds-space-5, 1.5rem);
+  overflow-y: auto;
+}
+
+.ds-modal__message {
+  margin: 0 0 var(--ds-space-4, 1rem);
+  color: var(--text-muted, #a1b1c7);
+  line-height: 1.6;
+}
+
+/* Actions */
+.ds-modal__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ds-space-3, 0.75rem);
+  padding: var(--ds-space-4, 1rem) var(--ds-space-5, 1.5rem);
+  border-top: 1px solid var(--border, rgba(150, 176, 214, 0.2));
+  background: var(--bg-elevated, #0e1621);
+  border-radius: 0 0 var(--ds-radius-lg, 14px) var(--ds-radius-lg, 14px);
+}
+
+.ds-modal__actions--left {
+  justify-content: flex-start;
+}
+
+.ds-modal__actions--center {
+  justify-content: center;
+}
+
+.ds-modal__actions--right {
+  justify-content: flex-end;
+}
+
+.ds-modal__actions .btn {
+  min-width: 100px;
+}
+
+/* Loading state */
+.ds-modal__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ds-space-2, 0.5rem);
+}
+
+.ds-modal__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: ds-modal-spin 0.75s linear infinite;
+}
+
+@keyframes ds-modal-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .ds-modal-overlay,
+  .ds-modal {
+    animation: none;
+  }
+
+  .ds-modal__spinner {
+    animation: none;
+    border-right-color: currentColor;
+    opacity: 0.6;
+  }
+}

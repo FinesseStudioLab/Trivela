@@ -24,7 +24,8 @@ CREATE TABLE IF NOT EXISTS campaigns (
     tags                  JSONB       NOT NULL DEFAULT '[]'::jsonb,
     category              TEXT,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    deleted_at            TIMESTAMPTZ
 );
 
 CREATE INDEX IF NOT EXISTS idx_campaigns_active     ON campaigns(active);
@@ -34,6 +35,7 @@ CREATE INDEX IF NOT EXISTS idx_campaigns_created_at ON campaigns(created_at);
 CREATE INDEX IF NOT EXISTS idx_campaigns_category   ON campaigns(category);
 CREATE INDEX IF NOT EXISTS idx_campaigns_name_lower ON campaigns(LOWER(name));
 CREATE INDEX IF NOT EXISTS idx_campaigns_tags_gin   ON campaigns USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_campaigns_deleted_at ON campaigns(deleted_at);
 
 -- audit_logs schema matches the column set the legacy SQLite repository writes
 -- to: (actor, action, entity, entity_id, diff, created_at, org_id). The legacy

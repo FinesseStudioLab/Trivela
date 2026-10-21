@@ -1,14 +1,59 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { QRCodeCanvas } from 'qrcode.react';
 import { apiUrl, DEFAULT_OG_IMAGE } from './config';
 import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
 import StatusBadge from './components/StatusBadge';
+import TaskProgressBar from './components/TaskProgressBar';
 import PageMeta from './components/PageMeta';
 import ErrorBoundary from './ErrorBoundary';
 import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
 import './CampaignDetail.css';
+import EmbedSnippetGenerator from './components/EmbedSnippetGenerator.jsx';
+
+/** Formats a duration in seconds as "2d 4h 15m" (issue #317 countdown). */
+function formatCountdown(totalSeconds) {
+  if (totalSeconds <= 0) return null;
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (days > 0 || hours > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(' ');
+}
+
+/**
+ * Live-ticking countdown/time-remaining string for a campaign window.
+ * `windowStart`/`windowEnd` are unix seconds, or null when no window is
+ * configured on-chain (get_window() defaults to (0, u64::MAX)).
+ */
+export function useCampaignCountdown(windowStart, windowEnd) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (windowStart == null || windowEnd == null) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [windowStart, windowEnd]);
+
+  return useMemo(() => {
+    if (windowStart == null || windowEnd == null) {
+      return { label: null, phase: 'unbounded' };
+    }
+    const nowSec = Math.floor(now / 1000);
+    if (nowSec < windowStart) {
+      const text = formatCountdown(windowStart - nowSec);
+      return { label: text ? `Starts in ${text}` : 'Starting now', phase: 'upcoming' };
+    }
+    if (nowSec <= windowEnd) {
+      const text = formatCountdown(windowEnd - nowSec);
+      return { label: text ? `Ends in ${text}` : 'Ending now', phase: 'active' };
+    }
+    return { label: 'Window closed', phase: 'ended' };
+  }, [now, windowStart, windowEnd]);
+}
 
 export default function CampaignDetail({
   theme,
@@ -30,65 +75,32 @@ export default function CampaignDetail({
   const { campaign, onChainState, isPolling, isPaused, lastUpdated, stateToast, error, refresh } =
     useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
 
-  const [referralCount, setReferralCount] = useState(0);
-  const [bonusEarned, setBonusEarned] = useState(0);
-  const [referralTier, setReferralTier] = useState(null);
-  const [refLinkCopied, setRefLinkCopied] = useState(false);
-  const [embedSnippetCopied, setEmbedSnippetCopied] = useState(false);
-  const [showQRModal, setShowQRModal] = useState(false);
-  const [qrSize, setQrSize] = useState(256);
+  const [shareCopied, setShareCopied] = useState(false);
+  const countdown = useCampaignCountdown(onChainState?.windowStart, onChainState?.windowEnd);
 
-  const handleDownloadQR = () => {
-    const canvas = document.getElementById('campaign-qr-code');
-    if (canvas) {
-      const url = canvas.toDataURL('image/png');
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `trivela-campaign-${campaign?.name?.toLowerCase().replace(/\s+/g, '-') ?? 'qr'}-${new Date().toISOString().slice(0, 10)}.png`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    }
-  };
+  const campaignUrl = `${window.location.origin}/campaign/${id}`;
 
-  const handleCopyQRToClipboard = async () => {
-    const canvas = document.getElementById('campaign-qr-code');
-    if (canvas) {
-      try {
-        canvas.toBlob(async (blob) => {
-          if (blob) {
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-            alert('QR Code copied to clipboard!');
-          }
-        });
-      } catch (err) {
-        console.error('Failed to copy QR code: ', err);
-      }
-    }
+  const handleCopyShareLink = useCallback(() => {
+    navigator.clipboard.writeText(campaignUrl).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }, [campaignUrl]);
+
+  const shareText = campaign ? `Check out "${campaign.name}" on Trivela` : 'Check out this campaign on Trivela';
+  const shareLinks = {
+    twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(campaignUrl)}`,
+    telegram: `https://t.me/share/url?url=${encodeURIComponent(campaignUrl)}&text=${encodeURIComponent(shareText)}`,
   };
+  const handleCopyDiscordMessage = useCallback(() => {
+    navigator.clipboard.writeText(`${shareText} — ${campaignUrl}`).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }, [shareText, campaignUrl]);
 
   const incomingRef = searchParams.get('ref');
   const isLoading = !campaign && !error;
-
-  useEffect(() => {
-    if (!walletAddress || !id) return;
-
-    fetch(apiUrl(`/api/v1/campaigns/${id}/referrals/${walletAddress}`))
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data) {
-          setReferralCount(data.referralCount ?? 0);
-          setBonusEarned(data.bonusEarned ?? 0);
-          setReferralTier({
-            tier: data.tier,
-            nextTier: data.nextTier,
-            referralsToNextTier: data.referralsToNextTier,
-            tierProgressPercent: data.tierProgressPercent,
-          });
-        }
-      })
-      .catch(() => {});
-  }, [walletAddress, id]);
 
   const handleRegistered = useCallback(() => {
     if (!incomingRef || !walletAddress || !id) return;
@@ -110,28 +122,6 @@ export default function CampaignDetail({
       dateStyle: 'long',
       timeStyle: 'short',
     }).format(date);
-  };
-
-  const buildInviteLink = () => {
-    const base = `${window.location.origin}/campaign/${id}`;
-    return `${base}?ref=${walletAddress}`;
-  };
-
-  const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(buildInviteLink());
-      setRefLinkCopied(true);
-      setTimeout(() => setRefLinkCopied(false), 2000);
-    } catch (_) {
-      // Clipboard API unavailable
-    }
-  };
-
-  const buildShareText = () => {
-    const name = campaign?.name ?? 'this campaign';
-    return encodeURIComponent(
-      `Join me on ${name} and earn rewards on Stellar! ${buildInviteLink()}`,
-    );
   };
 
   const campaignImage = campaign?.imageUrl || DEFAULT_OG_IMAGE;
@@ -176,6 +166,7 @@ export default function CampaignDetail({
         }
         path={`/campaign/${id}`}
         image={campaignImage}
+        imageAlt={campaign ? `${campaign.name} campaign share card` : 'Trivela campaign share card'}
         jsonLd={campaignJsonLd}
       />
       <Header
@@ -233,7 +224,17 @@ export default function CampaignDetail({
           </nav>
 
           {isLoading ? (
-            <div className="detail-status">Loading campaign details...</div>
+            <div className="detail-skeleton" aria-busy="true" aria-label="Loading campaign details">
+              <div className="skeleton-line skeleton-title" />
+              <div className="skeleton-line skeleton-badge" />
+              <div className="skeleton-grid">
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+              </div>
+              <div className="skeleton-line skeleton-paragraph" />
+              <div className="skeleton-line skeleton-paragraph" />
+            </div>
           ) : error ? (
             <div className="detail-error" role="alert">
               <h2>Error</h2>
@@ -267,21 +268,89 @@ export default function CampaignDetail({
                       <h2>On-chain status</h2>
                       <div className="detail-grid">
                         <div className="detail-stat">
-                          <h3>Contract active</h3>
-                          <p className="stat-value">{onChainState.isActive ? 'Yes' : 'No'}</p>
-                        </div>
-                        <div className="detail-stat">
-                          <h3>Within window</h3>
-                          <p className="stat-value">{onChainState.isWithinWindow ? 'Yes' : 'No'}</p>
+                          <h3>Status</h3>
+                          <p className="stat-value">
+                            {onChainState.isActive
+                              ? onChainState.isWithinWindow
+                                ? 'Active'
+                                : 'Paused'
+                              : 'Inactive'}
+                          </p>
                         </div>
                         <div className="detail-stat">
                           <h3>Participants</h3>
-                          <p className="stat-value">{onChainState.participantCount}</p>
+                          <p className="stat-value">
+                            {onChainState.participantCount}
+                            {onChainState.maxCap > 0
+                              ? ` / ${onChainState.maxCap} spots`
+                              : ' registered'}
+                          </p>
+                        </div>
+                        <div className="detail-stat">
+                          <h3>{countdown.phase === 'upcoming' ? 'Starts' : 'Time window'}</h3>
+                          <p className="stat-value">{countdown.label ?? 'No time limit'}</p>
                         </div>
                       </div>
+
+                      {onChainState.maxCap > 0 ? (
+                        <div
+                          className="cap-progress-bar"
+                          role="progressbar"
+                          aria-valuenow={onChainState.participantCount}
+                          aria-valuemin={0}
+                          aria-valuemax={onChainState.maxCap}
+                          aria-label="Campaign fill rate"
+                        >
+                          <div
+                            className="cap-progress-fill"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (onChainState.participantCount / onChainState.maxCap) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </section>
                   </ErrorBoundary>
+                ) : campaign && !campaign.contractId ? (
+                  <section className="detail-section detail-no-contract">
+                    <h2>On-chain status</h2>
+                    <p className="detail-no-contract-note">
+                      Contract not linked — this campaign doesn&apos;t have an on-chain contract
+                      assigned yet, so live participant counts and status aren&apos;t available.
+                    </p>
+                  </section>
                 ) : null}
+
+                <section className="detail-section detail-share" aria-label="Share this campaign">
+                  <h2>Share</h2>
+                  <div className="detail-share-actions">
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyShareLink}>
+                      {shareCopied ? 'Copied!' : 'Copy link'}
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.twitter}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Twitter
+                    </a>
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyDiscordMessage}>
+                      Copy Discord message
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Telegram
+                    </a>
+                  </div>
+                </section>
 
                 <section className="detail-section">
                   <h2>Description</h2>
@@ -300,6 +369,8 @@ export default function CampaignDetail({
                     <p className="stat-value">{formatDate(campaign.createdAt)}</p>
                   </div>
                 </div>
+
+                <TaskProgressBar tasks={campaign.tasks} />
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
@@ -341,100 +412,19 @@ export default function CampaignDetail({
                       ) : null}
                     </div>
 
-                    <div className="referral-stats">
-                      <div className="referral-stat">
-                        <span className="referral-stat-value">{referralCount}</span>
-                        <span className="referral-stat-label">
-                          {referralCount === 1 ? 'friend invited' : 'friends invited'}
-                        </span>
-                      </div>
-                      {campaign.referralBonusPoints > 0 ? (
-                        <div className="referral-stat">
-                          <span className="referral-stat-value">{bonusEarned}</span>
-                          <span className="referral-stat-label">bonus pts earned</span>
-                        </div>
-                      ) : null}
-                      {referralTier?.tier ? (
-                        <div className="referral-stat referral-tier-stat">
-                          <span
-                            className={`referral-tier-badge referral-tier-${referralTier.tier.id}`}
-                          >
-                            {referralTier.tier.name}
-                          </span>
-                          <span className="referral-stat-label">
-                            {referralTier.nextTier
-                              ? `${referralTier.referralsToNextTier} more to ${referralTier.nextTier.name}`
-                              : 'Top tier reached'}
-                          </span>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    <Link
-                      to={`/campaign/${id}/referrals/leaderboard`}
-                      className="referral-leaderboard-link"
-                    >
-                      View referral leaderboard →
-                    </Link>
-
-                    <div className="referral-link-row">
-                      <input
-                        className="referral-link-input"
-                        type="text"
-                        readOnly
-                        value={buildInviteLink()}
-                        aria-label="Your referral link"
-                        onFocus={(e) => e.target.select()}
-                      />
-                      <button
-                        type="button"
-                        className="btn btn-secondary referral-copy-btn"
-                        onClick={handleCopyLink}
-                        aria-live="polite"
+                    <div className="referral-actions-row">
+                      <Link
+                        to={`/campaign/${id}/referrals`}
+                        className="btn btn-primary referral-manage-link"
                       >
-                        {refLinkCopied ? 'Copied!' : 'Copy link'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-secondary qr-code-btn"
-                        onClick={() => setShowQRModal(true)}
-                        style={{ marginLeft: '8px' }}
+                        Manage Referral Link
+                      </Link>
+                      <Link
+                        to={`/campaign/${id}/referrals/leaderboard`}
+                        className="btn btn-secondary referral-leaderboard-link"
                       >
-                        QR Code
-                      </button>
-                    </div>
-
-                    <div
-                      className="referral-share-row"
-                      role="group"
-                      aria-label="Share on social media"
-                    >
-                      <a
-                        href={`https://twitter.com/intent/tweet?text=${buildShareText()}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn referral-share-btn referral-share-twitter"
-                      >
-                        Share on X
-                      </a>
-                      <a
-                        href="https://discord.com/channels/@me"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn referral-share-btn referral-share-discord"
-                        title="Open Discord and share your link"
-                        onClick={handleCopyLink}
-                      >
-                        Share on Discord
-                      </a>
-                      <a
-                        href={`https://t.me/share/url?url=${encodeURIComponent(buildInviteLink())}&text=${encodeURIComponent(`Join ${campaign?.name ?? 'this campaign'} on Trivela and earn Stellar rewards!`)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn referral-share-btn referral-share-telegram"
-                      >
-                        Share on Telegram
-                      </a>
+                        View Leaderboard
+                      </Link>
                     </div>
                   </section>
                 ) : null}
@@ -459,41 +449,9 @@ export default function CampaignDetail({
                       color: 'var(--color-text-secondary, #94a3b8)',
                     }}
                   >
-                    Copy this snippet to embed a live campaign card on any website.
+                    Embed a live campaign widget on any website as an HTML iframe or a React component.
                   </p>
-                  <pre
-                    style={{
-                      background: 'var(--color-bg, #0f172a)',
-                      padding: '12px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      overflowX: 'auto',
-                      margin: '0 0 12px',
-                    }}
-                  >
-                    <code>{`<iframe
-  src="${window.location.origin}/embed/campaign/${id}?theme=dark"
-  width="400"
-  height="280"
-  frameborder="0"
-  style="border:none;border-radius:12px;"
-  title="${campaign.name ?? 'Campaign'} on Trivela"
-></iframe>`}</code>
-                  </pre>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.8rem' }}
-                    onClick={() => {
-                      const snippet = `<iframe\n  src="${window.location.origin}/embed/campaign/${id}?theme=dark"\n  width="400"\n  height="280"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n  title="${campaign.name ?? 'Campaign'} on Trivela"\n></iframe>`;
-                      navigator.clipboard.writeText(snippet).then(() => {
-                        setEmbedSnippetCopied(true);
-                        setTimeout(() => setEmbedSnippetCopied(false), 2000);
-                      });
-                    }}
-                  >
-                    {embedSnippetCopied ? 'Copied!' : 'Copy snippet'}
-                  </button>
+                  <EmbedSnippetGenerator campaignId={id} campaignName={campaign.name} />
                 </section>
               )}
             </article>
@@ -506,130 +464,6 @@ export default function CampaignDetail({
           <p>Copyright 2026 Trivela - Built for Stellar Wave</p>
         </div>
       </footer>
-      {showQRModal && (
-        <div
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.75)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
-          onClick={() => setShowQRModal(false)}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="qr-modal-title"
-        >
-          <div
-            style={{
-              backgroundColor: 'var(--color-surface, #1e293b)',
-              padding: '24px',
-              borderRadius: '8px',
-              border: '1px solid var(--color-border, #334155)',
-              width: '100%',
-              maxWidth: '400px',
-              textAlign: 'center',
-              boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <h2
-              id="qr-modal-title"
-              style={{
-                margin: '0 0 16px',
-                fontSize: '1.25rem',
-                color: 'var(--color-text, #f8fafc)',
-              }}
-            >
-              Campaign QR Code
-            </h2>
-
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'center',
-                gap: '8px',
-                marginBottom: '16px',
-              }}
-            >
-              <button
-                type="button"
-                className={`btn btn-sm ${qrSize === 128 ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setQrSize(128)}
-                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-              >
-                Small (128px)
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${qrSize === 256 ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setQrSize(256)}
-                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-              >
-                Medium (256px)
-              </button>
-              <button
-                type="button"
-                className={`btn btn-sm ${qrSize === 512 ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setQrSize(512)}
-                style={{ fontSize: '0.8rem', padding: '4px 8px' }}
-              >
-                Large (512px)
-              </button>
-            </div>
-
-            <div
-              style={{
-                background: '#fff',
-                padding: '16px',
-                borderRadius: '8px',
-                display: 'inline-block',
-                marginBottom: '16px',
-              }}
-            >
-              <QRCodeCanvas
-                id="campaign-qr-code"
-                value={buildInviteLink()}
-                size={qrSize}
-                level="H"
-                includeMargin={true}
-              />
-            </div>
-
-            <p
-              style={{
-                margin: '0 0 16px',
-                fontWeight: 'bold',
-                fontSize: '0.9rem',
-                color: 'var(--color-text, #f8fafc)',
-              }}
-            >
-              {campaign?.name}
-            </p>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <button type="button" className="btn btn-primary" onClick={handleDownloadQR}>
-                Download PNG
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={handleCopyQRToClipboard}>
-                Copy to Clipboard
-              </button>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowQRModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -93,16 +93,6 @@ jobs:
     runs-on: ubuntu-latest
     needs: frontend
 
-  cross-browser-e2e:
-    name: Cross-browser E2E (Chromium/Firefox/WebKit)
-    runs-on: ubuntu-latest
-    needs: frontend
-
-    strategy:
-      fail-fast: false
-      matrix:
-        browser: [chromium, firefox, webkit]
-
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -164,8 +154,55 @@ jobs:
           echo "**Serious violations**: Build fails ❌" >> $GITHUB_STEP_SUMMARY
           echo "**Moderate violations**: Reported ⚠️" >> $GITHUB_STEP_SUMMARY
           echo "**Minor violations**: Reported ℹ️" >> $GITHUB_STEP_SUMMARY
+
+  cross-browser-e2e:
+    name: Cross-browser E2E (${{ matrix.browser }})
+    runs-on: ubuntu-latest
+    needs: frontend
+
+    # Desktop Chrome, Firefox, Safari (WebKit) and Edge plus mobile Chrome,
+    # Safari and Edge. `install` is the Playwright browser to download for the
+    # project (mobile Chrome/Safari reuse the Chromium/WebKit engines).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - browser: chromium
+            install: chromium
+          - browser: firefox
+            install: firefox
+          - browser: webkit
+            install: webkit
+          - browser: edge
+            install: msedge
+          - browser: mobile-chrome
+            install: chromium
+          - browser: mobile-safari
+            install: webkit
+          - browser: mobile-edge
+            install: msedge
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Download frontend build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
       - name: Install Playwright browser - ${{ matrix.browser }}
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.install }}
 
       - name: Run E2E tests - ${{ matrix.browser }}
         run: npx playwright test --project=${{ matrix.browser }}
@@ -197,6 +234,12 @@ jobs:
     name: E2E against production build (vite preview)
     runs-on: ubuntu-latest
     needs: frontend
+  # #1319: hermetic browser flow — admin creates a campaign, the campaign page loads and a
+  # participant claims rewards. Builds its own bundle with an admin wallet and rewards contract
+  # configured; the REST API, Horizon, Soroban RPC and the wallet extension are mocked in the test.
+  campaign-to-claim-e2e:
+    name: Campaign creation to reward claim (Playwright)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Check out repository
@@ -226,6 +269,18 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: e2e-prod-build-results
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run campaign-to-claim flow
+        run: npm run test:e2e:flow
+        working-directory: frontend
+
+      - name: Upload flow results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-flow-results
           path: |
             frontend/playwright-report
             frontend/test-results

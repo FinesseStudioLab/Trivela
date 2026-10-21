@@ -103,9 +103,20 @@ export function validateBackendEnv(env = process.env) {
   record(() => validateApiKeys({ apiKey: env.TRIVELA_API_KEY, apiKeys: env.TRIVELA_API_KEYS }));
   record(() => normalizePositiveInteger(env.LOCK_TTL_MS, 'LOCK_TTL_MS'));
   record(() => normalizePositiveInteger(env.EXPORT_RETENTION_DAYS, 'EXPORT_RETENTION_DAYS'));
+  record(() =>
+    normalizePositiveInteger(env.SOFT_DELETE_RETENTION_DAYS, 'SOFT_DELETE_RETENTION_DAYS'),
+  );
 
   if (env.DB_PATH && typeof env.DB_PATH !== 'string') {
     errors.push('DB_PATH must be a string path');
+  }
+
+  if (env.JWT_SECRET && typeof env.JWT_SECRET !== 'string') {
+    errors.push('JWT_SECRET must be a string');
+  }
+
+  if (env.LOKI_ENDPOINT && typeof env.LOKI_ENDPOINT !== 'string') {
+    errors.push('LOKI_ENDPOINT must be a valid URL');
   }
 
   if (errors.length > 0) {

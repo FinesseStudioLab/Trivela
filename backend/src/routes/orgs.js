@@ -24,7 +24,12 @@ import { VALID_ROLES } from '../dal/sqliteOrgMemberRepository.js';
  *   recordAuditEntry: (req: import('express').Request, entry: { action: string, entity: string, entityId: string, diff: unknown }) => void,
  * }} deps
  */
-export function createOrgRoutes({ orgMemberRepository, requireMasterKey, requireApiKey, recordAuditEntry }) {
+export function createOrgRoutes({
+  orgMemberRepository,
+  requireMasterKey,
+  requireApiKey,
+  recordAuditEntry,
+}) {
   const router = Router();
 
   // ── Create org (master-key only — bootstrapping) ──────────────────────────

@@ -105,30 +105,133 @@ VITE_STELLAR_NETWORK=testnet
 
 ## Troubleshooting
 
-### Workflow fails with "Secret not found"
+### 1. Faucet Dry - "Insufficient Lumens" Error
 
-Ensure `SOROBAN_TESTNET_ACCOUNT_SECRET` is set in repository settings:
+**Symptom:** Deployment or transaction fails with `InsufficientBalance` or "insufficient lumens" error.
 
-1. Go to Settings > Secrets and variables > Actions
-2. Create new repository secret
-3. Name: `SOROBAN_TESTNET_ACCOUNT_SECRET`
-4. Value: Your Soroban testnet account secret key
+**Diagnosis:**
+```bash
+# Check your account balance using Stellar Laboratory
+curl "https://horizon-testnet.stellar.org/accounts/YOUR_PUBLIC_KEY"
+# Or check via Soroban CLI
+soroban config keys address show YOUR_PUBLIC_KEY --network testnet
+```
 
-### Deployment fails
+**Resolution:**
+1. Request testnet lumens from the faucet: https://friendbot.stellar.org/
+2. If faucet is dry, wait and retry periodically
+3. For urgent testing, use the Stellar Laboratory faucet with multiple accounts
 
-Check that:
+---
 
-1. Account has enough testnet lumens
-2. `scripts/deploy-testnet.sh` exists and is executable
-3. Contracts compile successfully
-4. RPC endpoint is reachable
+### 2. RPC Timeout - "Request Timeout" Error
 
-### Tests timeout
+**Symptom:** Calls to `soroban-testnet.stellar.org` fail with timeout or connection errors.
 
-Testnet operations may be slow. Increase timeout in workflow if needed:
+**Diagnosis:**
+```bash
+# Check RPC endpoint status
+curl -s https://soroban-testnet.stellar.org | jq -r '.infinite_timeout'
+curl -s https://soroban-testnet.stellar.org/status
 
-- Change `timeout-minutes: 30` to higher value
-- Check testnet RPC status: https://soroban-testnet.stellar.org/status
+# Test RPC connectivity
+curl -s -X POST https://soroban-testnet.stellar.org \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"getHealth"}'
+```
+
+**Resolution:**
+1. Check the [Stellar Network Status](https://status.stellar.org/) for known outages
+2. Increase timeout values in your workflow or CLI commands
+3. Retry the operation — testnet can be slow during peak times
+4. As a fallback, consider using a private testnet RPC if available
+
+---
+
+### 3. Contract Not Found - "ContractError(0)" or Missing WASM
+
+**Symptom:** Contract invocation fails with `ContractError(0)`, `JsonRpcError(-32602)`, or WASM not found.
+
+**Diagnosis:**
+```bash
+# Verify contract exists on network
+soroban config network add testnet --rpc-url https://soroban-testnet.stellar.org --network-passphrase "Test SDF Network ; September 2015"
+soroban contract inspect YOUR_CONTRACT_ID --network testnet
+
+# Check if contract WASM is uploaded
+soroban ledger entry read --id YOUR_CONTRACT_ID --network testnet --raw
+
+# List deployed contracts for your account
+soroban contract events --network testnet --start 0 --limit 10 2>/dev/null | grep YOUR_CONTRACT_ID
+```
+
+**Resolution:**
+1. Confirm contract was successfully deployed — check deployment script output for contract IDs
+2. Verify you're using the correct network (`testnet` not `mainnet`)
+3. Re-deploy the contract if needed: `scripts/deploy-testnet.sh`
+4. Ensure the contract ID matches what's configured in your frontend/backend
+
+---
+
+### 4. Secret Not Found - "Secret not found in storage"
+
+**Symptom:** GitHub Actions workflow fails with `Secret not found` error.
+
+**Diagnosis:**
+```bash
+# Verify secret exists in repository (requires appropriate permissions)
+gh secret list | grep SOROBAN_TESTNET
+```
+
+**Resolution:**
+1. Go to repository **Settings > Secrets and variables > Actions**
+2. Create or verify the secret:
+   - **Name:** `SOROBAN_TESTNET_ACCOUNT_SECRET`
+   - **Value:** Your Soroban testnet account secret key (starts with `S...`)
+3. Ensure the account has testnet lumens
+4. Re-run the workflow after secret is configured
+
+---
+
+### 5. Build/Compilation Errors
+
+**Symptom:** Tests fail during build phase with Rust or Node.js errors.
+
+**Diagnosis:**
+```bash
+# Verify Rust toolchain
+rustc --version && cargo --version
+
+# Verify Node.js version (should match .nvmrc)
+node --version
+
+# Check contract compilation
+cd contracts && cargo build --target wasm32-unknown-unknown --release
+
+# Check frontend build
+cd frontend && npm run build
+
+# Verify backend builds
+cd backend && cargo build --release
+```
+
+**Resolution:**
+1. Install correct toolchain versions:
+   - Rust: `rustup install $(cat rust-toolchain.toml | grep channel | cut -d'"' -f2)`
+   - Node.js: `nvm install` (reads from `.nvmrc`)
+2. Clear caches: `rm -rf node_modules && npm install`
+3. Check for missing system dependencies (e.g., `pkg-config`, `libssl-dev`)
+4. Review build logs for specific compilation errors
+
+---
+
+## Community Support
+
+If these troubleshooting steps don't resolve your issue:
+
+- **GitHub Issues:** Report bugs at https://github.com/wandooadzer-cmyk/Trivela/issues
+- **Discussions:** Ask questions at https://github.com/wandooadzer-cmyk/Trivela/discussions
+- **Stellar Dev Discord:** Get help from the Stellar community at https://discord.gg/stellar
 
 ## Best Practices
 

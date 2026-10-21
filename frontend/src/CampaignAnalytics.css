@@ -110,3 +110,16 @@
   border: 1px solid var(--border);
   background: var(--bg-card-solid);
 }
+
+/* ── Export controls (#1207) ───────────────────────────────────────────── */
+
+.analytics-export {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.analytics-export-error {
+  margin: 0 0 1rem;
+  color: var(--danger, #dc2626);
+}

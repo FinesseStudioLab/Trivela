@@ -567,6 +567,27 @@ Requires API key if `TRIVELA_API_KEY` is set.
 - `action` – Filter by action (`create`, `update`, `delete`)
 - `page`, `limit`, `offset` – Same pagination params as other list endpoints
 
+Every entry records **who** (`actor`), **what** (`action`, `entity`, `entityId`, `diff`), **when**
+(`timestamp`) and **from where** (`ipAddress`, the request's client IP, `null` for entries written
+before the column existed or without a request). The `audit_logs` table is **append-only**: database
+triggers reject any `UPDATE` or `DELETE`, and each row is part of a SHA-256 hash chain (the IP is
+included in the hash when present) that `GET /api/v1/admin/audit/verify` re-checks, so a rewritten or
+removed entry is detected even by someone who removes the triggers. Behind a reverse proxy, set
+Express's `trust proxy` so `req.ip` is the real client address rather than the proxy's.
+
+## Test coverage (issue #1320)
+
+```bash
+npm run test:coverage --workspace=backend   # needs Node >= 22
+```
+
+This runs the whole backend suite with Node's built-in coverage, writes `backend/coverage/lcov.info`
+and fails when line, branch or function coverage is below the floors in
+`backend/coverage-thresholds.json` (the `backend-coverage` job in `.github/workflows/backend-ci.yml`
+runs it on every pull request). The target is **85 %**; the floors are a ratchet that sits just under
+the current level — when a change raises coverage, raise the floors with it, and never lower them.
+The gate judges coverage only; failing tests are reported by the regular test steps.
+
 ## PostgreSQL (issue #284)
 
 The backend ships with two repository implementations behind a single DAL factory. `better-sqlite3`

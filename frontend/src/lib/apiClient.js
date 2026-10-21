@@ -315,6 +315,41 @@ async function testWebhook(id, eventType, apiKey) {
   });
 }
 
+// ── Consent / Terms endpoints (issue #581) ────────────────────────────────────
+
+async function getCurrentTerms() {
+  return request(apiUrl('/api/v1/terms/current'));
+}
+
+async function getConsentHistory(userId) {
+  return request(apiUrl(`/api/v1/users/${userId}/consent`));
+}
+
+async function hasAcceptedCurrentTerms(userId) {
+  return request(apiUrl(`/api/v1/users/${userId}/consent/current`));
+}
+
+async function recordConsent(userId, termsVersion, options = {}) {
+  return request(apiUrl(`/api/v1/users/${userId}/consent`), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      terms_version: termsVersion,
+      consent_type: options.consentType || 'terms',
+      ip_address: options.ipAddress,
+      user_agent: options.userAgent,
+      metadata: options.metadata,
+    }),
+  });
+}
+
+async function exportConsentAudit(userId, format = 'json') {
+  const url = apiUrl(`/api/v1/users/${userId}/consent/export?format=${format}`);
+  const response = await fetch(url);
+  if (!response.ok) throw new ApiError(`HTTP ${response.status}`, response.status);
+  return response.blob();
+}
+
 // ── Exports ───────────────────────────────────────────────────────────────────
 
 export const apiClient = {
@@ -345,6 +380,11 @@ export const apiClient = {
   listWebhookDeliveries,
   replayDelivery,
   testWebhook,
+  getCurrentTerms,
+  getConsentHistory,
+  hasAcceptedCurrentTerms,
+  recordConsent,
+  exportConsentAudit,
 };
 
 export { ApiError };

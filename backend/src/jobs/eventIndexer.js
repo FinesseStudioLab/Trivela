@@ -1,6 +1,53 @@
 /**
  * Enhanced event indexer for Trivela Soroban contract events.
  *
+ * Subscribes to on-chain events and persists them to the database.
+ * Snapshot events store a ledger reference so off-chain tools can
+ * reconstruct user balances at that point using Horizon getLedgerEntries.
+ *
+ * `pollWithCursor` (issue #753) adds:
+ * - Durable cursor: the last-seen event cursor is stored in `indexer_cursors`
+ *   and resumed on restart, so no events are skipped or re-processed after a
+ *   crash.
+ * - Exactly-once via per-event dedupe: `processed_events` records a unique key
+ *   per event (contract_id + ledger + event_index). Replaying the same ledger
+ *   range produces no duplicate DB rows.
+ * - Backpressure: ingestion is paused when the writer is saturated. A bounded
+ *   semaphore caps the number of events being processed concurrently; when all
+ *   slots are occupied the fetch loop waits rather than accumulating unbounded
+ *   in-flight work.
+ */
+
+/**
+ * Bounded concurrency semaphore for backpressure.
+ * `acquire()` resolves immediately when a slot is free; otherwise it waits
+ * until one is released, naturally pausing the fetch loop.
+ */
+class Semaphore {
+  constructor(limit) {
+    this._limit = limit;
+    this._active = 0;
+    this._queue = [];
+  }
+
+  acquire() {
+    if (this._active < this._limit) {
+      this._active++;
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => this._queue.push(resolve));
+  }
+
+  release() {
+    this._active--;
+    if (this._queue.length > 0) {
+      this._active++;
+      this._queue.shift()();
+    }
+  }
+}
+
+/**
  * Features:
  * - Durable cursor persistence in indexer_state table
  * - Idempotent upserts via UNIQUE(tx_hash, event_index) constraint
@@ -78,6 +125,11 @@ export function createEventIndexer({
   logger = console,
   referralBonus = 0,
   confirmationDepth = 0,
+  notificationService,
+  // Called after a claim/register event is projected, for the platform-wide
+  // live activity feed (#1201). Errors are swallowed so the feed can never
+  // stall indexing.
+  onActivity,
 } = {}) {
   const sql = createSqlAdapter(db);
   const depth = Math.max(0, Math.floor(Number(confirmationDepth)) || 0);
@@ -98,14 +150,20 @@ export function createEventIndexer({
   };
 
   const handlers = {
-    credit: handleCreditEvent,
-    claim: handleClaimEvent,
+    credit: (event, db) => handleCreditEvent(event, db, notificationService),
+    claim: async (event, db) => {
+      await handleClaimEvent(event, db, notificationService);
+      emitActivity(onActivity, 'claim', event, logger);
+    },
     snapshot: handleSnapshotEvent,
-    vcredit: handleVestedCreditEvent,
-    vclaim: handleVestedClaimEvent,
+    vcredit: (event, db) => handleVestedCreditEvent(event, db, notificationService),
+    vclaim: (event, db) => handleVestedClaimEvent(event, db, notificationService),
     referred: (event, database) => handleReferredEvent(event, database, referralBonus),
     refbonus: handleRefBonusEvent,
-    register: handleRegisterEvent,
+    register: async (event, db) => {
+      await handleRegisterEvent(event, db);
+      emitActivity(onActivity, 'registration', event, logger);
+    },
     deregister: handleDeregisterEvent,
   };
 
@@ -392,6 +450,83 @@ export function createEventIndexer({
     }
   }
 
+  /**
+   * Poll once with durable cursor persistence, per-event exactly-once dedupe,
+   * and bounded concurrency backpressure (issue #753).
+   *
+   * @param {string} contractId
+   * @param {object} opts
+   * @param {number} [opts.maxInflight=32]  Max concurrent event handlers.
+   *   When all slots are occupied, new fetch calls pause until a slot frees —
+   *   this is the backpressure mechanism.
+   * @returns {Promise<string|undefined>}  The next cursor, or undefined when
+   *   the indexer has caught up.
+   */
+  async function pollWithCursor(contractId, { maxInflight = 32 } = {}) {
+    // Load the last durable cursor so we resume exactly where we left off.
+    const cursorRow = await db.get(`SELECT cursor FROM indexer_cursors WHERE contract_id = ?`, [
+      contractId,
+    ]);
+    const cursor = cursorRow?.cursor ?? undefined;
+
+    const rpc = await rpcPool.acquire();
+    let events, nextCursor;
+    try {
+      ({ events, nextCursor } = await rpc.getEvents({
+        contractId,
+        cursor,
+        limit: 200,
+      }));
+    } finally {
+      rpcPool.release(rpc);
+    }
+
+    if (!events || events.length === 0) {
+      return nextCursor;
+    }
+
+    // Bounded concurrency — when all maxInflight slots are taken, acquire()
+    // blocks, preventing unbounded in-flight growth (backpressure).
+    const sem = new Semaphore(maxInflight);
+
+    await Promise.all(
+      events.map(async (event, eventIndex) => {
+        await sem.acquire();
+        try {
+          // Exactly-once: use (contract_id, ledger, eventIndex) as the dedupe
+          // key. INSERT OR IGNORE makes re-processing the same ledger range a
+          // no-op; `changes === 0` means the event was already handled.
+          const dedupeResult = await db.run(
+            `INSERT OR IGNORE INTO processed_events
+               (contract_id, ledger, event_index, processed_at)
+             VALUES (?, ?, ?, ?)`,
+            [contractId, event.ledger, eventIndex, Date.now()],
+          );
+          if (dedupeResult?.changes === 0) return;
+          await processEvent(event);
+        } finally {
+          sem.release();
+        }
+      }),
+    );
+
+    // Persist the cursor only after the entire batch has been written. A crash
+    // between batch processing and cursor write causes safe re-delivery (the
+    // dedupe table absorbs duplicates); a crash after cursor write skips past
+    // the batch — which is why we write cursor last.
+    if (nextCursor != null) {
+      await db.run(
+        `INSERT INTO indexer_cursors (contract_id, cursor, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(contract_id)
+         DO UPDATE SET cursor = excluded.cursor, updated_at = excluded.updated_at`,
+        [contractId, nextCursor, new Date().toISOString()],
+      );
+    }
+
+    return nextCursor;
+  }
+
   async function checkForGaps(contractId, currentLedger) {
     const lastState = await sql.get('SELECT last_ledger FROM indexer_state WHERE contract_id = ?', [
       contractId,
@@ -591,7 +726,30 @@ function applyBalanceDelta(db, user, delta) {
   );
 }
 
-async function handleCreditEvent(event, db) {
+/**
+ * Forward a projected event to the live activity feed (#1201).
+ * claim topics: [name, user, campaignId?], data = amount
+ * register topics: [name, user, campaignId]
+ */
+export function emitActivity(onActivity, kind, event, logger = console) {
+  if (typeof onActivity !== 'function') return;
+  const wallet = event.topic?.[1];
+  if (!wallet) return;
+  try {
+    onActivity({
+      kind,
+      wallet: String(wallet),
+      campaignId: event.topic?.[2] != null ? String(event.topic[2]) : null,
+      amount: kind === 'claim' ? String(event.data ?? 0) : null,
+      ledger: event.ledger ?? null,
+      txHash: event.txHash ?? null,
+    });
+  } catch (err) {
+    logger.warn?.({ err, kind }, 'live activity publish failed');
+  }
+}
+
+async function handleCreditEvent(event, db, notificationService) {
   const user = event.topic?.[1];
   const amount = BigInt(event.data ?? 0);
   await applyBalanceDelta(db, user, amount);
@@ -601,9 +759,20 @@ async function handleCreditEvent(event, db) {
     event.ledger,
     event.txHash,
   ]);
+
+  if (notificationService && user) {
+    const displayAmount = (Number(amount) / 1e7).toFixed(7);
+    await notificationService.notify({
+      userId: user,
+      title: 'Points credited',
+      message: `You received ${displayAmount} points.`,
+      type: 'credit_received',
+      campaignId: event.topic?.[2] ?? null,
+    });
+  }
 }
 
-async function handleClaimEvent(event, db) {
+async function handleClaimEvent(event, db, notificationService) {
   const user = event.topic?.[1];
   const amount = BigInt(event.data ?? 0);
   await applyBalanceDelta(db, user, -amount);
@@ -613,6 +782,17 @@ async function handleClaimEvent(event, db) {
     event.ledger,
     event.txHash,
   ]);
+
+  if (notificationService && user) {
+    const displayAmount = (Number(amount) / 1e7).toFixed(7);
+    await notificationService.notify({
+      userId: user,
+      title: 'Claim confirmed',
+      message: `You claimed ${displayAmount} points.`,
+      type: 'claim_ready',
+      campaignId: event.topic?.[2] ?? null,
+    });
+  }
 }
 
 async function handleSnapshotEvent(event, db) {
@@ -625,7 +805,7 @@ async function handleSnapshotEvent(event, db) {
   );
 }
 
-async function handleVestedCreditEvent(event, db) {
+async function handleVestedCreditEvent(event, db, notificationService) {
   const user = event.topic?.[1];
   const [vestId, total] = Array.isArray(event.data) ? event.data : [0, 0];
   await db.run(
@@ -633,9 +813,20 @@ async function handleVestedCreditEvent(event, db) {
      VALUES (?, ?, ?, ?, ?)`,
     [user, String(vestId), String(total), event.ledger, event.txHash],
   );
+
+  if (notificationService && user) {
+    const displayTotal = (Number(total) / 1e7).toFixed(7);
+    await notificationService.notify({
+      userId: user,
+      title: 'Vesting schedule created',
+      message: `A vesting schedule for ${displayTotal} points has been created.`,
+      type: 'campaign_update',
+      campaignId: event.topic?.[2] ?? null,
+    });
+  }
 }
 
-async function handleVestedClaimEvent(event, db) {
+async function handleVestedClaimEvent(event, db, notificationService) {
   const user = event.topic?.[1];
   const [vestId, amount] = Array.isArray(event.data) ? event.data : [0, 0];
   await db.run(
@@ -643,6 +834,17 @@ async function handleVestedClaimEvent(event, db) {
      VALUES (?, ?, ?, ?, ?)`,
     [user, String(vestId), String(amount), event.ledger, event.txHash],
   );
+
+  if (notificationService && user) {
+    const displayAmount = (Number(amount) / 1e7).toFixed(7);
+    await notificationService.notify({
+      userId: user,
+      title: 'Vesting unlocked',
+      message: `${displayAmount} points have been unlocked from vesting.`,
+      type: 'reward_expiring',
+      campaignId: event.topic?.[2] ?? null,
+    });
+  }
 }
 
 async function handleReferredEvent(event, db, referralBonus = 0) {
