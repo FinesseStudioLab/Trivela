@@ -101,6 +101,41 @@ describe('Landing campaign list (#919)', () => {
     vi.useRealTimers();
   });
 
+  it('cancels in-flight requests when a new search starts', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+
+    let resolveFirst;
+    const firstCall = new Promise((r) => {
+      resolveFirst = r;
+    });
+    apiClient.getCampaigns
+      .mockImplementationOnce(() => firstCall)
+      .mockResolvedValue(makePayload([makeCampaign()]));
+
+    renderLanding();
+    await waitFor(() => expect(apiClient.getCampaigns).toHaveBeenCalledTimes(1));
+
+    const input = await screen.findByLabelText(/search campaigns/i);
+    act(() => {
+      fireEvent.change(input, { target: { value: 'alpha' } });
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(300);
+    });
+    await waitFor(() => expect(apiClient.getCampaigns).toHaveBeenCalledTimes(2));
+
+    // Resolve the stale first call with a different campaign — must be discarded.
+    resolveFirst(makePayload([makeCampaign({ id: 'stale', name: 'Stale Campaign' })]));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(screen.getByText('Airdrop Alpha')).toBeInTheDocument());
+    expect(screen.queryByText('Stale Campaign')).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
   it('toggling active-only refetches with active=true', async () => {
     apiClient.getCampaigns.mockResolvedValue(makePayload([makeCampaign()]));
 
