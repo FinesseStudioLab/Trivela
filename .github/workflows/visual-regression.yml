@@ -65,3 +65,17 @@ jobs:
             frontend/tests/visual/__snapshots__/**/*-actual.png
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Publish visual diff report to job summary
+        if: always()
+        env:
+          VISUAL_DIFF_ROOT: frontend/tests/visual
+          VISUAL_DIFF_SUMMARY: visual-diff-summary.md
+        run: node scripts/visual-diff-summary.mjs
+
+      - name: Append report to run summary
+        if: always()
+        run: |
+          if [ -f visual-diff-summary.md ]; then
+            cat visual-diff-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
