@@ -1238,7 +1238,7 @@ fn setup_admin_rotation() -> (Env, RewardsContractClient<'static>, Address, Addr
 
 #[test]
 fn test_propose_and_accept_admin_happy_path() {
-    let (_env, client, admin, new_admin) = setup_admin_rotation();
+    let (env, client, admin, new_admin) = setup_admin_rotation();
     assert_eq!(Some(client.admin()), Some(admin.clone()));
     assert_eq!(client.pending_admin(), None);
 
@@ -1247,9 +1247,31 @@ fn test_propose_and_accept_admin_happy_path() {
     // Admin doesn't change until accepted.
     assert_eq!(Some(client.admin()), Some(admin.clone()));
 
+    // Accept only succeeds after the 24-hour cooling period.
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     client.accept_admin(&new_admin);
     assert_eq!(Some(client.admin()), Some(new_admin.clone()));
     assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_accept_admin_before_cooldown_fails() {
+    let (env, client, admin, new_admin) = setup_admin_rotation();
+    client.propose_admin(&admin, &new_admin);
+
+    // One second short of the cooling period.
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS - 1);
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::AdminCooldownActive)));
+    assert_eq!(client.admin(), admin);
+
+    // Exactly at the cooling-period boundary the accept succeeds.
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
 }
 
 #[test]
@@ -1306,6 +1328,8 @@ fn test_propose_overwrites_previous_proposal() {
     client.propose_admin(&admin, &later_admin);
     assert_eq!(client.pending_admin(), Some(later_admin.clone()));
     // Original proposed admin can no longer accept.
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     let result = client.try_accept_admin(&new_admin);
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
     // The later proposal still works.

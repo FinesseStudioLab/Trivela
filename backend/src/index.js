@@ -2560,10 +2560,10 @@ export async function createApp(options = {}) {
     app.get(`${prefix}/deprecations`, rateLimiter, (_req, res) =>
       res.json({ deprecations: DEPRECATION_REGISTRY }),
     );
-    app.get(`${prefix}/audit-logs`, rateLimiter, ...guard, listAuditLogs);
+    app.get(`${prefix}/audit-logs`, rateLimiter, ...guard, requireScope('campaigns:read'), listAuditLogs);
     app.get(`${prefix}/admin/audit/verify`, rateLimiter, requireMasterKey, verifyAuditChain);
     app.get(`${prefix}/indexer/cursor`, rateLimiter, getIndexerCursorState);
-    app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, setIndexerCursorState);
+    app.post(`${prefix}/indexer/cursor`, rateLimiter, ...guard, requireScope('campaigns:write'), setIndexerCursorState);
     app.post(
       `${prefix}/campaigns`,
       rateLimiter,
@@ -2608,6 +2608,22 @@ export async function createApp(options = {}) {
       contentModerationMiddleware,
       updateCampaign,
     );
+    app.put(
+      `${prefix}/campaigns/:id/publish`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      publishCampaign,
+    );
+    app.put(
+      `${prefix}/campaigns/:id/archive`,
+      rateLimiter,
+      idempotencyMiddleware,
+      ...guard,
+      requireScope('campaigns:write'),
+      archiveCampaign,
+    );
     app.delete(
       `${prefix}/campaigns/:id`,
       rateLimiter,
@@ -2615,50 +2631,6 @@ export async function createApp(options = {}) {
       requireScope('campaigns:write'),
       deleteCampaign,
     );
-    app.put(
-      `${prefix}/campaigns/:id`,
-      rateLimiter,
-      idempotencyMiddleware,
-      requireApiKey,
-      updateCampaign,
-    );
-    app.put(
-      `${prefix}/campaigns/:id/publish`,
-      rateLimiter,
-      idempotencyMiddleware,
-      requireApiKey,
-      publishCampaign,
-    );
-    app.put(
-      `${prefix}/campaigns/:id/archive`,
-      rateLimiter,
-      idempotencyMiddleware,
-      requireApiKey,
-      archiveCampaign,
-    );
-    app.delete(`${prefix}/campaigns/:id`, rateLimiter, requireApiKey, deleteCampaign);
-    app.put(
-      `${prefix}/campaigns/:id`,
-      rateLimiter,
-      idempotencyMiddleware,
-      ...guard,
-      updateCampaign,
-    );
-    app.put(
-      `${prefix}/campaigns/:id/publish`,
-      rateLimiter,
-      idempotencyMiddleware,
-      ...guard,
-      publishCampaign,
-    );
-    app.put(
-      `${prefix}/campaigns/:id/archive`,
-      rateLimiter,
-      idempotencyMiddleware,
-      ...guard,
-      archiveCampaign,
-    );
-    app.delete(`${prefix}/campaigns/:id`, rateLimiter, ...guard, deleteCampaign);
 
     // Soft-delete management routes
     app.post(
@@ -2861,7 +2833,7 @@ export async function createApp(options = {}) {
     });
 
     // Tenant usage metering (Issue #574)
-    app.get(`${prefix}/usage`, rateLimiter, ...guard, (req, res) => {
+    app.get(`${prefix}/usage`, rateLimiter, ...guard, requireScope('campaigns:read'), (req, res) => {
       const orgId = req.auth?.orgId;
       if (!orgId) {
         return res.status(403).json({
@@ -2909,12 +2881,13 @@ export async function createApp(options = {}) {
     });
 
     // Job dead-letter inspection / requeue (Issue #286)
-    app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, listFailedJobsHandler);
+    app.get(`${prefix}/jobs/failed`, rateLimiter, ...guard, requireScope('campaigns:read'), listFailedJobsHandler);
     app.post(
       `${prefix}/jobs/retry/:id`,
       rateLimiter,
       idempotencyMiddleware,
       ...guard,
+      requireScope('campaigns:write'),
       retryFailedJobHandler,
     );
 
@@ -2945,7 +2918,7 @@ export async function createApp(options = {}) {
     );
 
     // Webhook routes (Issue #287)
-    app.post(`${prefix}/webhooks`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
+    app.post(`${prefix}/webhooks`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), (req, res) => {
       const { url, events, secret } = req.body;
       if (!url || !Array.isArray(events) || events.length === 0) {
         return res.status(400).json({
@@ -2964,12 +2937,12 @@ export async function createApp(options = {}) {
       return res.status(201).json(webhook);
     });
 
-    app.get(`${prefix}/webhooks`, rateLimiter, ...guard, (req, res) => {
+    app.get(`${prefix}/webhooks`, rateLimiter, ...guard, requireScope('campaigns:read'), (req, res) => {
       const webhooks = webhookRepository.list();
       return res.json(paginateItems(webhooks, req.query));
     });
 
-    app.get(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
+    app.get(`${prefix}/webhooks/:id`, rateLimiter, ...guard, requireScope('campaigns:read'), (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -2977,7 +2950,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.put(`${prefix}/webhooks/:id`, rateLimiter, idempotencyMiddleware, ...guard, (req, res) => {
+    app.put(`${prefix}/webhooks/:id`, rateLimiter, idempotencyMiddleware, ...guard, requireScope('campaigns:write'), (req, res) => {
       const { url, events, active } = req.body;
       const before = webhookRepository.getById(req.params.id);
       if (!before) {
@@ -2997,7 +2970,7 @@ export async function createApp(options = {}) {
       return res.json(webhook);
     });
 
-    app.delete(`${prefix}/webhooks/:id`, rateLimiter, ...guard, (req, res) => {
+    app.delete(`${prefix}/webhooks/:id`, rateLimiter, ...guard, requireScope('campaigns:write'), (req, res) => {
       const before = webhookRepository.getById(req.params.id);
       const deleted = webhookRepository.delete(req.params.id);
       if (!deleted) {
@@ -3012,7 +2985,7 @@ export async function createApp(options = {}) {
       return res.status(204).end();
     });
 
-    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, ...guard, (req, res) => {
+    app.get(`${prefix}/webhooks/:id/deliveries`, rateLimiter, ...guard, requireScope('campaigns:read'), (req, res) => {
       const webhook = webhookRepository.getById(req.params.id);
       if (!webhook) {
         return res.status(404).json({ error: 'Webhook not found', code: 'WEBHOOK_NOT_FOUND' });
@@ -3361,7 +3334,7 @@ export async function createApp(options = {}) {
       },
     );
 
-    app.get(`${prefix}/campaigns/:id/allowlist`, rateLimiter, ...guard, (req, res) => {
+    app.get(`${prefix}/campaigns/:id/allowlist`, rateLimiter, ...guard, requireScope('campaigns:read'), (req, res) => {
       const campaign = campaignRepository.getById(req.params.id);
       if (!campaign) {
         return res.status(404).json({ error: 'Campaign not found', code: 'CAMPAIGN_NOT_FOUND' });

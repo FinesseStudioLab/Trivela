@@ -1113,7 +1113,7 @@ fn setup_admin_rotation_campaign() -> (Env, CampaignContractClient<'static>, Add
 
 #[test]
 fn test_campaign_propose_and_accept_admin_happy_path() {
-    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
     assert_eq!(client.admin(), admin);
     assert_eq!(client.pending_admin(), None);
 
@@ -1121,9 +1121,28 @@ fn test_campaign_propose_and_accept_admin_happy_path() {
     assert_eq!(client.pending_admin(), Some(new_admin.clone()));
     assert_eq!(client.admin(), admin);
 
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     client.accept_admin(&new_admin);
     assert_eq!(client.admin(), new_admin);
     assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_campaign_accept_admin_before_cooldown_fails() {
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    client.propose_admin(&admin, &new_admin);
+
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS - 1);
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::AdminCooldownActive)));
+    assert_eq!(client.admin(), admin);
+
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
 }
 
 #[test]
@@ -1172,8 +1191,10 @@ fn test_campaign_cancel_admin_transfer_clears_pending() {
 #[test]
 fn test_campaign_new_admin_can_call_admin_operations() {
     // Once accepted, the new admin's signature is enough to perform admin-only ops.
-    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
     client.propose_admin(&admin, &new_admin);
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     client.accept_admin(&new_admin);
 
     // set_active is admin-only — was previously rejected for `admin`'s replacement

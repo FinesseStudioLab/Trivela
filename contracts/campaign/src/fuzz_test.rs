@@ -384,7 +384,9 @@ proptest! {
         let result = client.try_accept_admin(&impostor);
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
 
-        // Pending admin accepts
+        // Pending admin accepts after the cooling period
+        env.ledger()
+            .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
         client.accept_admin(&new_admin);
         assert_eq!(client.admin(), new_admin);
         assert_eq!(client.pending_admin(), None);
