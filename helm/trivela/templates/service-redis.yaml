@@ -1,0 +1,19 @@
+{{- if .Values.redis.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "trivela.fullname" . }}-redis
+  labels:
+    {{- include "trivela.labels" . | nindent 4 }}
+    component: redis
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "trivela.selectorLabels" . | nindent 4 }}
+    component: redis
+  ports:
+    - name: redis
+      port: {{ .Values.redis.port }}
+      targetPort: {{ .Values.redis.port }}
+      protocol: TCP
+{{- end }}
