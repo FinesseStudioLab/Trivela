@@ -69,38 +69,82 @@ export default function CampaignDetail({
   onConnectWallet,
   onDisconnectWallet,
   onRefreshPoints,
+  campaign: propCampaign,
+  loading: propLoading,
+  error: propError,
 }) {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const { campaign, onChainState, isPolling, isPaused, lastUpdated, stateToast, error, refresh } =
-    useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
+  const {
+    campaign: hookCampaign,
+    onChainState,
+    isPolling,
+    isPaused,
+    lastUpdated,
+    stateToast,
+    error: hookError,
+    refresh,
+    connectionStatus,
+  } = useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) && propCampaign === undefined });
+
+  const campaign = propCampaign !== undefined ? propCampaign : hookCampaign;
+  const error = propError !== undefined ? propError : hookError;
+  const isLoading = propLoading !== undefined ? propLoading : (!campaign && !error);
 
   const [shareCopied, setShareCopied] = useState(false);
   const countdown = useCampaignCountdown(onChainState?.windowStart, onChainState?.windowEnd);
 
-  const campaignUrl = `${window.location.origin}/campaign/${id}`;
+  const campaignUrl = typeof window !== 'undefined' ? `${window.location.origin}/campaign/${id}` : `/campaign/${id}`;
+
+  const copyToClipboard = useCallback(async (text) => {
+    let success = false;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch {
+        success = false;
+      }
+    }
+    if (!success && typeof document !== 'undefined') {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        success = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        success = false;
+      }
+    }
+    return success;
+  }, []);
 
   const handleCopyShareLink = useCallback(() => {
-    navigator.clipboard.writeText(campaignUrl).then(() => {
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
+    copyToClipboard(campaignUrl).then((ok) => {
+      if (ok) {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
     });
-  }, [campaignUrl]);
+  }, [campaignUrl, copyToClipboard]);
 
-  const shareText = campaign ? `Check out "${campaign.name}" on Trivela` : 'Check out this campaign on Trivela';
+  const shareText = campaign ? `Check out "${campaign?.name}" on Trivela` : 'Check out this campaign on Trivela';
   const shareLinks = {
     twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(campaignUrl)}`,
     telegram: `https://t.me/share/url?url=${encodeURIComponent(campaignUrl)}&text=${encodeURIComponent(shareText)}`,
   };
   const handleCopyDiscordMessage = useCallback(() => {
-    navigator.clipboard.writeText(`${shareText} — ${campaignUrl}`).then(() => {
-      setShareCopied(true);
-      setTimeout(() => setShareCopied(false), 2000);
+    copyToClipboard(`${shareText} — ${campaignUrl}`).then((ok) => {
+      if (ok) {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
     });
-  }, [shareText, campaignUrl]);
-
-  const incomingRef = searchParams.get('ref');
-  const isLoading = !campaign && !error;
+  }, [shareText, campaignUrl, copyToClipboard]);
 
   const handleRegistered = useCallback(() => {
     if (!incomingRef || !walletAddress || !id) return;
@@ -195,9 +239,13 @@ export default function CampaignDetail({
               Back to campaigns
             </Link>
             <div className="detail-nav-actions">
-              {!isPaused && campaign ? (
+              {!isPaused && campaign && connectionStatus === 'open' ? (
                 <span className="detail-live-badge" aria-label="Live campaign data">
                   Live
+                </span>
+              ) : connectionStatus === 'reconnecting' ? (
+                <span className="detail-live-badge detail-reconnecting-badge" role="status" aria-label="Reconnecting to live data">
+                  Reconnecting…
                 </span>
               ) : null}
               <button
@@ -248,13 +296,23 @@ export default function CampaignDetail({
                 </Link>
               </div>
             </div>
+          ) : !campaign ? (
+            <div className="detail-error" role="alert">
+              <h2>Campaign not found</h2>
+              <p>The requested campaign could not be found or data is unavailable.</p>
+              <div className="detail-actions">
+                <Link to="/" className="btn btn-secondary">
+                  Return to landing
+                </Link>
+              </div>
+            </div>
           ) : (
             <article className="detail-content">
               <header className="detail-header">
-                <p className="detail-eyebrow">Campaign #{campaign.id}</p>
+                <p className="detail-eyebrow">Campaign #{campaign?.id}</p>
                 <div className="detail-title-row">
-                  <h1 className="detail-title">{campaign.name}</h1>
-                  <StatusBadge status={campaign.status} />
+                  <h1 className="detail-title">{campaign?.name}</h1>
+                  <StatusBadge status={campaign?.status} />
                 </div>
                 {lastUpdated ? (
                   <p className="detail-updated">Last updated {lastUpdated.toLocaleTimeString()}</p>
@@ -314,7 +372,7 @@ export default function CampaignDetail({
                       ) : null}
                     </section>
                   </ErrorBoundary>
-                ) : campaign && !campaign.contractId ? (
+                ) : campaign && !campaign?.contractId ? (
                   <section className="detail-section detail-no-contract">
                     <h2>On-chain status</h2>
                     <p className="detail-no-contract-note">
@@ -355,22 +413,22 @@ export default function CampaignDetail({
                 <section className="detail-section">
                   <h2>Description</h2>
                   <p className="detail-description">
-                    {campaign.description || 'No description provided.'}
+                    {campaign?.description || 'No description provided.'}
                   </p>
                 </section>
 
                 <div className="detail-grid">
                   <div className="detail-stat">
                     <h3>Reward per Action</h3>
-                    <p className="stat-value">{campaign.rewardPerAction ?? 0} pts</p>
+                    <p className="stat-value">{campaign?.rewardPerAction ?? 0} pts</p>
                   </div>
                   <div className="detail-stat">
                     <h3>Created On</h3>
-                    <p className="stat-value">{formatDate(campaign.createdAt)}</p>
+                    <p className="stat-value">{formatDate(campaign?.createdAt)}</p>
                   </div>
                 </div>
 
-                <TaskProgressBar tasks={campaign.tasks} />
+                <TaskProgressBar tasks={campaign?.tasks} />
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
@@ -404,9 +462,9 @@ export default function CampaignDetail({
                   <section className="referral-section" aria-label="Invite friends">
                     <div className="referral-header">
                       <h3 className="referral-title">Invite Friends</h3>
-                      {campaign.referralBonusPoints > 0 ? (
+                      {(campaign?.referralBonusPoints ?? 0) > 0 ? (
                         <p className="referral-bonus-note">
-                          Earn <strong>+{campaign.referralBonusPoints} bonus pts</strong> per friend
+                          Earn <strong>+{campaign?.referralBonusPoints} bonus pts</strong> per friend
                           who registers
                         </p>
                       ) : null}
@@ -451,7 +509,7 @@ export default function CampaignDetail({
                   >
                     Embed a live campaign widget on any website as an HTML iframe or a React component.
                   </p>
-                  <EmbedSnippetGenerator campaignId={id} campaignName={campaign.name} />
+                  <EmbedSnippetGenerator campaignId={id} campaignName={campaign?.name} />
                 </section>
               )}
             </article>
