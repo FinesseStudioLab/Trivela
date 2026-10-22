@@ -74,3 +74,19 @@ secrets:
   databaseUrl: 'postgresql://trivela_user:CHANGE_ME@postgres:5432/trivela_db'
   jwtSecret: 'CHANGE_ME_USE_A_STRONG_RANDOM_SECRET'
   sorobanRpcUrl: 'https://soroban-testnet.stellar.org'
+
+# ─── Redis (optional; when enabled the backend gets REDIS_URL) ───────────────
+redis:
+  enabled: false
+  image:
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  port: 6379
+  resources:
+    requests:
+      cpu: '50m'
+      memory: '64Mi'
+    limits:
+      cpu: '200m'
+      memory: '256Mi'
