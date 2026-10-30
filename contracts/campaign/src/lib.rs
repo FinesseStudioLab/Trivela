@@ -198,7 +198,38 @@ const REVOKE_INVITE_EVENT: Symbol = symbol_short!("invrevk");
 // ── co-admin multisig ────────────────────────────────────────────────────────
 const CO_ADMINS: Symbol = symbol_short!("coadmin");
 const MULTISIG_THRESHOLD: Symbol = symbol_short!("msthresh");
+
+// Operation discriminants for multi-sig authorization
+// These are stable per-function IDs used in place of function name strings
 pub const OP_SET_MERKLE_ROOT: u32 = 1;
+pub const OP_SET_ACTIVE: u32 = 2;
+pub const OP_SET_WINDOW: u32 = 3;
+pub const OP_SET_MAX_CAP: u32 = 4;
+pub const OP_SET_INVITE_ONLY: u32 = 5;
+pub const OP_ISSUE_INVITE: u32 = 6;
+pub const OP_REVOKE_INVITE: u32 = 7;
+pub const OP_SET_PARTICIPATION_FEE: u32 = 8;
+pub const OP_ADD_TO_ALLOWLIST: u32 = 9;
+pub const OP_REMOVE_FROM_ALLOWLIST: u32 = 10;
+pub const OP_ADD_TO_BLOCKLIST: u32 = 11;
+pub const OP_REMOVE_FROM_BLOCKLIST: u32 = 12;
+pub const OP_SET_ALLOWLIST_ENABLED: u32 = 13;
+pub const OP_SET_BLOCKLIST_ENABLED: u32 = 14;
+pub const OP_ADD_CO_ADMIN: u32 = 15;
+pub const OP_REMOVE_CO_ADMIN: u32 = 16;
+pub const OP_SET_MULTISIG_THRESHOLD: u32 = 17;
+pub const OP_PROPOSE_ADMIN: u32 = 18;
+pub const OP_ACCEPT_ADMIN: u32 = 19;
+pub const OP_CANCEL_ADMIN_TRANSFER: u32 = 20;
+pub const OP_SET_PRIVACY_MODE: u32 = 21;
+pub const OP_SET_UNIQUENESS_MODE: u32 = 22;
+pub const OP_SET_ACTIVITY_LOG_SIZE: u32 = 23;
+pub const OP_SET_LEDGER_WINDOW: u32 = 24;
+pub const OP_SET_SCHEDULE_MODE: u32 = 25;
+pub const OP_CLEAR_PARTICIPATION: u32 = 26;
+pub const OP_UPGRADE: u32 = 27;
+pub const OP_IMPORT_STATE: u32 = 28;
+pub const OP_ADMIN_DEREGISTER: u32 = 29;
 
 // ── On-chain referral tracking (issue #455) ──────────────────────────────────
 //
@@ -406,6 +437,8 @@ fn log_activity(env: &Env, kind: ActivityKind, actor: Address, amount: Option<u6
     env.storage().instance().set(&ACTIVITY_LOG, &log);
 }
 
+/// Require admin authentication with nonce validation.
+/// This is the legacy single-admin path used when multisig is disabled.
 fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<(), Error> {
     admin.require_auth();
     let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
@@ -417,6 +450,36 @@ fn require_admin_with_nonce(env: &Env, admin: &Address, nonce: u64) -> Result<()
         return Err(Error::InvalidAdminNonce);
     }
     env.storage().instance().set(&ADMIN_NONCE, &(current + 1));
+    Ok(())
+}
+
+/// Require admin operation with multi-sig support.
+/// When multisig threshold > 0, requires valid co-admin signatures.
+/// Otherwise falls back to single admin auth with nonce.
+/// 
+/// `op` - the operation discriminant for this function call
+/// `args_hash` - hash of the arguments being authorized
+fn require_admin_with_multisig(
+    env: &Env,
+    admin: &Address,
+    nonce: u64,
+    op: u32,
+    args_hash: BytesN<32>,
+    signatures: Vec<(Address, BytesN<64>)>,
+) -> Result<(), Error> {
+    let threshold: u32 = env
+        .storage()
+        .instance()
+        .get(&MULTISIG_THRESHOLD)
+        .unwrap_or(0);
+    
+    if threshold > 0 {
+        // Multi-sig path: verify co-admin signatures
+        verify_multisig(env, op, args_hash, nonce, &signatures)?;
+    } else {
+        // Legacy single-admin path
+        require_admin_with_nonce(env, admin, nonce)?;
+    }
     Ok(())
 }
 
@@ -607,8 +670,30 @@ impl CampaignContract {
     ///
     /// For now, version `1` is the only supported schema and this function
     /// serves as an idempotent migration hook for upgrade workflows.
-    pub fn migrate(env: Env, admin: Address, target_version: u32) -> Result<u32, Error> {
-        admin.require_auth();
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_MIGRATE, nonce, sha256(target_version))`.
+    pub const OP_MIGRATE: u32 = 30;
+    
+    pub fn migrate(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        target_version: u32,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<u32, Error> {
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &target_version.to_be_bytes()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_MIGRATE,
+            args_hash,
+            signatures,
+        )?;
         let stored: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored != admin {
             return Err(Error::Unauthorized);
@@ -638,13 +723,28 @@ impl CampaignContract {
     ///   1. Upload new WASM → obtain `new_wasm_hash`.
     ///   2. Call `upgrade(admin, nonce, new_wasm_hash)`.
     ///   3. If storage layout changed, call `migrate(admin, target_version)`.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_UPGRADE, nonce, sha256(new_wasm_hash))`.
     pub fn upgrade(
         env: Env,
         admin: Address,
         nonce: u64,
         new_wasm_hash: BytesN<32>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &new_wasm_hash.to_array()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_UPGRADE,
+            args_hash,
+            signatures,
+        )?;
         env.deployer().update_current_contract_wasm(new_wasm_hash);
         Ok(())
     }
@@ -654,17 +754,35 @@ impl CampaignContract {
     /// Both bounds are inclusive: `register` succeeds when
     /// `start <= now <= end`. Use `0` and `u64::MAX` for an effectively
     /// open window. Rejects `start > end` with `InvalidWindow`.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_WINDOW, nonce, sha256(start || end))`.
     pub fn set_window(
         env: Env,
         admin: Address,
         nonce: u64,
         start: u64,
         end: u64,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
         if start > end {
             return Err(Error::InvalidWindow);
         }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(
+                &env,
+                &(start.to_be_bytes().to_vec() + end.to_be_bytes().to_vec()),
+            ))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_WINDOW,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&START_TIME, &start);
         env.storage().instance().set(&END_TIME, &end);
         env.events().publish((SET_WINDOW_EVENT,), (start, end));
@@ -698,8 +816,29 @@ impl CampaignContract {
     }
 
     /// Set campaign active flag (admin only).
-    pub fn set_active(env: Env, admin: Address, nonce: u64, active: bool) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_ACTIVE, nonce, sha256(active))`.
+    pub fn set_active(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        active: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<(), Error> {
+        let active_bytes = if active { [1u8] } else { [0u8] };
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &active_bytes))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_ACTIVE,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &active);
         env.events().publish((SET_ACTIVE_EVENT,), active);
         env.storage()
@@ -709,8 +848,28 @@ impl CampaignContract {
     }
 
     /// Set maximum participant cap (admin only). Set to 0 for unlimited.
-    pub fn set_max_cap(env: Env, admin: Address, nonce: u64, max_cap: u64) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_MAX_CAP, nonce, sha256(max_cap))`.
+    pub fn set_max_cap(
+        env: Env,
+        admin: Address,
+        nonce: u64,
+        max_cap: u64,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<(), Error> {
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &max_cap.to_be_bytes()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_MAX_CAP,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&MAX_CAP, &max_cap);
         env.events().publish((SET_MAX_CAP_EVENT,), max_cap);
         env.storage()
@@ -737,20 +896,18 @@ impl CampaignContract {
         root: BytesN<32>,
         signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        let threshold: u32 = env
-            .storage()
-            .instance()
-            .get(&MULTISIG_THRESHOLD)
-            .unwrap_or(0);
-        if threshold > 0 {
-            let args_hash = env
-                .crypto()
-                .sha256(&Bytes::from_slice(&env, &root.to_array()))
-                .into();
-            verify_multisig(&env, OP_SET_MERKLE_ROOT, args_hash, nonce, &signatures)?;
-        } else {
-            require_admin_with_nonce(&env, &admin, nonce)?;
-        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &root.to_array()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_MERKLE_ROOT,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&MERKLE_ROOT, &root);
         env.events().publish((SET_MERKLE_ROOT_EVENT,), root.clone());
         env.storage()
@@ -769,6 +926,9 @@ impl CampaignContract {
     /// `recipient` (reward pool) in `token` units of `amount`.
     ///
     /// Pass `amount = 0` to clear the fee and restore free registration.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_PARTICIPATION_FEE, nonce, sha256(token || amount || recipient))`.
     pub fn set_participation_fee(
         env: Env,
         admin: Address,
@@ -776,8 +936,24 @@ impl CampaignContract {
         token: Address,
         amount: u64,
         recipient: Address,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        args_buf.push_back(token.to_val());
+        args_buf.push_back(amount.to_val());
+        args_buf.push_back(recipient.to_val());
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_PARTICIPATION_FEE,
+            args_hash,
+            signatures,
+        )?;
         if amount == 0 {
             env.storage().instance().remove(&FEE_CONFIG);
             env.events().publish((SET_FEE_EVENT,), 0u64);
@@ -844,16 +1020,52 @@ impl CampaignContract {
     ///
     /// Intended for local testnet seeding / migration. Participant records are
     /// not rewritten — only the instance-storage configuration is restored.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_IMPORT_STATE, nonce, sha256(serialized_state))`.
     pub fn import_state(
         env: Env,
         admin: Address,
         nonce: u64,
         state: CampaignStateDump,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
         if state.schema_version != CURRENT_SCHEMA_VERSION {
             return Err(Error::UnsupportedMigration);
         }
+        // Serialize state for hashing
+        let mut args_buf = Vec::new(&env);
+        args_buf.push_back(state.admin.to_val());
+        args_buf.push_back(state.active.to_val());
+        args_buf.push_back(state.start_time.to_val());
+        args_buf.push_back(state.end_time.to_val());
+        args_buf.push_back(state.max_cap.to_val());
+        args_buf.push_back(state.participant_count.to_val());
+        if let Some(ref root) = state.merkle_root {
+            args_buf.push_back(root.to_val());
+        }
+        args_buf.push_back(state.privacy_mode.to_val());
+        args_buf.push_back(state.invite_only.to_val());
+        if let Some(ref token) = state.fee_token {
+            args_buf.push_back(token.to_val());
+        }
+        args_buf.push_back(state.fee_amount.to_val());
+        if let Some(ref recipient) = state.fee_recipient {
+            args_buf.push_back(recipient.to_val());
+        }
+        args_buf.push_back(state.schema_version.to_val());
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_IMPORT_STATE,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&ADMIN, &state.admin);
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &state.active);
         env.storage().instance().set(&START_TIME, &state.start_time);
@@ -905,14 +1117,32 @@ impl CampaignContract {
     ///
     /// `fallback_allowed`: when true and the user's browser cannot prove in ZK
     /// mode, the frontend may fall back to Merkle registration.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_PRIVACY_MODE, nonce, sha256(mode || fallback_allowed))`.
     pub fn set_privacy_mode(
         env: Env,
         admin: Address,
         nonce: u64,
         mode: PrivacyMode,
         fallback_allowed: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = [0u8; 5];
+        args_buf[0] = mode as u8;
+        args_buf[1] = if fallback_allowed { 1 } else { 0 };
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_PRIVACY_MODE,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&PRIVACY_MODE, &mode);
         env.storage()
             .instance()
@@ -951,19 +1181,39 @@ impl CampaignContract {
     /// - `Nullifier`: requires a nullifier registry proof for uniqueness.
     ///
     /// `registry_address` must be provided when setting `Nullifier` mode.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_UNIQUENESS_MODE, nonce, sha256(mode || registry_address))`.
     pub fn set_uniqueness_mode(
         env: Env,
         admin: Address,
         nonce: u64,
         mode: UniquenessMode,
         registry_address: Option<Address>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
-
         if mode == UniquenessMode::Nullifier {
             let addr = registry_address.ok_or(Error::Unauthorized)?;
             env.storage().instance().set(&NULLIFIER_REGISTRY, &addr);
         }
+
+        let mut args_buf = Vec::new(&env);
+        args_buf.push_back((mode as u32).to_val());
+        if let Some(ref addr) = registry_address {
+            args_buf.push_back(addr.to_val());
+        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_UNIQUENESS_MODE,
+            args_hash,
+            signatures,
+        )?;
 
         env.storage().instance().set(&UNIQUENESS_MODE, &mode);
         env.events().publish((SET_UNIQUENESS_EVENT,), mode as u32);
@@ -1297,13 +1547,28 @@ impl CampaignContract {
     /// Deregister a participant by the admin.
     ///
     /// Bypasses time window and liveness checks. Requires admin auth and nonce validation.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_ADMIN_DEREGISTER, nonce, sha256(participant))`.
     pub fn admin_deregister(
         env: Env,
         admin: Address,
         nonce: u64,
         participant: Address,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<bool, Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &participant.to_xdr().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_ADMIN_DEREGISTER,
+            args_hash,
+            signatures,
+        )?;
         Ok(do_deregister(&env, participant))
     }
 
@@ -1313,13 +1578,28 @@ impl CampaignContract {
     /// participated. The admin must decide whether this is appropriate (e.g.
     /// for an erroneously blocked address). Separate from `admin_deregister`
     /// so clearing participation is always an explicit, auditable opt-in.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_CLEAR_PARTICIPATION, nonce, sha256(participant))`.
     pub fn clear_participation(
         env: Env,
         admin: Address,
         nonce: u64,
         participant: Address,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &participant.to_xdr().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_CLEAR_PARTICIPATION,
+            args_hash,
+            signatures,
+        )?;
         env.storage()
             .persistent()
             .remove(&(PARTICIPATED, participant));
@@ -1539,13 +1819,29 @@ impl CampaignContract {
     // ── invite-only registration (#452) ─────────────────────────────────
 
     /// Toggle invite-only registration mode (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_INVITE_ONLY, nonce, sha256(enabled))`.
     pub fn set_invite_only(
         env: Env,
         admin: Address,
         nonce: u64,
         enabled: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let enabled_bytes = if enabled { [1u8] } else { [0u8] };
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &enabled_bytes))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_INVITE_ONLY,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&INVITE_ONLY, &enabled);
         env.events().publish((SET_INVITE_ONLY_EVENT,), enabled);
         env.storage()
@@ -1557,13 +1853,28 @@ impl CampaignContract {
     /// Issue an invite by storing its hash (admin only). The hash should be
     /// `sha256(invite_code)`, computed off-chain; the raw code is never
     /// stored on-chain.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_ISSUE_INVITE, nonce, sha256(invite_hash))`.
     pub fn issue_invite(
         env: Env,
         admin: Address,
         nonce: u64,
         invite_hash: BytesN<32>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &invite_hash.to_array()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_ISSUE_INVITE,
+            args_hash,
+            signatures,
+        )?;
         env.storage()
             .instance()
             .set(&(INVITE_HASH, invite_hash.clone()), &true);
@@ -1572,16 +1883,17 @@ impl CampaignContract {
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
         Ok(())
-    }
-
-    /// Revoke a previously issued invite (admin only).
+    }    /// Revoke a previously issued invite (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_REVOKE_INVITE, nonce, sha256(invite_hash))`.
     pub fn revoke_invite(
         env: Env,
         admin: Address,
         nonce: u64,
         invite_hash: BytesN<32>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
         let key = (INVITE_HASH, invite_hash.clone());
         if !env
             .storage()
@@ -1591,9 +1903,20 @@ impl CampaignContract {
         {
             return Err(Error::InviteNotFound);
         }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &invite_hash.to_array()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_REVOKE_INVITE,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().remove(&key);
-        env.storage()
-            .instance()
+        env.storage().instance()
             .remove(&(INVITE_USED, invite_hash.clone()));
         env.events().publish((REVOKE_INVITE_EVENT,), invite_hash);
         env.storage()
@@ -1618,13 +1941,29 @@ impl CampaignContract {
     // ── Allowlist/Blocklist for compliance & anti-abuse ──────────────────────
 
     /// Enable or disable allowlist enforcement (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_ALLOWLIST_ENABLED, nonce, sha256(enabled))`.
     pub fn set_allowlist_enabled(
         env: Env,
         admin: Address,
         nonce: u64,
         enabled: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let enabled_bytes = if enabled { [1u8] } else { [0u8] };
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &enabled_bytes))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_ALLOWLIST_ENABLED,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&ALLOWLIST_ENABLED, &enabled);
         env.events()
             .publish((SET_ALLOWLIST_ENABLED_EVENT,), enabled);
@@ -1635,13 +1974,29 @@ impl CampaignContract {
     }
 
     /// Enable or disable blocklist enforcement (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_BLOCKLIST_ENABLED, nonce, sha256(enabled))`.
     pub fn set_blocklist_enabled(
         env: Env,
         admin: Address,
         nonce: u64,
         enabled: bool,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let enabled_bytes = if enabled { [1u8] } else { [0u8] };
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &enabled_bytes))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_BLOCKLIST_ENABLED,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&BLOCKLIST_ENABLED, &enabled);
         env.events()
             .publish((SET_BLOCKLIST_ENABLED_EVENT,), enabled);
@@ -1652,13 +2007,32 @@ impl CampaignContract {
     }
 
     /// Add addresses to allowlist (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_ADD_TO_ALLOWLIST, nonce, sha256(addresses))`.
     pub fn add_to_allowlist(
         env: Env,
         admin: Address,
         nonce: u64,
         addresses: Vec<Address>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        for addr in addresses.iter() {
+            args_buf.push_back(addr.to_val());
+        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_ADD_TO_ALLOWLIST,
+            args_hash,
+            signatures,
+        )?;
         add_to_allowlist(&env, &addresses);
         env.events()
             .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
@@ -1669,13 +2043,32 @@ impl CampaignContract {
     }
 
     /// Remove addresses from allowlist (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_REMOVE_FROM_ALLOWLIST, nonce, sha256(addresses))`.
     pub fn remove_from_allowlist(
         env: Env,
         admin: Address,
         nonce: u64,
         addresses: Vec<Address>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        for addr in addresses.iter() {
+            args_buf.push_back(addr.to_val());
+        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_REMOVE_FROM_ALLOWLIST,
+            args_hash,
+            signatures,
+        )?;
         remove_from_allowlist(&env, &addresses);
         env.events()
             .publish((SET_ALLOWLIST_EVENT,), addresses.clone());
@@ -1686,13 +2079,32 @@ impl CampaignContract {
     }
 
     /// Add addresses to blocklist (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_ADD_TO_BLOCKLIST, nonce, sha256(addresses))`.
     pub fn add_to_blocklist(
         env: Env,
         admin: Address,
         nonce: u64,
         addresses: Vec<Address>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        for addr in addresses.iter() {
+            args_buf.push_back(addr.to_val());
+        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_ADD_TO_BLOCKLIST,
+            args_hash,
+            signatures,
+        )?;
         add_to_blocklist(&env, &addresses);
         env.events()
             .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
@@ -1703,13 +2115,32 @@ impl CampaignContract {
     }
 
     /// Remove addresses from blocklist (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_REMOVE_FROM_BLOCKLIST, nonce, sha256(addresses))`.
     pub fn remove_from_blocklist(
         env: Env,
         admin: Address,
         nonce: u64,
         addresses: Vec<Address>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        for addr in addresses.iter() {
+            args_buf.push_back(addr.to_val());
+        }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_REMOVE_FROM_BLOCKLIST,
+            args_hash,
+            signatures,
+        )?;
         remove_from_blocklist(&env, &addresses);
         env.events()
             .publish((SET_BLOCKLIST_EVENT,), addresses.clone());
@@ -1764,14 +2195,36 @@ impl CampaignContract {
 
     /// Register a co-admin's ed25519 public key for multisig verification
     /// (admin only). Overwrites the key if `co_admin` is already registered.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_ADD_CO_ADMIN, nonce, sha256(co_admin || pubkey))`.
+    ///
+    /// **Security note**: Adding/removing co-admins and changing the threshold
+    /// are themselves protected by the existing multisig configuration to prevent
+    /// an attacker who compromises a single key from unilaterally seizing control.
     pub fn add_co_admin(
         env: Env,
         admin: Address,
         nonce: u64,
         co_admin: Address,
         pubkey: BytesN<32>,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let mut args_buf = Vec::new(&env);
+        args_buf.push_back(co_admin.to_val());
+        args_buf.push_back(pubkey.to_val());
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_ADD_CO_ADMIN,
+            args_hash,
+            signatures,
+        )?;
         let mut co_admins: Vec<(Address, BytesN<32>)> = env
             .storage()
             .instance()
@@ -1798,13 +2251,28 @@ impl CampaignContract {
     }
 
     /// Remove a co-admin from the multisig signer set (admin only).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_REMOVE_CO_ADMIN, nonce, sha256(co_admin))`.
     pub fn remove_co_admin(
         env: Env,
         admin: Address,
         nonce: u64,
         co_admin: Address,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &co_admin.to_xdr().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_REMOVE_CO_ADMIN,
+            args_hash,
+            signatures,
+        )?;
         let co_admins: Vec<(Address, BytesN<32>)> = env
             .storage()
             .instance()
@@ -1825,13 +2293,19 @@ impl CampaignContract {
 
     /// Set the M-of-N multisig threshold for critical operations (admin only).
     /// `required = 0` disables multisig (legacy single-admin auth applies).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_MULTISIG_THRESHOLD, nonce, sha256(required))`.
+    ///
+    /// **Security note**: Changing the threshold is protected by the existing
+    /// multisig configuration to prevent an attacker from lowering it.
     pub fn set_multisig_threshold(
         env: Env,
         admin: Address,
         nonce: u64,
         required: u32,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
         let co_admins: Vec<(Address, BytesN<32>)> = env
             .storage()
             .instance()
@@ -1840,6 +2314,18 @@ impl CampaignContract {
         if required > co_admins.len() {
             return Err(Error::InvalidThreshold);
         }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &required.to_be_bytes()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_MULTISIG_THRESHOLD,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().set(&MULTISIG_THRESHOLD, &required);
         env.storage()
             .instance()
@@ -1870,12 +2356,30 @@ impl CampaignContract {
     /// Propose a new admin (current admin only). The transfer does not take
     /// effect until `accept_admin` is called by the new admin, and only after
     /// the 24-hour emergency-rotation cooling period has elapsed.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_PROPOSE_ADMIN, nonce, sha256(new_admin))`.
     pub fn propose_admin(
         env: Env,
         current_admin: Address,
         new_admin: Address,
+        nonce: u64,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        current_admin.require_auth();
+        // First verify admin auth (single or multi-sig)
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &new_admin.to_xdr().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &current_admin,
+            nonce,
+            OP_PROPOSE_ADMIN,
+            args_hash,
+            signatures,
+        )?;
+        
         let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
@@ -1895,7 +2399,15 @@ impl CampaignContract {
     /// Accept admin role. Caller MUST be the address that the current admin
     /// previously proposed via `propose_admin`, and the 24-hour cooling
     /// period must have elapsed. Clears the pending slot on success.
-    pub fn accept_admin(env: Env, new_admin: Address) -> Result<(), Error> {
+    ///
+    /// When multisig threshold > 0 during the proposal, this operation requires
+    /// co-admin signatures from the NEW admin over `(OP_ACCEPT_ADMIN, nonce, sha256(new_admin))`.
+    pub fn accept_admin(
+        env: Env,
+        new_admin: Address,
+        nonce: u64,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<(), Error> {
         new_admin.require_auth();
         let pending: Address = env
             .storage()
@@ -1913,6 +2425,25 @@ impl CampaignContract {
         if env.ledger().timestamp() < proposed_at + ADMIN_ROTATION_COOLDOWN_SECS {
             return Err(Error::AdminCooldownActive);
         }
+        // Check if proposal was multisig-protected
+        let threshold: u32 = env
+            .storage()
+            .instance()
+            .get(&MULTISIG_THRESHOLD)
+            .unwrap_or(0);
+        if threshold > 0 {
+            let args_hash = env
+                .crypto()
+                .sha256(&Bytes::from_slice(&env, &new_admin.to_xdr().to_vec()))
+                .into();
+            verify_multisig(
+                &env,
+                OP_ACCEPT_ADMIN,
+                args_hash,
+                nonce,
+                &signatures,
+            )?;
+        }
         env.storage().instance().set(&ADMIN, &new_admin);
         env.storage().instance().remove(&PENDING_ADMIN);
         env.storage().instance().remove(&PENDING_ADMIN_AT);
@@ -1924,12 +2455,31 @@ impl CampaignContract {
     }
 
     /// Cancel an in-flight admin transfer (current admin only).
-    pub fn cancel_admin_transfer(env: Env, current_admin: Address) -> Result<(), Error> {
-        current_admin.require_auth();
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_CANCEL_ADMIN_TRANSFER, nonce, sha256(current_admin))`.
+    pub fn cancel_admin_transfer(
+        env: Env,
+        current_admin: Address,
+        nonce: u64,
+        signatures: Vec<(Address, BytesN<64>)>,
+    ) -> Result<(), Error> {
         let stored_admin: Address = env.storage().instance().get(&ADMIN).ok_or(Error::Unauthorized)?;
         if stored_admin != current_admin {
             return Err(Error::Unauthorized);
         }
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &current_admin.to_xdr().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &current_admin,
+            nonce,
+            OP_CANCEL_ADMIN_TRANSFER,
+            args_hash,
+            signatures,
+        )?;
         env.storage().instance().remove(&PENDING_ADMIN);
         env.storage().instance().remove(&PENDING_ADMIN_AT);
         env.storage()
@@ -1950,16 +2500,32 @@ impl CampaignContract {
 
     /// Set the maximum size of the activity log ring buffer (admin only).
     /// Must be between MIN_ACTIVITY_LOG_SIZE (10) and MAX_ACTIVITY_LOG_SIZE (200).
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_ACTIVITY_LOG_SIZE, nonce, sha256(size))`.
     pub fn set_activity_log_size(
         env: Env,
         admin: Address,
         nonce: u64,
         size: u32,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
         if !(MIN_ACTIVITY_LOG_SIZE..=MAX_ACTIVITY_LOG_SIZE).contains(&size) {
             return Err(Error::Unauthorized); // Reuse error code for invalid range
         }
+
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &size.to_be_bytes()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_ACTIVITY_LOG_SIZE,
+            args_hash,
+            signatures,
+        )?;
 
         // If reducing size, trim the log to fit
         let mut log: Vec<ActivityEntry> = env
@@ -1994,18 +2560,36 @@ impl CampaignContract {
 
     /// Set ledger-based activation window (admin only).
     /// Both bounds are inclusive: registration succeeds when `start_ledger <= current <= end_ledger`.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_LEDGER_WINDOW, nonce, sha256(start_ledger || end_ledger))`.
     pub fn set_ledger_window(
         env: Env,
         admin: Address,
         nonce: u64,
         start_ledger: u32,
         end_ledger: u32,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
-
         if start_ledger > end_ledger {
             return Err(Error::InvalidWindow);
         }
+
+        let mut args_buf = [0u8; 8];
+        args_buf[0..4].copy_from_slice(&start_ledger.to_be_bytes());
+        args_buf[4..8].copy_from_slice(&end_ledger.to_be_bytes());
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &args_buf.to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_LEDGER_WINDOW,
+            args_hash,
+            signatures,
+        )?;
 
         env.storage().instance().set(&START_LEDGER, &start_ledger);
         env.storage().instance().set(&END_LEDGER, &end_ledger);
@@ -2037,13 +2621,28 @@ impl CampaignContract {
 
     /// Set the schedule mode for this campaign (admin only).
     /// Controls whether activation windows use timestamps or ledger sequences.
+    ///
+    /// When multisig threshold > 0, requires co-admin signatures over
+    /// `(OP_SET_SCHEDULE_MODE, nonce, sha256(mode))`.
     pub fn set_schedule_mode(
         env: Env,
         admin: Address,
         nonce: u64,
         mode: ScheduleMode,
+        signatures: Vec<(Address, BytesN<64>)>,
     ) -> Result<(), Error> {
-        require_admin_with_nonce(&env, &admin, nonce)?;
+        let args_hash = env
+            .crypto()
+            .sha256(&Bytes::from_slice(&env, &(mode as u32).to_be_bytes().to_vec()))
+            .into();
+        require_admin_with_multisig(
+            &env,
+            &admin,
+            nonce,
+            OP_SET_SCHEDULE_MODE,
+            args_hash,
+            signatures,
+        )?;
 
         env.storage().instance().set(&SCHEDULE_MODE, &mode);
 
