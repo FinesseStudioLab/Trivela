@@ -17,6 +17,8 @@ flowchart LR
     R --> C1[Rewards Contract]
     R --> C2[Campaign Contract]
     B --> D[(Campaign DB / in-memory store)]
+    R -->|Soroban events SSE / poll| I[Event Indexer]
+    I -->|upsert indexed_events| D
 ```
 
 ## Component Responsibilities
@@ -38,6 +40,18 @@ flowchart LR
 - `contracts/campaign`
   - Tracks campaign lifecycle and participant registration.
   - Stores campaign-level constraints enforced on-chain.
+
+- `backend/src/jobs/eventIndexer.js` *(Event Indexer)*
+  - Subscribes to Soroban contract events via Horizon SSE, falling back to cursor-based polling.
+  - Persists raw events to `indexed_events` and applies per-type projection handlers to derived
+    tables (balances, participant records, vesting rows).
+  - Durable cursor stored in `indexer_cursors`; resumes from last-seen event after restart.
+  - Exactly-once ingestion via `UNIQUE(tx_hash, event_index)` deduplication.
+  - Reorg-safe: events stay `tentative` until buried under `confirmationDepth` ledgers; a detected
+    fork rewinds ingestion to the last confirmed watermark.
+  - Bounded concurrency semaphore provides backpressure so the fetch loop never accumulates
+    unbounded in-flight work.
+  - Backfill script: `backend/scripts/indexer-backfill.mjs` replays a ledger range offline.
 
 ## Trust Model
 
@@ -72,6 +86,59 @@ flowchart LR
 1. Health checks: `/health`, `/health/rpc`.
 2. Metrics scrape: `/metrics` (request totals, errors, route hit counters, uptime gauge).
 3. Distributed traces via OpenTelemetry — see below.
+
+### 5) Event indexing
+
+1. The indexer opens an SSE stream to Horizon for new Soroban events (falls back to cursor-based
+   polling when SSE is unavailable).
+2. Each raw event is written to `indexed_events` with an idempotency key
+   `(tx_hash, event_index)` so replaying a ledger range is safe.
+3. A per-type projection handler updates derived tables — balances, participant counts, vesting
+   rows — once the event reaches `confirmationDepth` ledgers of burial.
+4. The last-seen cursor is persisted to `indexer_cursors`; on restart the indexer resumes from
+   exactly that point, skipping nothing and duplicating nothing.
+5. If a chain reorg is detected (ledger hash mismatch or replaced tx at a known slot), all events
+   at or above the fork ledger are marked `reverted`, derived state is rolled back, and ingestion
+   restarts from the last confirmed watermark.
+
+## Event Indexer
+
+```mermaid
+flowchart TD
+    RPC[(Soroban RPC / Horizon)]
+    RPC -->|SSE stream or cursor poll| F[Fetch loop]
+    F -->|raw event| S{Semaphore\nbackpressure}
+    S -->|slot free| D[Dedup check\nUNIQUE tx_hash + event_index]
+    D -->|new event| W[Write indexed_events\ntentative]
+    W --> C{confirmationDepth\nreached?}
+    C -->|yes| P[Projection handler\nupdate balances · participants · vesting]
+    C -->|no| WAIT[Wait for more ledgers]
+    D -->|duplicate| DROP[Skip]
+    F -->|fork detected| REV[Revert tentative rows\nrewind cursor]
+    P --> CURSOR[Persist cursor\nindexer_cursors]
+```
+
+### Key source files
+
+| File | Purpose |
+|------|---------|
+| [`backend/src/jobs/eventIndexer.js`](../backend/src/jobs/eventIndexer.js) | Core indexer: SSE/poll loop, dedup, projections, reorg handling |
+| [`backend/src/db/migrations/013_event_indexer_cursor.js`](../backend/src/db/migrations/013_event_indexer_cursor.js) | Schema for `indexer_cursors` |
+| [`backend/src/db/migrations/024_indexer_events.js`](../backend/src/db/migrations/024_indexer_events.js) | Schema for `indexed_events` |
+| [`backend/src/db/migrations/030_indexer_gap_detection.js`](../backend/src/db/migrations/030_indexer_gap_detection.js) | Gap detection and alerting |
+| [`backend/src/db/migrations/032_indexer_reorg_safety.js`](../backend/src/db/migrations/032_indexer_reorg_safety.js) | Reorg audit trail in `indexer_reorgs` |
+| [`backend/scripts/indexer-backfill.mjs`](../backend/scripts/indexer-backfill.mjs) | Offline replay of a past ledger range |
+
+### Configuration
+
+Set in `backend/.env`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INDEXER_CONFIRMATION_DEPTH` | `0` | Ledgers to wait before projecting an event. `0` projects on arrival; reorgs are still detected. |
+| `INDEXER_CONCURRENCY` | `4` | Maximum events processed concurrently (semaphore limit). |
+| `INDEXER_POLL_INTERVAL_MS` | `5000` | Polling interval when SSE is not available. |
+| `INDEXER_SSE_ENABLED` | `true` | Set to `false` to force cursor polling regardless of SSE availability. |
 
 ## Observability stack
 
