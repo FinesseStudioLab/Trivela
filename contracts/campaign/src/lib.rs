@@ -7,6 +7,7 @@
 //! - `register`: topics `(register, participant)`, data `()`
 //! - `referred`: topics `(referred, participant, referrer)`, data `()`
 //! - `active`: topics `(active,)`, data `active: bool`
+//! - `st_chng`: topics `(st_chng,)`, data `(old: CampaignState, new: CampaignState)`
 //! - `window`: topics `(window,)`, data `(start: u64, end: u64)`
 //! - `maxcap`: topics `(maxcap,)`, data `max_cap: u64`
 //! - `merkle`: topics `(merkle,)`, data `root: BytesN<32>`
@@ -138,6 +139,7 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 const ADMIN_NONCE: Symbol = symbol_short!("anonce");
 const REGISTER_EVENT: Symbol = symbol_short!("register");
 const SET_ACTIVE_EVENT: Symbol = symbol_short!("active");
+const STATE_CHANGED_EVENT: Symbol = symbol_short!("st_chng");
 const SET_WINDOW_EVENT: Symbol = symbol_short!("window");
 const SET_MAX_CAP_EVENT: Symbol = symbol_short!("maxcap");
 const SET_MERKLE_ROOT_EVENT: Symbol = symbol_short!("merkle");
@@ -226,6 +228,23 @@ pub struct ActivityEntry {
 // max_cap and end_time are public).
 const PARTICIPANT_TTL_THRESHOLD: u32 = 100;
 const PARTICIPANT_TTL_EXTEND_TO: u32 = 500;
+// ── Campaign state (issue #1572) ─────────────────────────────────────────────
+/// Logical lifecycle state of a campaign, carried in `CampaignStateChanged`
+/// events so off-chain indexers can react to transitions without polling.
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[contracttype]
+pub enum CampaignState {
+    /// Campaign has been deployed but `set_active` has not yet been called.
+    Created,
+    /// Campaign is accepting registrations (`set_active(true)` was last called).
+    Active,
+    /// Campaign was explicitly paused (`set_active(false)`) before the window ended.
+    Paused,
+    /// Campaign window has closed: `set_active(false)` was called on or after
+    /// the configured `end_time`.
+    Ended,
+}
+
 // ── 2-step admin transfer (issue #281) ───────────────────────────────────────
 const PENDING_ADMIN: Symbol = symbol_short!("padmin");
 const ADMIN_PROPOSED_EVENT: Symbol = symbol_short!("aproposed");
@@ -530,10 +549,49 @@ impl CampaignContract {
     }
 
     /// Set campaign active flag (admin only).
+    ///
+    /// In addition to the existing `active` event, emits a `st_chng` event
+    /// whose data is `(old: CampaignState, new: CampaignState)` so indexers
+    /// can react to state transitions without polling.
     pub fn set_active(env: Env, admin: Address, nonce: u64, active: bool) -> Result<(), Error> {
         require_admin_with_nonce(&env, &admin, nonce)?;
+
+        let was_active: bool = env
+            .storage()
+            .instance()
+            .get(&CAMPAIGN_ACTIVE)
+            .unwrap_or(false);
+        let end_time: u64 = env
+            .storage()
+            .instance()
+            .get(&END_TIME)
+            .unwrap_or(u64::MAX);
+        let now = env.ledger().timestamp();
+
+        let old_state = if was_active {
+            CampaignState::Active
+        } else if env.storage().instance().has(&CAMPAIGN_ACTIVE) {
+            if now >= end_time {
+                CampaignState::Ended
+            } else {
+                CampaignState::Paused
+            }
+        } else {
+            CampaignState::Created
+        };
+
+        let new_state = if active {
+            CampaignState::Active
+        } else if now >= end_time {
+            CampaignState::Ended
+        } else {
+            CampaignState::Paused
+        };
+
         env.storage().instance().set(&CAMPAIGN_ACTIVE, &active);
         env.events().publish((SET_ACTIVE_EVENT,), active);
+        env.events()
+            .publish((STATE_CHANGED_EVENT,), (old_state, new_state));
         env.storage()
             .instance()
             .extend_ttl(TTL_THRESHOLD, TTL_EXTEND_TO);
