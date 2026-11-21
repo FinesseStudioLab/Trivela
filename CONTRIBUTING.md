@@ -52,9 +52,16 @@ See the main [README](README.md) for full setup.
 Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in
 an issue.
 
-## Governance
+## Proposing significant changes (RFCs)
 
-For information about proposing major changes, RFCs, and decision-making processes, see
-[GOVERNANCE.md](docs/GOVERNANCE.md).
+Significant changes — new contract interfaces, breaking API changes, and major
+architectural decisions — go through the RFC process before implementation begins.
+
+1. Read the [RFC guide](docs/rfcs/README.md) to understand the lifecycle and
+   when an RFC is required.
+2. Copy [docs/rfcs/0000-template.md](docs/rfcs/0000-template.md), fill it in,
+   and open a pull request.
+
+For governance and decision-making processes, see [GOVERNANCE.md](docs/GOVERNANCE.md).
 
 Thank you for helping make Trivela better for the Stellar ecosystem.
