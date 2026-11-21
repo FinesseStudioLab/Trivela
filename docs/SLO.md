@@ -128,3 +128,5 @@ Budget resets at the start of each calendar month.
   `promtool test rules`.
 - **Monthly review:** on-call rotation should review error budget consumption and publish a brief
   summary.
+- **Load testing:** see [docs/LOAD_TESTING.md](LOAD_TESTING.md) for how to run the k6 suite and
+  interpret results against these SLO targets.
