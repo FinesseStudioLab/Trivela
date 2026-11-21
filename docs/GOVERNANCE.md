@@ -110,6 +110,61 @@ While only core team members can vote, community input is valued:
 RFCs are discussed in the **RFC** category of GitHub Discussions:
 https://github.com/FinesseStudioLab/Trivela/discussions/categories/rfc
 
+## Voting Power Snapshots
+
+### How snapshots work
+
+When a vote is opened the contract records each eligible voter's token balance at that ledger
+(the _snapshot balance_).  This balance becomes the voter's immutable weight for the entire
+duration of the commit–reveal cycle.
+
+### Economic risk: token transfer after snapshot
+
+> ⚠️ **This is a known economic trade-off, not a bug.**
+
+Because snapshot balances are fixed at vote-open time, a token holder can:
+
+1. Participate in the vote using their full snapshot balance **and**
+2. Transfer their tokens to a different address before the reveal window closes.
+
+The receiving address can then vote in a _different_ active proposal (if one exists) using
+_its own_ snapshot balance — but it **cannot** reuse the same proposal because commitments
+are stored per-voter per-vote and the original address already committed.
+
+**What this means in practice:**
+
+- Within a single proposal the double-vote attack is impossible: each address may commit
+  exactly once (`AlreadyCommitted` error prevents a second commit).
+- Across _concurrent_ proposals an economically sophisticated actor who holds a large balance
+  at snapshot time could vote in both.  The severity depends on the overlap window between
+  proposals and the cost of moving tokens (fees, liquidity impact).
+
+**Mitigations available today:**
+
+| Mitigation | Status |
+|---|---|
+| Non-overlapping proposal windows | Recommended governance practice (enforced off-chain) |
+| Quadratic weighting (`isqrt(balance)`) | Available — reduces the advantage of large balances |
+| Short commit–reveal windows | Reduces the overlap opportunity |
+
+**Future mitigation path (delegation with snapshot-aware voting power):**
+
+A forthcoming delegation mechanism would allow a token holder to irrevocably delegate their
+snapshot weight to a delegate address for the lifetime of a proposal.  When tokens are
+transferred the delegation remains bound to the snapshot-time holder, eliminating the
+cross-proposal double-use concern.  This work is tracked separately and requires an RFC.
+
+### Frontend stale-snapshot warning
+
+When the frontend detects that a voter's current on-chain balance is lower than their recorded
+snapshot balance — indicating tokens have been transferred out since the snapshot was taken — it
+displays a prominent warning banner on the voting UI:
+
+> _"Your voting power was fixed at snapshot. Your current balance is lower than your snapshot
+> balance.  Results may not reflect your present economic stake."_
+
+This warning is advisory only and does not prevent the voter from casting their vote.
+
 ## Related Documents
 
 - [Architecture Decision Records (ADRs)](adr/) - For architectural choices
