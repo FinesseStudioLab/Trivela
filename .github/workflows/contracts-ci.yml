@@ -191,6 +191,25 @@ jobs:
         run: |
           cargo build --target wasm32v1-none --release -p trivela-rewards-contract -p trivela-campaign-contract
 
+      # Issue #1577: fail the build when the campaign WASM binary exceeds the
+      # 128 KB recommended Soroban size limit. Deployment fees rise steeply
+      # above this threshold and can tip into outright deployment failure.
+      - name: Enforce campaign WASM size limit (≤ 128 KB)
+        run: |
+          WASM=target/wasm32v1-none/release/trivela_campaign_contract.wasm
+          if [ ! -f "$WASM" ]; then
+            echo "::error::$WASM not found — ensure 'Build Soroban WASM artifacts' ran first."
+            exit 1
+          fi
+          SIZE=$(wc -c < "$WASM")
+          LIMIT=$((128 * 1024))
+          echo "Campaign WASM size: ${SIZE} bytes (limit: ${LIMIT} bytes / 128 KB)"
+          if [ "$SIZE" -gt "$LIMIT" ]; then
+            echo "::error::Campaign WASM is ${SIZE} bytes, which exceeds the 128 KB limit. Run wasm-opt / twiggy to identify and trim the largest contributors before merging."
+            exit 1
+          fi
+          echo "✅ Campaign WASM size is within the 128 KB limit."
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
