@@ -65,7 +65,8 @@ use soroban_sdk::{
 };
 
 #[contracterror]
-#[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
+#[cfg_attr(test, derive(Debug))]
 #[repr(u32)]
 pub enum Error {
     Unauthorized = 100,
@@ -215,7 +216,8 @@ const DEFAULT_ACTIVITY_LOG_SIZE: u32 = 50;
 const MIN_ACTIVITY_LOG_SIZE: u32 = 10;
 const MAX_ACTIVITY_LOG_SIZE: u32 = 200;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 #[contracttype]
 pub enum ActivityKind {
     Register,
@@ -223,7 +225,8 @@ pub enum ActivityKind {
     Claim,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 #[contracttype]
 pub struct ActivityEntry {
     pub kind: ActivityKind,
@@ -252,7 +255,8 @@ const PRIVACY_MODE: Symbol = symbol_short!("privmode");
 const SET_PRIVACY_MODE_EVENT: Symbol = symbol_short!("privmode");
 const FALLBACK_ALLOWED: Symbol = symbol_short!("fballowed");
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 #[contracttype]
 pub enum PrivacyMode {
     /// Open registration — no proofs required.
@@ -269,7 +273,8 @@ const UNIQUENESS_MODE: Symbol = symbol_short!("unqmode");
 const NULLIFIER_REGISTRY: Symbol = symbol_short!("nullreg");
 const SET_UNIQUENESS_EVENT: Symbol = symbol_short!("unqset");
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(test, derive(Debug))]
 #[contracttype]
 pub enum UniquenessMode {
     /// No uniqueness enforcement — current behavior.
