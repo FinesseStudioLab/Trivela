@@ -130,6 +130,8 @@ For detailed system architecture documentation:
   [`docs/STELLAR_NETWORKS.md`](docs/STELLAR_NETWORKS.md)
 - **Mainnet Readiness** – Go/no-go gate and sign-off checklist for production deploy:
   [`docs/MAINNET_READINESS.md`](docs/MAINNET_READINESS.md)
+- **Event Indexer** – Component diagram, data-flow, reorg-safety, and configuration reference:
+  [`docs/ARCHITECTURE_OVERVIEW.md#event-indexer`](docs/ARCHITECTURE_OVERVIEW.md#event-indexer)
 
 ---
 
