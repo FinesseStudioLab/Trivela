@@ -24,6 +24,8 @@ export class ContractEventListenerService implements OnModuleInit {
   private readonly logger = new Logger(ContractEventListenerService.name);
   private readonly server: rpc.Server;
   private readonly handlers = new Map<string, EventHandler[]>();
+  /** Guards against double-processing an event that re-appears across polls. */
+  private readonly processedEventIds = new Set<string>();
   private isListening = false;
   private latestLedger = 0;
 
@@ -163,6 +165,13 @@ export class ContractEventListenerService implements OnModuleInit {
    * Process event and dispatch to registered handlers
    */
   private async processEvent(event: ContractEvent): Promise<void> {
+    // Skip events that have already been dispatched in a previous poll cycle.
+    if (this.processedEventIds.has(event.id)) {
+      this.logger.debug(`Duplicate event skipped: ${event.id}`);
+      return;
+    }
+    this.processedEventIds.add(event.id);
+
     const handlers = this.handlers.get(event.type) || [];
 
     if (handlers.length === 0) {
