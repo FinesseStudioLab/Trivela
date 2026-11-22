@@ -1,0 +1,23 @@
+name: Verify referral reward examples
+
+on:
+  push:
+    paths:
+      - 'docs/REFERRAL_REWARDS.md'
+      - 'scripts/verify_referral_examples.py'
+  pull_request:
+    paths:
+      - 'docs/REFERRAL_REWARDS.md'
+      - 'scripts/verify_referral_examples.py'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-examples:
+    name: Referral formula examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run worked-example verification
+        run: python3 scripts/verify_referral_examples.py
