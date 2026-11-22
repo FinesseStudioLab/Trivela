@@ -125,6 +125,43 @@ Example from Rewards contract:
 // - `claim`: topics `(claim, user)`, data `amount: u64`
 ```
 
+#### Campaign state-change event (`st_chng`)
+
+Every call to `set_active` emits a `st_chng` event in addition to the existing `active` event.
+Indexers should subscribe to `st_chng` to track campaign lifecycle without polling.
+
+| Field     | Type            | Description                                |
+| --------- | --------------- | ------------------------------------------ |
+| `topics`  | `(st_chng,)`    | Single-element tuple used for filtering    |
+| `data`    | `(CampaignState, CampaignState)` | `(old_state, new_state)`  |
+
+**`CampaignState` values:**
+
+| Variant   | Meaning                                                             |
+| --------- | ------------------------------------------------------------------- |
+| `Created` | Contract deployed; `set_active` has never been called              |
+| `Active`  | `set_active(true)` — campaign is accepting registrations           |
+| `Paused`  | `set_active(false)` called before the configured `end_time`        |
+| `Ended`   | `set_active(false)` called on or after the configured `end_time`   |
+
+**Subscribing from an indexer (JavaScript example):**
+
+```js
+const events = await server.getEvents({
+  startLedger,
+  filters: [{
+    type: 'contract',
+    contractIds: [CAMPAIGN_CONTRACT_ID],
+    topics: [['st_chng']],
+  }],
+});
+
+for (const event of events.events) {
+  const [oldState, newState] = scValToNative(event.value);
+  console.log(`Campaign transitioned: ${oldState} → ${newState}`);
+}
+```
+
 ### Storage Layout
 
 Key-value storage keys are documented as constants in the source code:
