@@ -14,6 +14,22 @@
 //! - Optional quadratic weighting: effective weight = `isqrt(points_at_snapshot)`.
 //! - Reuse the rewards `snapshot`/`get_snapshot` functions for fair, fixed weight.
 //!
+//! ## ⚠️ Snapshot staleness — known economic trade-off
+//!
+//! Voting power is fixed at the ledger where the vote is opened.  A token holder who
+//! transfers tokens **after** the snapshot is taken retains their full snapshot weight for
+//! this proposal.  The receiving address cannot reuse the same commitment slot
+//! (`AlreadyCommitted` guards against that), but it can vote with its own snapshot balance
+//! in a *different* concurrent proposal.
+//!
+//! **Mitigations in place:** `AlreadyCommitted` prevents double-voting within one proposal;
+//! quadratic weighting (`isqrt`) dampens large-balance advantage.
+//!
+//! **Planned:** a delegation mechanism that binds snapshot weight to the original holder for
+//! the full proposal lifetime (requires an RFC — see `docs/GOVERNANCE.md`).
+//! Frontend code should surface a stale-snapshot warning when
+//! `current_balance < snapshot_balance` for a connected wallet.
+//!
 //! ## Events
 //!
 //! - `vote_opened`: topics `(vopen, vote_id)`, data `(commit_end, reveal_end, options)`
