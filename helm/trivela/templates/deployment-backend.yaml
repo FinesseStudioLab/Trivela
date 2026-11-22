@@ -52,6 +52,10 @@ spec:
                 secretKeyRef:
                   name: {{ include "trivela.fullname" . }}-secrets
                   key: SOROBAN_RPC_URL
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_URL
+              value: {{ printf "redis://%s-redis:%v" (include "trivela.fullname" .) .Values.redis.port | quote }}
+            {{- end }}
           resources:
             {{- toYaml .Values.backend.resources | nindent 12 }}
           livenessProbe:

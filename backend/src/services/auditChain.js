@@ -6,7 +6,7 @@ export const GENESIS_HASH = '000000000000000000000000000000000000000000000000000
  * Deterministic, sorted JSON serialisation of an audit entry.
  * Only stable fields are included so the hash is reproducible.
  */
-export function canonicalise({ actor, action, entity, entityId, diff, orgId, createdAt }) {
+export function canonicalise({ actor, action, entity, entityId, diff, orgId, createdAt, ipAddress }) {
   return JSON.stringify({
     actor: actor ?? null,
     action: action ?? null,
@@ -15,6 +15,9 @@ export function canonicalise({ actor, action, entity, entityId, diff, orgId, cre
     diff: diff ?? null,
     orgId: orgId ?? null,
     createdAt: createdAt ?? null,
+    // Only present when recorded, so hashes of entries written before the IP
+    // column existed (#1318) stay valid.
+    ...(ipAddress ? { ipAddress } : {}),
   });
 }
 

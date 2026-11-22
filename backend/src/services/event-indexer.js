@@ -182,17 +182,65 @@ export class EventIndexer {
   }
 
   /**
-   * Parse event data from Soroban event structure
+   * Parse event data from Soroban event structure.
+   *
+   * For decay-specific events we extract typed fields so queries can filter
+   * on `event_data->>'campaign_id'` or `event_data->>'amount_decayed'`
+   * without having to decode raw Soroban XDR in SQL.
+   *
+   * Recognised event types and their extracted shapes:
+   *
+   *   decay     topics: [decay, user]       data: (campaign_id, amount_decayed)
+   *   decay_set topics: [decay_set, cid]    data: (kind, rate_bps, cliff_ledgers)
    */
   _parseEventData(event) {
     try {
       const topics = event.topic?.map(t => t.value?.toString()) || [];
+      const eventType = topics[0] || 'unknown';
       const value = event.value?.value || {};
-      
+
+      // ── Decay event: lazily applied point removal ──────────────────────────
+      if (eventType === 'decay') {
+        // topics[1] is the affected user address
+        const user = topics[1] ?? null;
+        // value is a tuple (campaign_id: u64, amount_decayed: u64)
+        const [campaign_id, amount_decayed] = Array.isArray(value)
+          ? value
+          : [value?.campaign_id ?? null, value?.amount_decayed ?? null];
+
+        return {
+          topics,
+          user,
+          campaign_id: campaign_id !== null ? String(campaign_id) : null,
+          amount_decayed: amount_decayed !== null ? String(amount_decayed) : null,
+          rawEvent: event,
+        };
+      }
+
+      // ── Decay policy set / replaced ────────────────────────────────────────
+      if (eventType === 'decay_set') {
+        // topics[1] is the campaign_id
+        const campaign_id = topics[1] ?? null;
+        // value is a tuple (kind: u32, rate_bps: u32, cliff_ledgers: u32)
+        const [kind, rate_bps, cliff_ledgers] = Array.isArray(value)
+          ? value
+          : [value?.kind ?? null, value?.rate_bps ?? null, value?.cliff_ledgers ?? null];
+
+        return {
+          topics,
+          campaign_id: campaign_id !== null ? String(campaign_id) : null,
+          kind: kind !== null ? String(kind) : null,
+          rate_bps: rate_bps !== null ? String(rate_bps) : null,
+          cliff_ledgers: cliff_ledgers !== null ? String(cliff_ledgers) : null,
+          rawEvent: event,
+        };
+      }
+
+      // ── Default: generic extraction for all other event types ──────────────
       return {
         topics,
         value,
-        rawEvent: event
+        rawEvent: event,
       };
     } catch (error) {
       logger.warn({ error: error.message }, 'Failed to parse event data');
@@ -254,13 +302,18 @@ export class EventIndexer {
   }
 
   /**
-   * Derive balance for an account from indexed events
+   * Derive balance for an account from indexed events.
+   *
+   * Accounts for decay events: when points are lazily removed from a balance
+   * by the contract's decay mechanism a `decay` event is emitted. Those
+   * amounts are subtracted here alongside normal `claim`/`redeem` debits.
    */
   async deriveBalance(accountAddress) {
     const result = await this.pool.query(
       `SELECT event_type, event_data 
        FROM indexer_events 
-       WHERE event_data->>'account' = $1 
+       WHERE event_data->>'account' = $1
+          OR event_data->>'user' = $1
        ORDER BY ledger ASC`,
       [accountAddress]
     );
@@ -276,10 +329,54 @@ export class EventIndexer {
         case 'redeem':
           balance -= parseInt(data.value?.amount || 0);
           break;
+        case 'decay':
+          // amount_decayed is stored as a string by _parseEventData
+          balance -= parseInt(data.amount_decayed || 0);
+          break;
       }
     }
     
     return balance;
+  }
+
+  /**
+   * Return all decay events for a specific account, ordered newest-first.
+   * Useful for displaying a point-expiry history to the user.
+   *
+   * @param {string} accountAddress  - On-chain address of the user.
+   * @param {number} [limit=50]
+   * @param {number} [offset=0]
+   */
+  async getDecayEventsByAccount(accountAddress, limit = 50, offset = 0) {
+    const result = await this.pool.query(
+      `SELECT * FROM indexer_events
+       WHERE event_type = 'decay'
+         AND event_data->>'user' = $1
+       ORDER BY ledger DESC
+       LIMIT $2 OFFSET $3`,
+      [accountAddress, limit, offset]
+    );
+    return result.rows;
+  }
+
+  /**
+   * Return all decay-policy-set events for a specific campaign, ordered
+   * newest-first. Useful for auditing the history of decay configuration.
+   *
+   * @param {string} campaignId
+   * @param {number} [limit=50]
+   * @param {number} [offset=0]
+   */
+  async getDecayPolicyHistory(campaignId, limit = 50, offset = 0) {
+    const result = await this.pool.query(
+      `SELECT * FROM indexer_events
+       WHERE event_type = 'decay_set'
+         AND event_data->>'campaign_id' = $1
+       ORDER BY ledger DESC
+       LIMIT $2 OFFSET $3`,
+      [String(campaignId), limit, offset]
+    );
+    return result.rows;
   }
 
   /**

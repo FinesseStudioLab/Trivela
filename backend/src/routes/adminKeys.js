@@ -8,6 +8,7 @@
 
 import { Router } from 'express';
 import { apiKeyCreateSchema, apiKeyRateTierUpdateSchema, formatZodErrors } from '../schemas.js';
+import { getRateTierLimits } from '../config/rateTiers.js';
 
 /**
  * @param {{
@@ -18,6 +19,7 @@ import { apiKeyCreateSchema, apiKeyRateTierUpdateSchema, formatZodErrors } from 
  *     revoke(id: string): void,
  *     rotate(id: string): { rawKey: string, key: object } | null,
  *     setRateTier(id: string, tier: string): object,
+ *     getMonthlyUsage(id: string): number,
  *   },
  *   requireMasterKey: import('express').RequestHandler,
  *   idempotencyMiddleware: import('express').RequestHandler,
@@ -72,9 +74,34 @@ export function createAdminKeyRoutes(deps) {
     },
   );
 
-  // GET /admin/api-keys — list all API keys
+  // GET /admin/api-keys — list all API keys, with each key's current
+  // calendar-month usage count and configured quota (#759), so the admin
+  // dashboard can render usage without a separate per-key request.
   router.get('/admin/api-keys', rateLimiter, requireMasterKey, (_req, res) => {
-    return res.json({ data: apiKeyRepository.list() });
+    const data = apiKeyRepository.list().map((key) => ({
+      ...key,
+      monthlyUsage: apiKeyRepository.getMonthlyUsage(key.id),
+      monthlyQuota: getRateTierLimits(key.rateTier).monthlyQuota,
+    }));
+    return res.json({ data });
+  });
+
+  // GET /admin/api-keys/:id/usage — a single key's current-month usage,
+  // for a dashboard detail view or polling without re-fetching the full list.
+  router.get('/admin/api-keys/:id/usage', rateLimiter, requireMasterKey, (req, res) => {
+    const key = apiKeyRepository.getById(req.params.id);
+    if (!key) {
+      return res.status(404).json({ error: 'API key not found', code: 'API_KEY_NOT_FOUND' });
+    }
+    const quota = getRateTierLimits(key.rateTier).monthlyQuota;
+    const used = apiKeyRepository.getMonthlyUsage(req.params.id);
+    return res.json({
+      keyId: req.params.id,
+      rateTier: key.rateTier,
+      monthlyUsage: used,
+      monthlyQuota: quota,
+      remaining: typeof quota === 'number' ? Math.max(quota - used, 0) : null,
+    });
   });
 
   // DELETE /admin/api-keys/:id — revoke an API key

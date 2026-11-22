@@ -11,7 +11,28 @@
     <link
       href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap"
       rel="stylesheet"
-    />
+    <script>
+      // Apply the saved (or OS-preferred) theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var saved = window.localStorage.getItem('trivela-theme');
+          var theme =
+            saved === 'light' || saved === 'dark'
+              ? saved
+              : window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches
+                ? 'light'
+                : 'dark';
+          document.documentElement.dataset.theme = theme;
+          document.documentElement.style.colorScheme = theme;
+          document.documentElement.classList.add(theme);
+          if (theme === 'dark') {
+            document.documentElement.style.backgroundColor = '#071018';
+          } else {
+            document.documentElement.style.backgroundColor = '#f3f6fb';
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

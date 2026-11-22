@@ -16,6 +16,7 @@ libfuzzer-sys = "0.4"
 trivela-campaign-contract = { path = ".." }
 soroban-sdk = { version = "25.1", features = ["testutils"] }
 sha2 = "0.10"
+ed25519-dalek = "2"
 
 [[bin]]
 name = "fuzz_register"
@@ -26,5 +27,11 @@ doc = false
 [[bin]]
 name = "fuzz_merkle_proof"
 path = "fuzz_targets/fuzz_merkle_proof.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_multisig"
+path = "fuzz_targets/fuzz_multisig.rs"
 test = false
 doc = false

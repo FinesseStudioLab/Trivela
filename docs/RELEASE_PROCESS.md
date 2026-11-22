@@ -208,25 +208,98 @@ bash ./scripts/deploy-testnet.sh
 
 ## Hotfix Releases
 
-For urgent bug fixes:
+For urgent bug fixes (security patches, critical bugs, production issues) that cannot wait for the next scheduled release.
+
+### Branch Naming Convention
+
+```
+hotfix/v<version>
+```
+
+Examples:
+- `hotfix/v0.1.1` – Patch release for v0.1.x
+- `hotfix/v1.2.3` – Patch release for v1.2.x
+
+### Merge Procedure
 
 ```bash
-# Create hotfix branch from main
+# 1. Create hotfix branch from main (NOT from a release branch)
 git checkout main
 git pull origin main
 git checkout -b hotfix/v0.1.1
 
-# Fix the bug
-# Update version: npm version patch --workspaces --no-git-tag-version
-# Update CHANGELOG.md
+# 2. Fix the bug and commit changes
+# ... make your changes ...
+git add -A
+git commit -m "fix: resolve critical rate limit bug"
 
-# Test
-npm run test
+# 3. Update version (patch bump)
+npm version patch --workspaces --no-git-tag-version
 
-# Tag and release (follow steps 6-8 above)
-git tag -a v0.1.1 -m "Hotfix v0.1.1: Fix rate limit bug"
+# 4. Update CHANGELOG.md (see requirements below)
+
+# 5. Run fast-track QA (see checklist below)
+
+# 6. Tag the release
+git tag -a v0.1.1 -m "Hotfix v0.1.1: Fix critical rate limit bug"
+
+# 7. Push branch and tag
+git push origin hotfix/v0.1.1
 git push origin v0.1.1
+
+# 8. Create PR to main after verification
+# Merge with "Squash and merge" for a clean history
+
+# 9. Optionally backport to release branches
+git checkout release/v0.1.0
+git cherry-pick <commit-hash>
+git push origin release/v0.1.0
 ```
+
+### Changelog Entry Requirements for Hotfixes
+
+Hotfix entries in `CHANGELOG.md` must include:
+
+1. **Hotfix tag** – Use `[Hotfix]` prefix instead of version
+2. **Date** – ISO 8601 format (YYYY-MM-DD)
+3. **Severity label** – One of: Security, Critical, High
+4. **Reference** – Link to issue or CVE if applicable
+
+```markdown
+## [Hotfix] - 2024-04-15
+
+### Security
+
+- Fix XSS vulnerability in user input validation ([#123](https://github.com/FinesseStudioLab/Trivela/issues/123))
+
+### Fixed
+
+- Resolve critical rate limit bug causing 429 errors in production
+```
+
+### Fast-Track QA Checklist
+
+For hotfix releases, run these verification steps before releasing:
+
+- [ ] **Smoke tests pass** – `npm run test:smoke` (or core unit tests)
+- [ ] **Security scan passes** – `npm run security:scan` (or SAST check)
+- [ ] **Build succeeds** – `npm run build` (contracts + backend)
+- [ ] **No regressions** – Critical path tests pass
+- [ ] **Code review** – At least one maintainer approves the PR
+
+For **security hotfixes**, additional requirements:
+
+- [ ] **Security review** – Dedicated security review (if available)
+- [ ] **Dependency audit** – Check for vulnerable dependencies (`npm audit`)
+- [ ] **No secrets exposed** – Verify no credentials in diff
+
+### Hotfix Approval Matrix
+
+| Severity | Approval Required | Tests Required | Deployment Timeline |
+|----------|-------------------|----------------|---------------------|
+| Security | 1 maintainer + security review | Full test suite | Immediate |
+| Critical | 1 maintainer | Smoke tests + regression | < 24 hours |
+| High     | 1 maintainer | Smoke tests           | Next business day |
 
 ## Rollback Procedure
 

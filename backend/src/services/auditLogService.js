@@ -13,6 +13,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
    *   entityId?: string | null,
    *   diff?: object | null,
    *   orgId?: string | null,
+   *   ipAddress?: string | null,
    *   timestamp?: string | null
    * }} params
    */
@@ -111,7 +112,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
     });
 
     // CSV headers
-    const headers = ['ID', 'Actor', 'Action', 'Entity', 'Entity ID', 'Timestamp', 'Changes'];
+    const headers = ['ID', 'Actor', 'Action', 'Entity', 'Entity ID', 'IP Address', 'Timestamp', 'Changes'];
 
     // Convert logs to CSV rows
     const rows = logs.map((log) => [
@@ -120,6 +121,7 @@ export function createAuditLogService({ auditLogRepository, orgMemberRepository 
       log.action,
       log.entity,
       log.entityId || '',
+      log.ipAddress || '',
       log.timestamp,
       log.diff ? JSON.stringify(log.diff) : '',
     ]);

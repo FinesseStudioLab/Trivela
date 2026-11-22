@@ -26,14 +26,34 @@ const baseCampaign = {
   imageUrl: null,
 };
 
+export const Loading = { args: { campaign: null, loading: true } };
+
 export const Active = { args: { campaign: baseCampaign } };
+
+export const Ended = {
+  args: {
+    campaign: {
+      ...baseCampaign,
+      active: false,
+      status: 'ended',
+      name: 'Ended Campaign',
+    },
+  },
+};
+
+export const Claimed = {
+  args: {
+    campaign: {
+      ...baseCampaign,
+      active: false,
+      status: 'claimed',
+      name: 'Claimed Rewards Campaign',
+    },
+  },
+};
 
 export const Featured = {
   args: { campaign: { ...baseCampaign, featured: true, name: 'Featured Airdrop Campaign' } },
-};
-
-export const Inactive = {
-  args: { campaign: { ...baseCampaign, active: false, status: 'ended', name: 'Ended Campaign' } },
 };
 
 export const Upcoming = {
@@ -55,8 +75,6 @@ export const WithImage = {
     },
   },
 };
-
-export const LoadingSkeleton = { args: { campaign: baseCampaign, loading: true } };
 
 export const DarkMode = {
   args: { campaign: { ...baseCampaign, featured: true } },

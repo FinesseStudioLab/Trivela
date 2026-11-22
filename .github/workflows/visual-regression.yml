@@ -47,6 +47,17 @@ jobs:
         run: npm run test:visual
         continue-on-error: true
 
+      - name: Publish to Chromatic
+        if: env.CHROMATIC_PROJECT_TOKEN != ''
+        uses: chromaui/action@latest
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          workingDir: frontend
+          buildScriptName: build-storybook
+          onlyChanged: true
+          exitZeroOnChanges: true
+        continue-on-error: true
+
       - name: Upload test report
         if: always()
         uses: actions/upload-artifact@v4
@@ -65,3 +76,17 @@ jobs:
             frontend/tests/visual/__snapshots__/**/*-actual.png
           retention-days: 30
           if-no-files-found: ignore
+
+      - name: Publish visual diff report to job summary
+        if: always()
+        env:
+          VISUAL_DIFF_ROOT: frontend/tests/visual
+          VISUAL_DIFF_SUMMARY: visual-diff-summary.md
+        run: node scripts/visual-diff-summary.mjs
+
+      - name: Append report to run summary
+        if: always()
+        run: |
+          if [ -f visual-diff-summary.md ]; then
+            cat visual-diff-summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi

@@ -1,7 +1,7 @@
 // @ts-check
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checkSorobanRpcHealth } from './sorobanRpc.js';
+import { checkSorobanRpcHealth, getRpcLatencyStats } from './sorobanRpc.js';
 import { log } from './middleware/logger.js';
 import { runWithRequestId } from './lib/requestContext.js';
 
@@ -154,4 +154,19 @@ test('logs a structured rpc:error line when the RPC returns an error', async () 
   assert.equal(captured.length, 1);
   assert.equal(captured[0].msg, 'rpc:error');
   assert.equal(captured[0].payload.httpStatus, 500);
+});
+
+test('records probe latency for the /metrics summary', async () => {
+  const before = getRpcLatencyStats();
+  const fetchImpl = async () =>
+    new Response(JSON.stringify({ jsonrpc: '2.0', id: 'health-check', result: {} }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    });
+
+  await checkSorobanRpcHealth({ rpcUrl: 'https://rpc.example', fetchImpl });
+
+  const after = getRpcLatencyStats();
+  assert.equal(after.count, before.count + 1);
+  assert.ok(after.sumMs >= before.sumMs);
 });

@@ -80,6 +80,31 @@ jobs:
 
           echo "Fuzzing completed for ${{ matrix.contract }} contract"
 
+      - name: Install nightly toolchain + cargo-fuzz for libFuzzer targets (rewards only)
+        if: matrix.contract == 'rewards'
+        continue-on-error: true
+        run: |
+          rustup toolchain install nightly
+          cargo install cargo-fuzz --locked
+
+      - name: Run libFuzzer targets (issue #851: fuzz_multisig, plus fuzz_balance)
+        if: matrix.contract == 'rewards'
+        continue-on-error: true
+        working-directory: contracts/rewards
+        run: |
+          echo "Running cargo-fuzz libFuzzer targets for ${FUZZ_DURATION} seconds each..."
+          cargo +nightly fuzz run fuzz_balance -- -max_total_time=${FUZZ_DURATION} || echo "fuzz_balance completed/found an issue"
+          cargo +nightly fuzz run fuzz_multisig -- -max_total_time=${FUZZ_DURATION} || echo "fuzz_multisig completed/found an issue"
+
+      - name: Upload libFuzzer crash artifacts (rewards only)
+        if: matrix.contract == 'rewards' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: libfuzzer-artifacts-rewards-${{ github.run_number }}
+          path: contracts/rewards/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
+
       - name: Check for regression files
         run: |
           if [ -d "contracts/${{ matrix.contract }}/proptest-regressions" ] && [ "$(ls -A contracts/${{ matrix.contract }}/proptest-regressions)" ]; then

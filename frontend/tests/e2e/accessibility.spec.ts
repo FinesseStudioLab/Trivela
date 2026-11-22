@@ -92,6 +92,54 @@ test.describe('Accessibility Tests', () => {
     }
   });
 
+  test('Explore page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/explore`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Explore Page');
+  });
+
+  test('About page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/about`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'About Page');
+  });
+
+  test('Transaction History page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/history`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Transaction History Page');
+  });
+
+  test('Proof of Reserves page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/proof-of-reserves`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Proof of Reserves Page');
+  });
+
+  test('User Profile page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/profile`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'User Profile Page');
+  });
+
+  test('Admin dashboard page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Dashboard');
+  });
+
+  test('Admin Analytics page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin/analytics`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Analytics');
+  });
+
+  test('Admin Webhooks page - no critical a11y violations', async ({ page }) => {
+    await page.goto(`${FRONTEND_URL}/admin/webhooks`);
+    await page.waitForLoadState('networkidle');
+    await checkA11y(page, 'Admin Webhooks');
+  });
+
   test('Navigation and header - no critical a11y violations', async ({ page }) => {
     await page.goto(`${FRONTEND_URL}/`);
 
@@ -298,5 +346,23 @@ test.describe('Mobile Accessibility', () => {
 
     // This is a warning, not a hard failure
     expect(smallTargets.length, 'Touch targets should be at least 44x44px').toBeLessThan(5);
+  });
+
+  test('Campaign filter dropdowns - axe-core accessibility and keyboard navigation', async ({
+    page,
+  }) => {
+    await page.goto(`${FRONTEND_URL}/`);
+    await page.waitForLoadState('networkidle');
+
+    // Run axe-core specifically on the campaign filter dropdown section
+    const accessibilityScanResults = await new AxeBuilder({ page })
+      .include('.campaign-filters')
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
+
+    const critical = accessibilityScanResults.violations.filter(
+      (v) => v.impact === 'critical' || v.impact === 'serious',
+    );
+    expect(critical, 'Campaign filter dropdowns have critical/serious a11y violations').toHaveLength(0);
   });
 });

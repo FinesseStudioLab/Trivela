@@ -24,6 +24,18 @@ const stories = [
   { id: 'components-statusbadge--upcoming', name: 'StatusBadge - Upcoming' },
   { id: 'components-statusbadge--ended', name: 'StatusBadge - Ended' },
   { id: 'components-statusbadge--paused', name: 'StatusBadge - Paused' },
+  { id: 'components-button--primary', name: 'Button - Primary' },
+  { id: 'components-button--secondary', name: 'Button - Secondary' },
+  { id: 'components-button--disabled', name: 'Button - Disabled' },
+  { id: 'components-modal--default', name: 'Modal - Default' },
+  { id: 'components-pagination--default', name: 'Pagination - Default' },
+  { id: 'components-tabs--default', name: 'Tabs - Default' },
+  { id: 'components-tooltip--default', name: 'Tooltip - Default' },
+  { id: 'components-datatable--default', name: 'DataTable - Default' },
+  { id: 'components-formfield--default', name: 'FormField - Default' },
+  { id: 'components-skeleton--default', name: 'Skeleton - Default' },
+  { id: 'components-toast--success', name: 'Toast - Success' },
+  { id: 'components-toast--error', name: 'Toast - Error' },
 ];
 
 test.describe('Storybook Visual Regression', () => {

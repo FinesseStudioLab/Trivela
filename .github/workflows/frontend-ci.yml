@@ -156,14 +156,31 @@ jobs:
           echo "**Minor violations**: Reported ℹ️" >> $GITHUB_STEP_SUMMARY
 
   cross-browser-e2e:
-    name: Cross-browser E2E (Chromium/Firefox/WebKit)
+    name: Cross-browser E2E (${{ matrix.browser }})
     runs-on: ubuntu-latest
     needs: frontend
 
+    # Desktop Chrome, Firefox, Safari (WebKit) and Edge plus mobile Chrome,
+    # Safari and Edge. `install` is the Playwright browser to download for the
+    # project (mobile Chrome/Safari reuse the Chromium/WebKit engines).
     strategy:
       fail-fast: false
       matrix:
-        browser: [chromium, firefox, webkit]
+        include:
+          - browser: chromium
+            install: chromium
+          - browser: firefox
+            install: firefox
+          - browser: webkit
+            install: webkit
+          - browser: edge
+            install: msedge
+          - browser: mobile-chrome
+            install: chromium
+          - browser: mobile-safari
+            install: webkit
+          - browser: mobile-edge
+            install: msedge
 
     steps:
       - name: Check out repository
@@ -185,7 +202,7 @@ jobs:
           path: frontend/dist
 
       - name: Install Playwright browser - ${{ matrix.browser }}
-        run: npx playwright install --with-deps ${{ matrix.browser }}
+        run: npx playwright install --with-deps ${{ matrix.install }}
 
       - name: Run E2E tests - ${{ matrix.browser }}
         run: npx playwright test --project=${{ matrix.browser }}
@@ -212,3 +229,59 @@ jobs:
           else
             echo "⚠️ No test report generated for ${{ matrix.browser }}" >> $GITHUB_STEP_SUMMARY
           fi
+
+  e2e-prod-build:
+    name: E2E against production build (vite preview)
+    runs-on: ubuntu-latest
+    needs: frontend
+  # #1319: hermetic browser flow — admin creates a campaign, the campaign page loads and a
+  # participant claims rewards. Builds its own bundle with an admin wallet and rewards contract
+  # configured; the REST API, Horizon, Soroban RPC and the wallet extension are mocked in the test.
+  campaign-to-claim-e2e:
+    name: Campaign creation to reward claim (Playwright)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build --workspace=frontend
+
+      - name: Install Playwright with dependencies
+        run: npx playwright install --with-deps chromium
+
+      - name: Run E2E against vite preview (production build)
+        run: npx playwright test --project=chromium
+        working-directory: frontend
+
+      - name: Upload prod-build E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-prod-build-results
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Run campaign-to-claim flow
+        run: npm run test:e2e:flow
+        working-directory: frontend
+
+      - name: Upload flow results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-flow-results
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore

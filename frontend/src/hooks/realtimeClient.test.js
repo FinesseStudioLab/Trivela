@@ -133,6 +133,41 @@ describe('createRealtimeSubscription', () => {
     expect(MockEventSource.instances).toHaveLength(3);
   });
 
+  it('caps the reconnection delay at 30 seconds when the backoff curve hits the cap', () => {
+    vi.useFakeTimers();
+    // baseDelayMs 10s, maxDelayMs 30s (default)
+    subscribe({ baseDelayMs: 10_000, maxDelayMs: 30_000 });
+    expect(MockEventSource.instances).toHaveLength(1);
+
+    // attempt 0: delay = min(30s, 10s * 1) = 10s
+    MockEventSource.instances[0].error();
+    vi.advanceTimersByTime(9_999);
+    expect(MockEventSource.instances).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(MockEventSource.instances).toHaveLength(2);
+
+    // attempt 1: delay = min(30s, 10s * 2) = 20s
+    MockEventSource.instances[1].error();
+    vi.advanceTimersByTime(19_999);
+    expect(MockEventSource.instances).toHaveLength(2);
+    vi.advanceTimersByTime(1);
+    expect(MockEventSource.instances).toHaveLength(3);
+
+    // attempt 2: delay = min(30s, 10s * 4 = 40s) -> capped at 30s!
+    MockEventSource.instances[2].error();
+    vi.advanceTimersByTime(29_999);
+    expect(MockEventSource.instances).toHaveLength(3);
+    vi.advanceTimersByTime(1);
+    expect(MockEventSource.instances).toHaveLength(4);
+
+    // attempt 3: delay = min(30s, 10s * 8 = 80s) -> still capped at 30s!
+    MockEventSource.instances[3].error();
+    vi.advanceTimersByTime(29_999);
+    expect(MockEventSource.instances).toHaveLength(4);
+    vi.advanceTimersByTime(1);
+    expect(MockEventSource.instances).toHaveLength(5);
+  });
+
   it('close() tears down the source and stops reconnecting', () => {
     vi.useFakeTimers();
     const { handle, statuses } = subscribe();

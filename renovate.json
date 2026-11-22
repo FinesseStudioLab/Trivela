@@ -1,0 +1,31 @@
+{
+  "description": "Renovate configuration for Trivela - automated dependency updates with safety policies",
+  "extends": [
+    "config:recommended"
+  ],
+  "timezone": "UTC",
+  "schedule": ["before 6am on Monday"],
+  "labels": ["dependencies", "renovate"],
+  "prConcurrentLimit": 5,
+  "platformAutomerge": true,
+  "automerge": true,
+  "packageRules": [
+    {
+      "matchManagers": ["cargo"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["dependencies", "major-update", "needs-review"]
+    },
+    {
+      "matchFileNames": ["contracts/**"],
+      "groupName": "contract dependencies",
+      "automerge": false,
+      "labels": ["dependencies", "contracts", "needs-audit"]
+    }
+  ]
+}

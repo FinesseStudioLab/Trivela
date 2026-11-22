@@ -1,0 +1,112 @@
+/* Live activity feed (#1201) */
+.live-activity {
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.25));
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+  background: var(--surface, transparent);
+}
+
+.live-activity__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.live-activity__title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.live-activity__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.live-activity__status::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.live-activity__status.is-live {
+  color: var(--success, #16a34a);
+}
+
+.live-activity__status.is-live::before {
+  animation: live-activity-pulse 1.6s ease-in-out infinite;
+}
+
+.live-activity__status.is-offline {
+  color: var(--muted, #6b7280);
+}
+
+.live-activity__empty {
+  margin: 0;
+  color: var(--muted, #6b7280);
+  font-size: 0.9rem;
+}
+
+.live-activity__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 18rem;
+  overflow-y: auto;
+}
+
+.live-activity__item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.15));
+  font-size: 0.9rem;
+  animation: live-activity-in 0.35s ease-out;
+}
+
+.live-activity__item:first-child {
+  border-top: 0;
+}
+
+.live-activity__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.live-activity__time {
+  color: var(--muted, #6b7280);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+@keyframes live-activity-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes live-activity-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-activity__item,
+  .live-activity__status.is-live::before {
+    animation: none;
+  }
+}

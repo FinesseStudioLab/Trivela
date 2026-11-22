@@ -1,13 +1,59 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { apiUrl, DEFAULT_OG_IMAGE } from './config';
 import Header from './components/Header';
 import RegisterCampaign from './RegisterCampaign';
 import StatusBadge from './components/StatusBadge';
+import TaskProgressBar from './components/TaskProgressBar';
 import PageMeta from './components/PageMeta';
 import ErrorBoundary from './ErrorBoundary';
 import { useCampaignLiveUpdates } from './hooks/useCampaignLiveUpdates';
 import './CampaignDetail.css';
+import EmbedSnippetGenerator from './components/EmbedSnippetGenerator.jsx';
+
+/** Formats a duration in seconds as "2d 4h 15m" (issue #317 countdown). */
+function formatCountdown(totalSeconds) {
+  if (totalSeconds <= 0) return null;
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const parts = [];
+  if (days > 0) parts.push(`${days}d`);
+  if (days > 0 || hours > 0) parts.push(`${hours}h`);
+  parts.push(`${minutes}m`);
+  return parts.join(' ');
+}
+
+/**
+ * Live-ticking countdown/time-remaining string for a campaign window.
+ * `windowStart`/`windowEnd` are unix seconds, or null when no window is
+ * configured on-chain (get_window() defaults to (0, u64::MAX)).
+ */
+export function useCampaignCountdown(windowStart, windowEnd) {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (windowStart == null || windowEnd == null) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [windowStart, windowEnd]);
+
+  return useMemo(() => {
+    if (windowStart == null || windowEnd == null) {
+      return { label: null, phase: 'unbounded' };
+    }
+    const nowSec = Math.floor(now / 1000);
+    if (nowSec < windowStart) {
+      const text = formatCountdown(windowStart - nowSec);
+      return { label: text ? `Starts in ${text}` : 'Starting now', phase: 'upcoming' };
+    }
+    if (nowSec <= windowEnd) {
+      const text = formatCountdown(windowEnd - nowSec);
+      return { label: text ? `Ends in ${text}` : 'Ending now', phase: 'active' };
+    }
+    return { label: 'Window closed', phase: 'ended' };
+  }, [now, windowStart, windowEnd]);
+}
 
 export default function CampaignDetail({
   theme,
@@ -23,16 +69,82 @@ export default function CampaignDetail({
   onConnectWallet,
   onDisconnectWallet,
   onRefreshPoints,
+  campaign: propCampaign,
+  loading: propLoading,
+  error: propError,
 }) {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
-  const { campaign, onChainState, isPolling, isPaused, lastUpdated, stateToast, error, refresh } =
-    useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) });
+  const {
+    campaign: hookCampaign,
+    onChainState,
+    isPolling,
+    isPaused,
+    lastUpdated,
+    stateToast,
+    error: hookError,
+    refresh,
+    connectionStatus,
+  } = useCampaignLiveUpdates({ campaignId: id, enabled: Boolean(id) && propCampaign === undefined });
 
-  const [embedSnippetCopied, setEmbedSnippetCopied] = useState(false);
+  const campaign = propCampaign !== undefined ? propCampaign : hookCampaign;
+  const error = propError !== undefined ? propError : hookError;
+  const isLoading = propLoading !== undefined ? propLoading : (!campaign && !error);
 
-  const incomingRef = searchParams.get('ref');
-  const isLoading = !campaign && !error;
+  const [shareCopied, setShareCopied] = useState(false);
+  const countdown = useCampaignCountdown(onChainState?.windowStart, onChainState?.windowEnd);
+
+  const campaignUrl = typeof window !== 'undefined' ? `${window.location.origin}/campaign/${id}` : `/campaign/${id}`;
+
+  const copyToClipboard = useCallback(async (text) => {
+    let success = false;
+    if (typeof navigator !== 'undefined' && navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+      try {
+        await navigator.clipboard.writeText(text);
+        success = true;
+      } catch {
+        success = false;
+      }
+    }
+    if (!success && typeof document !== 'undefined') {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        success = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        success = false;
+      }
+    }
+    return success;
+  }, []);
+
+  const handleCopyShareLink = useCallback(() => {
+    copyToClipboard(campaignUrl).then((ok) => {
+      if (ok) {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    });
+  }, [campaignUrl, copyToClipboard]);
+
+  const shareText = campaign ? `Check out "${campaign?.name}" on Trivela` : 'Check out this campaign on Trivela';
+  const shareLinks = {
+    twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(campaignUrl)}`,
+    telegram: `https://t.me/share/url?url=${encodeURIComponent(campaignUrl)}&text=${encodeURIComponent(shareText)}`,
+  };
+  const handleCopyDiscordMessage = useCallback(() => {
+    copyToClipboard(`${shareText} — ${campaignUrl}`).then((ok) => {
+      if (ok) {
+        setShareCopied(true);
+        setTimeout(() => setShareCopied(false), 2000);
+      }
+    });
+  }, [shareText, campaignUrl, copyToClipboard]);
 
   const handleRegistered = useCallback(() => {
     if (!incomingRef || !walletAddress || !id) return;
@@ -127,9 +239,13 @@ export default function CampaignDetail({
               Back to campaigns
             </Link>
             <div className="detail-nav-actions">
-              {!isPaused && campaign ? (
+              {!isPaused && campaign && connectionStatus === 'open' ? (
                 <span className="detail-live-badge" aria-label="Live campaign data">
                   Live
+                </span>
+              ) : connectionStatus === 'reconnecting' ? (
+                <span className="detail-live-badge detail-reconnecting-badge" role="status" aria-label="Reconnecting to live data">
+                  Reconnecting…
                 </span>
               ) : null}
               <button
@@ -156,7 +272,17 @@ export default function CampaignDetail({
           </nav>
 
           {isLoading ? (
-            <div className="detail-status">Loading campaign details...</div>
+            <div className="detail-skeleton" aria-busy="true" aria-label="Loading campaign details">
+              <div className="skeleton-line skeleton-title" />
+              <div className="skeleton-line skeleton-badge" />
+              <div className="skeleton-grid">
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+                <div className="skeleton-stat" />
+              </div>
+              <div className="skeleton-line skeleton-paragraph" />
+              <div className="skeleton-line skeleton-paragraph" />
+            </div>
           ) : error ? (
             <div className="detail-error" role="alert">
               <h2>Error</h2>
@@ -170,13 +296,23 @@ export default function CampaignDetail({
                 </Link>
               </div>
             </div>
+          ) : !campaign ? (
+            <div className="detail-error" role="alert">
+              <h2>Campaign not found</h2>
+              <p>The requested campaign could not be found or data is unavailable.</p>
+              <div className="detail-actions">
+                <Link to="/" className="btn btn-secondary">
+                  Return to landing
+                </Link>
+              </div>
+            </div>
           ) : (
             <article className="detail-content">
               <header className="detail-header">
-                <p className="detail-eyebrow">Campaign #{campaign.id}</p>
+                <p className="detail-eyebrow">Campaign #{campaign?.id}</p>
                 <div className="detail-title-row">
-                  <h1 className="detail-title">{campaign.name}</h1>
-                  <StatusBadge status={campaign.status} />
+                  <h1 className="detail-title">{campaign?.name}</h1>
+                  <StatusBadge status={campaign?.status} />
                 </div>
                 {lastUpdated ? (
                   <p className="detail-updated">Last updated {lastUpdated.toLocaleTimeString()}</p>
@@ -190,39 +326,109 @@ export default function CampaignDetail({
                       <h2>On-chain status</h2>
                       <div className="detail-grid">
                         <div className="detail-stat">
-                          <h3>Contract active</h3>
-                          <p className="stat-value">{onChainState.isActive ? 'Yes' : 'No'}</p>
-                        </div>
-                        <div className="detail-stat">
-                          <h3>Within window</h3>
-                          <p className="stat-value">{onChainState.isWithinWindow ? 'Yes' : 'No'}</p>
+                          <h3>Status</h3>
+                          <p className="stat-value">
+                            {onChainState.isActive
+                              ? onChainState.isWithinWindow
+                                ? 'Active'
+                                : 'Paused'
+                              : 'Inactive'}
+                          </p>
                         </div>
                         <div className="detail-stat">
                           <h3>Participants</h3>
-                          <p className="stat-value">{onChainState.participantCount}</p>
+                          <p className="stat-value">
+                            {onChainState.participantCount}
+                            {onChainState.maxCap > 0
+                              ? ` / ${onChainState.maxCap} spots`
+                              : ' registered'}
+                          </p>
+                        </div>
+                        <div className="detail-stat">
+                          <h3>{countdown.phase === 'upcoming' ? 'Starts' : 'Time window'}</h3>
+                          <p className="stat-value">{countdown.label ?? 'No time limit'}</p>
                         </div>
                       </div>
+
+                      {onChainState.maxCap > 0 ? (
+                        <div
+                          className="cap-progress-bar"
+                          role="progressbar"
+                          aria-valuenow={onChainState.participantCount}
+                          aria-valuemin={0}
+                          aria-valuemax={onChainState.maxCap}
+                          aria-label="Campaign fill rate"
+                        >
+                          <div
+                            className="cap-progress-fill"
+                            style={{
+                              width: `${Math.min(
+                                100,
+                                (onChainState.participantCount / onChainState.maxCap) * 100
+                              )}%`,
+                            }}
+                          />
+                        </div>
+                      ) : null}
                     </section>
                   </ErrorBoundary>
+                ) : campaign && !campaign?.contractId ? (
+                  <section className="detail-section detail-no-contract">
+                    <h2>On-chain status</h2>
+                    <p className="detail-no-contract-note">
+                      Contract not linked — this campaign doesn&apos;t have an on-chain contract
+                      assigned yet, so live participant counts and status aren&apos;t available.
+                    </p>
+                  </section>
                 ) : null}
+
+                <section className="detail-section detail-share" aria-label="Share this campaign">
+                  <h2>Share</h2>
+                  <div className="detail-share-actions">
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyShareLink}>
+                      {shareCopied ? 'Copied!' : 'Copy link'}
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.twitter}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Twitter
+                    </a>
+                    <button type="button" className="btn btn-secondary" onClick={handleCopyDiscordMessage}>
+                      Copy Discord message
+                    </button>
+                    <a
+                      className="btn btn-secondary"
+                      href={shareLinks.telegram}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Share on Telegram
+                    </a>
+                  </div>
+                </section>
 
                 <section className="detail-section">
                   <h2>Description</h2>
                   <p className="detail-description">
-                    {campaign.description || 'No description provided.'}
+                    {campaign?.description || 'No description provided.'}
                   </p>
                 </section>
 
                 <div className="detail-grid">
                   <div className="detail-stat">
                     <h3>Reward per Action</h3>
-                    <p className="stat-value">{campaign.rewardPerAction ?? 0} pts</p>
+                    <p className="stat-value">{campaign?.rewardPerAction ?? 0} pts</p>
                   </div>
                   <div className="detail-stat">
                     <h3>Created On</h3>
-                    <p className="stat-value">{formatDate(campaign.createdAt)}</p>
+                    <p className="stat-value">{formatDate(campaign?.createdAt)}</p>
                   </div>
                 </div>
+
+                <TaskProgressBar tasks={campaign?.tasks} />
 
                 <section className="detail-cta">
                   <h3>Ready to participate?</h3>
@@ -256,9 +462,9 @@ export default function CampaignDetail({
                   <section className="referral-section" aria-label="Invite friends">
                     <div className="referral-header">
                       <h3 className="referral-title">Invite Friends</h3>
-                      {campaign.referralBonusPoints > 0 ? (
+                      {(campaign?.referralBonusPoints ?? 0) > 0 ? (
                         <p className="referral-bonus-note">
-                          Earn <strong>+{campaign.referralBonusPoints} bonus pts</strong> per friend
+                          Earn <strong>+{campaign?.referralBonusPoints} bonus pts</strong> per friend
                           who registers
                         </p>
                       ) : null}
@@ -301,41 +507,9 @@ export default function CampaignDetail({
                       color: 'var(--color-text-secondary, #94a3b8)',
                     }}
                   >
-                    Copy this snippet to embed a live campaign card on any website.
+                    Embed a live campaign widget on any website as an HTML iframe or a React component.
                   </p>
-                  <pre
-                    style={{
-                      background: 'var(--color-bg, #0f172a)',
-                      padding: '12px',
-                      borderRadius: '6px',
-                      fontSize: '0.75rem',
-                      overflowX: 'auto',
-                      margin: '0 0 12px',
-                    }}
-                  >
-                    <code>{`<iframe
-  src="${window.location.origin}/embed/campaign/${id}?theme=dark"
-  width="400"
-  height="280"
-  frameborder="0"
-  style="border:none;border-radius:12px;"
-  title="${campaign.name ?? 'Campaign'} on Trivela"
-></iframe>`}</code>
-                  </pre>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    style={{ fontSize: '0.8rem' }}
-                    onClick={() => {
-                      const snippet = `<iframe\n  src="${window.location.origin}/embed/campaign/${id}?theme=dark"\n  width="400"\n  height="280"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n  title="${campaign.name ?? 'Campaign'} on Trivela"\n></iframe>`;
-                      navigator.clipboard.writeText(snippet).then(() => {
-                        setEmbedSnippetCopied(true);
-                        setTimeout(() => setEmbedSnippetCopied(false), 2000);
-                      });
-                    }}
-                  >
-                    {embedSnippetCopied ? 'Copied!' : 'Copy snippet'}
-                  </button>
+                  <EmbedSnippetGenerator campaignId={id} campaignName={campaign?.name} />
                 </section>
               )}
             </article>

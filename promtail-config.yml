@@ -1,0 +1,65 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape Docker container logs
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          environment: local
+    docker:
+      host: unix:///var/run/docker.sock
+
+  # Scrape system logs
+  - job_name: syslog
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          environment: local
+    file_sd_configs:
+      - files:
+          - /var/log/messages
+          - /var/log/syslog
+
+  # Scrape application logs from /var/log/trivela
+  - job_name: trivela
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trivela
+          app: backend
+          environment: local
+    file_sd_configs:
+      - files:
+          - /var/log/trivela/*.log
+    relabel_configs:
+      - source_labels: [__path__]
+        target_label: filename
+
+# Additional scrape config for container logs with filtering
+  - job_name: trivela-container
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: trivela-container
+          app: backend
+    docker:
+      host: unix:///var/run/docker.sock
+      container_filter:
+        match: equals
+        values:
+          - trivela-backend

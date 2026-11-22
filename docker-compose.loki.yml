@@ -1,0 +1,49 @@
+# Loki and Promtail setup for centralized log aggregation
+version: '3.8'
+
+services:
+  loki:
+    image: grafana/loki:latest
+    ports:
+      - '3100:3100'
+    volumes:
+      - ./loki-config.yml:/etc/loki/local-config.yml
+      - loki-storage:/loki
+    command: -config.file=/etc/loki/local-config.yml
+    networks:
+      - logging
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - logging
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - '3000:3000'
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: grafana-piechart-panel
+    volumes:
+      - grafana-storage:/var/lib/grafana
+    depends_on:
+      - loki
+    networks:
+      - logging
+
+volumes:
+  loki-storage:
+  grafana-storage:
+
+networks:
+  logging:
+    driver: bridge

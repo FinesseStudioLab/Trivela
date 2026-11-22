@@ -6,7 +6,7 @@ End-to-end tests for the Trivela frontend using Playwright.
 
 ### `cross-browser.spec.ts`
 
-**Purpose**: Verify cross-browser compatibility across Chromium, Firefox, and WebKit.
+**Purpose**: Verify cross-browser compatibility across desktop Chromium, Firefox, WebKit (Safari) and Edge, and mobile Chrome, Safari and Edge.
 
 **Coverage**:
 
@@ -21,7 +21,7 @@ End-to-end tests for the Trivela frontend using Playwright.
 - ✅ Console error detection
 - ✅ Browser-specific features (smooth scroll, form rendering, DevTools)
 
-**CI Integration**: Runs as a matrix job in `.github/workflows/frontend-ci.yml`, executing once per browser engine.
+**CI Integration**: Runs as a matrix job in `.github/workflows/frontend-ci.yml`, executing once per Playwright project: `chromium`, `firefox`, `webkit`, `edge`, `mobile-chrome`, `mobile-safari`, `mobile-edge`. The Edge projects use the `msedge` channel (`npx playwright install msedge`). The mobile projects run only `cross-browser.spec.ts` and `basic.spec.js`; run one locally with `npx playwright test --project=mobile-safari`.
 
 ### `campaign-lifecycle.test.ts`
 
@@ -199,3 +199,20 @@ npx playwright show-trace test-results/*/trace.zip
 - [Playwright Configuration](../../playwright.config.js)
 - [Frontend CI Workflow](../../.github/workflows/frontend-ci.yml)
 - [Visual Regression Tests](../visual/README.md)
+
+## Campaign creation → reward claim flow (`frontend/tests/flow/`, #1319)
+
+`campaign-to-claim.spec.js` drives the real UI through the whole journey: connect an admin wallet,
+create a campaign, open its page, then claim earned rewards with a signed Soroban transaction and see
+the points balance drop. It is hermetic — the REST API, Horizon, the Soroban RPC
+(`support/soroban-chain-mock.js`, real XDR with a stateful balance) and the wallet extension are all
+mocked in the test — so it needs no testnet, backend or browser extension.
+
+```bash
+npm run test:e2e:flow --workspace=frontend
+```
+
+It uses its own config (`playwright.flow.config.js`) because it needs a production build with an
+admin wallet and rewards contract configured (`VITE_ADMIN_ADDRESSES`, `VITE_REWARDS_CONTRACT_ID`);
+the config builds that bundle into `dist-e2e/` and serves it. The existing
+`campaign-lifecycle.test.ts` is the testnet variant of the same journey.

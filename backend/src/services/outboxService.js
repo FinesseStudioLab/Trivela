@@ -10,7 +10,15 @@
  *   const relay = new OutboxRelay(db, handlers, { logger });
  *   relay.start();     // begin polling
  *   relay.stop();      // graceful shutdown
+ *
+ * Tracing (issue #778): `writeOutbox` captures the enqueuing request's trace
+ * context and stores it alongside the payload; `_deliver` re-establishes it
+ * as the parent of a new `outbox.deliver` span, so a single trace shows the
+ * full request → job path even though delivery happens on a later,
+ * unrelated poll tick.
  */
+
+import { captureTraceparent, linkedSpan } from '../tracing.js';
 
 const DEFAULT_POLL_INTERVAL_MS = 5_000;
 const DEFAULT_LOCK_DURATION_MS = 60_000;
@@ -34,11 +42,18 @@ export function writeOutbox(db, eventType, payload, opts = {}) {
   const deliverAfter =
     delayMs > 0 ? new Date(Date.now() + delayMs).toISOString() : new Date().toISOString();
 
+  // Stash the enqueuing request's trace context inside the stored envelope
+  // (issue #778) rather than adding a DB column for it — `_traceparent` is a
+  // reserved key on the envelope, never on the caller's own payload, so it
+  // round-trips through the existing `payload TEXT` column with no schema
+  // migration.
+  const envelope = { payload, _traceparent: captureTraceparent() };
+
   const stmt = db.prepare(`
     INSERT INTO outbox (event_type, payload, partition_key, deliver_after)
     VALUES (?, ?, ?, ?)
   `);
-  const result = stmt.run(eventType, JSON.stringify(payload), partitionKey, deliverAfter);
+  const result = stmt.run(eventType, JSON.stringify(envelope), partitionKey, deliverAfter);
   return result.lastInsertRowid;
 }
 
@@ -122,19 +137,37 @@ export class OutboxRelay {
   async _deliver(row) {
     const handler = this.handlers[row.event_type];
     let payload;
+    let traceparent = null;
     try {
-      payload = JSON.parse(row.payload);
+      const parsed = JSON.parse(row.payload);
+      // Rows written before issue #778 store the raw payload directly;
+      // rows written since wrap it as `{ payload, _traceparent }`. Detect by
+      // the reserved `_traceparent` key rather than assuming every row is
+      // the new shape, so already-queued (pre-deploy) rows still deliver.
+      if (parsed && typeof parsed === 'object' && Object.prototype.hasOwnProperty.call(parsed, '_traceparent')) {
+        payload = parsed.payload;
+        traceparent = parsed._traceparent;
+      } else {
+        payload = parsed;
+      }
     } catch {
       this._markFailed(row.id, 'invalid JSON payload');
       return;
     }
 
     try {
-      if (handler) {
-        await handler(payload);
-      } else {
-        this.logger.warn({ eventType: row.event_type }, 'no outbox handler registered');
-      }
+      await linkedSpan(
+        traceparent,
+        'outbox.deliver',
+        { 'outbox.event_type': row.event_type, 'outbox.id': row.id, 'outbox.attempts': row.attempts },
+        async () => {
+          if (handler) {
+            await handler(payload);
+          } else {
+            this.logger.warn({ eventType: row.event_type }, 'no outbox handler registered');
+          }
+        },
+      );
       this.db
         .prepare(`UPDATE outbox SET status = 'delivered', locked_until = NULL WHERE id = ?`)
         .run(row.id);

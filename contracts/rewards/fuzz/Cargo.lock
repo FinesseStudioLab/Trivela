@@ -1088,6 +1088,7 @@ dependencies = [
 name = "rewards-fuzz"
 version = "0.0.0"
 dependencies = [
+ "ed25519-dalek",
  "libfuzzer-sys",
  "soroban-sdk",
  "trivela-rewards-contract",

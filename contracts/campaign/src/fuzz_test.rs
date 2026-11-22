@@ -94,8 +94,12 @@ proptest! {
             if should_retry && !participants.is_empty() {
                 let idx = participants.len() / 2;
                 let p = &participants[idx];
-                let registered = client.register(p, &leaf, &proof, &None, &None);
-                assert!(!registered, "Re-registration should return false");
+                let registered = client.try_register(p, &leaf, &proof, &None, &None);
+                assert_eq!(
+                    registered,
+                    Err(Ok(Error::NullifierAlreadyUsed)),
+                    "Re-registration should hit the participation barrier"
+                );
             }
         }
 
@@ -380,7 +384,9 @@ proptest! {
         let result = client.try_accept_admin(&impostor);
         assert_eq!(result, Err(Ok(Error::Unauthorized)));
 
-        // Pending admin accepts
+        // Pending admin accepts after the cooling period
+        env.ledger()
+            .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
         client.accept_admin(&new_admin);
         assert_eq!(client.admin(), new_admin);
         assert_eq!(client.pending_admin(), None);
@@ -531,7 +537,7 @@ proptest! {
             0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x10,
             0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18,
             0x19, 0x1a, 0x1b, 0x1c]);
-        client.set_merkle_root(&admin, &0, &root, &None, &Vec::new(&env));
+        client.set_merkle_root(&admin, &0, &root, &Vec::new(&env));
 
         let leaf = BytesN::from_array(&env, &leaf_bytes);
         let mut proof: Vec<BytesN<32>> = Vec::new(&env);
@@ -573,7 +579,7 @@ proptest! {
         let mut root_bytes = [0u8; 32];
         root_bytes[0] = 0xff;
         let root = BytesN::from_array(&env, &root_bytes);
-        client.set_merkle_root(&admin, &0, &root, &None, &Vec::new(&env));
+        client.set_merkle_root(&admin, &0, &root, &Vec::new(&env));
 
         // Build a bit-flipped proof node.
         let mut node = [0u8; 32];

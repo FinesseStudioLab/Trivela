@@ -10,6 +10,7 @@ function rowToAuditLog(row) {
     entityId: row.entity_id ?? null,
     diff: row.diff ? JSON.parse(row.diff) : null,
     orgId: row.org_id ?? null,
+    ipAddress: row.ip_address ?? null,
     timestamp: row.created_at,
     seq: row.seq ?? null,
     prevHash: row.prev_hash ?? null,
@@ -20,8 +21,8 @@ function rowToAuditLog(row) {
 export function createSqliteAuditLogRepository({ db }) {
   const insertStmt = db.prepare(
     `INSERT INTO audit_logs
-       (actor, action, entity, entity_id, diff, org_id, created_at, seq, prev_hash, entry_hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (actor, action, entity, entity_id, diff, org_id, created_at, seq, prev_hash, entry_hash, ip_address)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const lastSeqStmt = db.prepare(
@@ -29,7 +30,7 @@ export function createSqliteAuditLogRepository({ db }) {
   );
 
   const appendEntry = db.transaction(
-    ({ actor, action, entity, entityId, diffJson, orgId, createdAt }) => {
+    ({ actor, action, entity, entityId, diffJson, orgId, createdAt, ipAddress }) => {
       const last = lastSeqStmt.get();
       const seq = last ? last.seq + 1 : 1;
       const prevHash = last ? last.entry_hash : GENESIS_HASH;
@@ -41,6 +42,7 @@ export function createSqliteAuditLogRepository({ db }) {
         diff: diffJson ? JSON.parse(diffJson) : null,
         orgId,
         createdAt,
+        ipAddress,
       });
       const info = insertStmt.run(
         actor,
@@ -53,6 +55,7 @@ export function createSqliteAuditLogRepository({ db }) {
         seq,
         prevHash,
         entryHash,
+        ipAddress,
       );
       return db.prepare('SELECT * FROM audit_logs WHERE id = ?').get(info.lastInsertRowid);
     },
@@ -66,10 +69,20 @@ export function createSqliteAuditLogRepository({ db }) {
     diff = null,
     orgId = null,
     timestamp = null,
+    ipAddress = null,
   }) {
     const createdAt = timestamp ?? new Date().toISOString();
     const diffJson = diff ? JSON.stringify(diff) : null;
-    const row = appendEntry({ actor, action, entity, entityId, diffJson, orgId, createdAt });
+    const row = appendEntry({
+      actor,
+      action,
+      entity,
+      entityId,
+      diffJson,
+      orgId,
+      createdAt,
+      ipAddress: ipAddress || null,
+    });
     return rowToAuditLog(row);
   }
 
@@ -79,6 +92,7 @@ export function createSqliteAuditLogRepository({ db }) {
     action,
     orgId,
     actor,
+    ipAddress,
     startDate,
     endDate,
     limit = 100,
@@ -107,6 +121,10 @@ export function createSqliteAuditLogRepository({ db }) {
       filters.push('actor = ?');
       values.push(actor);
     }
+    if (ipAddress) {
+      filters.push('ip_address = ?');
+      values.push(ipAddress);
+    }
     if (startDate) {
       filters.push('created_at >= ?');
       values.push(startDate);
@@ -125,7 +143,7 @@ export function createSqliteAuditLogRepository({ db }) {
       .map(rowToAuditLog);
   }
 
-  function count({ entity, entityId, action, orgId, actor, startDate, endDate } = {}) {
+  function count({ entity, entityId, action, orgId, actor, ipAddress, startDate, endDate } = {}) {
     const filters = [];
     const values = [];
 
@@ -149,6 +167,10 @@ export function createSqliteAuditLogRepository({ db }) {
       filters.push('actor = ?');
       values.push(actor);
     }
+    if (ipAddress) {
+      filters.push('ip_address = ?');
+      values.push(ipAddress);
+    }
     if (startDate) {
       filters.push('created_at >= ?');
       values.push(startDate);
@@ -171,7 +193,7 @@ export function createSqliteAuditLogRepository({ db }) {
   function verify() {
     const rows = db
       .prepare(
-        `SELECT seq, actor, action, entity, entity_id, diff, org_id, created_at, prev_hash, entry_hash
+        `SELECT seq, actor, action, entity, entity_id, diff, org_id, ip_address, created_at, prev_hash, entry_hash
            FROM audit_logs
           WHERE seq IS NOT NULL
           ORDER BY seq ASC`,
@@ -194,6 +216,7 @@ export function createSqliteAuditLogRepository({ db }) {
         diff: row.diff ? JSON.parse(row.diff) : null,
         orgId: row.org_id ?? null,
         createdAt: row.created_at,
+        ipAddress: row.ip_address ?? null,
       });
 
       if (row.prev_hash !== expectedPrev || row.entry_hash !== recomputed) {

@@ -7,6 +7,19 @@ const HEALTHCHECK_REQUEST = {
   method: 'getNetwork',
 };
 
+// Running totals of RPC probe latency, exported to /metrics as a summary.
+const latencyStats = { sumMs: 0, count: 0 };
+
+/** @returns {{ sumMs: number, count: number }} */
+export function getRpcLatencyStats() {
+  return { ...latencyStats };
+}
+
+function recordLatency(durationMs) {
+  latencyStats.sumMs += durationMs;
+  latencyStats.count += 1;
+}
+
 /**
  * @param {{ rpcUrl: string, fetchImpl?: typeof fetch }} params
  */
@@ -36,6 +49,7 @@ export async function checkSorobanRpcHealth({ rpcUrl, fetchImpl = globalThis.fet
 
     const payload = await response.json().catch(() => null);
     const durationMs = Date.now() - startedAt;
+    recordLatency(durationMs);
 
     if (!response.ok) {
       const error = payload?.error?.message || `HTTP ${response.status}`;
@@ -67,10 +81,9 @@ export async function checkSorobanRpcHealth({ rpcUrl, fetchImpl = globalThis.fet
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown Soroban RPC error';
-    log.warn(
-      { url: rpcUrl, durationMs: Date.now() - startedAt, error: message },
-      'rpc:request_failed',
-    );
+    const durationMs = Date.now() - startedAt;
+    recordLatency(durationMs);
+    log.warn({ url: rpcUrl, durationMs, error: message }, 'rpc:request_failed');
     return {
       status: 'error',
       url: rpcUrl,

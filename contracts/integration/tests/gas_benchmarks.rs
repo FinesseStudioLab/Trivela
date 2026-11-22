@@ -1,0 +1,410 @@
+//! Gas consumption regression benchmarks for the Trivela Soroban contracts (#1327).
+//!
+//! Every benchmarked entrypoint is invoked once as a top-level call and the
+//! resources metered by the host for that invocation (CPU instructions, memory
+//! bytes, ledger reads/writes) are compared against the committed baseline in
+//! `contracts/integration/gas_baseline.txt` (written automatically on the first
+//! run when absent).
+//!
+//! The test fails when a metric grows beyond the allowed tolerance, so a gas
+//! regression is caught in CI (`cargo test --package integration`) before it
+//! ships. Improvements never fail the test; refresh the baseline to lock them in.
+//!
+//! Usage:
+//!   cargo test -p integration --test gas_benchmarks -- --nocapture
+//!   GAS_BASELINE_UPDATE=1 cargo test -p integration --test gas_benchmarks
+//!   GAS_TOLERANCE_PCT=5 cargo test -p integration --test gas_benchmarks
+//!
+//! Note: contracts are registered natively (not as Wasm), so the figures cover
+//! host-function work only and exclude VM instantiation. They are a stable
+//! relative signal for regressions, not an absolute on-chain fee quote.
+
+use soroban_sdk::testutils::Address as _;
+use soroban_sdk::{symbol_short, Address, BytesN, Env, Vec as SdkVec};
+use std::collections::BTreeMap;
+use std::fmt::Write as _;
+use std::path::PathBuf;
+use trivela_campaign_contract::{CampaignContract, CampaignContractClient};
+use trivela_rewards_contract::{RewardsContract, RewardsContractClient};
+
+/// Default allowed growth per metric before the benchmark is treated as a regression.
+const DEFAULT_TOLERANCE_PCT: u64 = 10;
+/// Recipients used for the batch credit benchmark.
+const BATCH_SIZE: usize = 10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct GasSample {
+    cpu_instructions: u64,
+    mem_bytes: u64,
+    read_entries: u32,
+    write_entries: u32,
+}
+
+impl GasSample {
+    /// Captures the resources metered for the most recent top-level invocation.
+    fn last_invocation(env: &Env) -> Self {
+        let res = env.cost_estimate().resources();
+        Self {
+            cpu_instructions: u64::try_from(res.instructions).expect("negative cpu instructions"),
+            mem_bytes: u64::try_from(res.mem_bytes).expect("negative mem bytes"),
+            read_entries: res.memory_read_entries + res.disk_read_entries,
+            write_entries: res.write_entries,
+        }
+    }
+}
+
+/// Ordered list of `(operation, sample)` pairs gathered during a benchmark run.
+#[derive(Default)]
+struct Report {
+    samples: Vec<(&'static str, GasSample)>,
+}
+
+impl Report {
+    fn record(&mut self, env: &Env, op: &'static str) {
+        assert!(
+            !self.samples.iter().any(|(name, _)| *name == op),
+            "duplicate benchmark operation `{op}`"
+        );
+        self.samples.push((op, GasSample::last_invocation(env)));
+    }
+}
+
+fn baseline_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("gas_baseline.txt")
+}
+
+fn tolerance_pct() -> u64 {
+    match std::env::var("GAS_TOLERANCE_PCT") {
+        Ok(raw) => raw.trim().parse().unwrap_or_else(|_| {
+            panic!("GAS_TOLERANCE_PCT must be a non-negative integer, got `{raw}`")
+        }),
+        Err(_) => DEFAULT_TOLERANCE_PCT,
+    }
+}
+
+fn update_requested() -> bool {
+    matches!(
+        std::env::var("GAS_BASELINE_UPDATE").as_deref(),
+        Ok("1") | Ok("true")
+    )
+}
+
+/// Parses the whitespace-separated baseline format written by [`render_baseline`].
+fn parse_baseline(text: &str) -> BTreeMap<String, GasSample> {
+    let mut out = BTreeMap::new();
+    for (lineno, line) in text.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let cols: Vec<&str> = line.split_whitespace().collect();
+        assert_eq!(
+            cols.len(),
+            5,
+            "gas_baseline.txt:{}: expected `op cpu mem reads writes`, got `{line}`",
+            lineno + 1
+        );
+        let num = |i: usize| -> u64 {
+            cols[i].parse().unwrap_or_else(|_| {
+                panic!(
+                    "gas_baseline.txt:{}: invalid number `{}`",
+                    lineno + 1,
+                    cols[i]
+                )
+            })
+        };
+        let sample = GasSample {
+            cpu_instructions: num(1),
+            mem_bytes: num(2),
+            read_entries: u32::try_from(num(3)).expect("read entries overflow"),
+            write_entries: u32::try_from(num(4)).expect("write entries overflow"),
+        };
+        assert!(
+            out.insert(cols[0].to_string(), sample).is_none(),
+            "gas_baseline.txt:{}: duplicate operation `{}`",
+            lineno + 1,
+            cols[0]
+        );
+    }
+    out
+}
+
+fn render_baseline(report: &Report) -> String {
+    let mut out = String::from(
+        "# Soroban gas regression baseline (#1327). Generated by:\n\
+         #   GAS_BASELINE_UPDATE=1 cargo test -p integration --test gas_benchmarks\n\
+         # operation cpu_instructions mem_bytes read_entries write_entries\n",
+    );
+    for (op, s) in &report.samples {
+        writeln!(
+            out,
+            "{op} {} {} {} {}",
+            s.cpu_instructions, s.mem_bytes, s.read_entries, s.write_entries
+        )
+        .unwrap();
+    }
+    out
+}
+
+/// Returns true when `measured` exceeds `baseline` by more than `tolerance_pct` percent.
+fn exceeds(measured: u64, baseline: u64, tolerance_pct: u64) -> bool {
+    let allowed = baseline.saturating_mul(100 + tolerance_pct) / 100;
+    measured > allowed
+}
+
+fn pct_delta(measured: u64, baseline: u64) -> f64 {
+    if baseline == 0 {
+        return if measured == 0 { 0.0 } else { f64::INFINITY };
+    }
+    (measured as f64 - baseline as f64) * 100.0 / baseline as f64
+}
+
+/// Compares a run against the baseline and returns a human-readable list of regressions.
+fn find_regressions(
+    report: &Report,
+    baseline: &BTreeMap<String, GasSample>,
+    tolerance_pct: u64,
+) -> Vec<String> {
+    let mut failures = Vec::new();
+    for (op, s) in &report.samples {
+        let Some(base) = baseline.get(*op) else {
+            failures.push(format!(
+                "{op}: missing from baseline (run with GAS_BASELINE_UPDATE=1)"
+            ));
+            continue;
+        };
+        let metrics = [
+            (
+                "cpu_instructions",
+                s.cpu_instructions,
+                base.cpu_instructions,
+                tolerance_pct,
+            ),
+            ("mem_bytes", s.mem_bytes, base.mem_bytes, tolerance_pct),
+            // Ledger entry counts are discrete; any increase is a storage-layout change.
+            (
+                "read_entries",
+                s.read_entries.into(),
+                base.read_entries.into(),
+                0,
+            ),
+            (
+                "write_entries",
+                s.write_entries.into(),
+                base.write_entries.into(),
+                0,
+            ),
+        ];
+        for (metric, measured, expected, tol) in metrics {
+            if exceeds(measured, expected, tol) {
+                failures.push(format!(
+                    "{op}.{metric}: {measured} vs baseline {expected} ({:+.2}%, tolerance {tol}%)",
+                    pct_delta(measured, expected)
+                ));
+            }
+        }
+    }
+    let measured: Vec<&str> = report.samples.iter().map(|(op, _)| *op).collect();
+    for op in baseline.keys() {
+        if !measured.contains(&op.as_str()) {
+            failures.push(format!(
+                "{op}: in baseline but no longer benchmarked (refresh the baseline)"
+            ));
+        }
+    }
+    failures
+}
+
+fn print_report(report: &Report, baseline: &BTreeMap<String, GasSample>) {
+    println!(
+        "{:<34} {:>12} {:>9} {:>11} {:>9} {:>6} {:>6}",
+        "operation", "cpu", "Δcpu", "mem", "Δmem", "reads", "writes"
+    );
+    for (op, s) in &report.samples {
+        let (dcpu, dmem) = baseline
+            .get(*op)
+            .map(|b| {
+                (
+                    format!("{:+.2}%", pct_delta(s.cpu_instructions, b.cpu_instructions)),
+                    format!("{:+.2}%", pct_delta(s.mem_bytes, b.mem_bytes)),
+                )
+            })
+            .unwrap_or_else(|| ("new".into(), "new".into()));
+        println!(
+            "{:<34} {:>12} {:>9} {:>11} {:>9} {:>6} {:>6}",
+            op, s.cpu_instructions, dcpu, s.mem_bytes, dmem, s.read_entries, s.write_entries
+        );
+    }
+}
+
+fn empty_proof(env: &Env) -> (BytesN<32>, SdkVec<BytesN<32>>) {
+    (BytesN::from_array(env, &[0u8; 32]), SdkVec::new(env))
+}
+
+/// Invokes each benchmarked entrypoint as its own top-level call and records its cost.
+fn run_benchmarks() -> Report {
+    let env = Env::default();
+    env.mock_all_auths();
+    let mut report = Report::default();
+
+    let campaign_id = env.register_contract(None, CampaignContract);
+    let campaign = CampaignContractClient::new(&env, &campaign_id);
+    let rewards_id = env.register_contract(None, RewardsContract);
+    let rewards = RewardsContractClient::new(&env, &rewards_id);
+
+    let admin = Address::generate(&env);
+    let alice = Address::generate(&env);
+    let bob = Address::generate(&env);
+    let (leaf, proof) = empty_proof(&env);
+
+    // ── Campaign ────────────────────────────────────────────────────────────
+    campaign.initialize(&admin);
+    report.record(&env, "campaign.initialize");
+
+    assert!(campaign.register(&alice, &leaf, &proof, &None, &None));
+    report.record(&env, "campaign.register.first");
+
+    assert!(campaign.register(&bob, &leaf, &proof, &None, &None));
+    report.record(&env, "campaign.register.subsequent");
+
+    assert!(campaign.is_participant(&alice));
+    report.record(&env, "campaign.is_participant");
+
+    assert_eq!(campaign.get_participant_count(), 2);
+    report.record(&env, "campaign.get_participant_count");
+
+    assert!(campaign.deregister(&bob));
+    report.record(&env, "campaign.deregister");
+
+    // ── Rewards ─────────────────────────────────────────────────────────────
+    rewards.initialize(&admin, &symbol_short!("Trivela"), &symbol_short!("TVL"));
+    report.record(&env, "rewards.initialize");
+
+    rewards.credit(&admin, &alice, &1_000u64);
+    report.record(&env, "rewards.credit.new_balance");
+
+    rewards.credit(&admin, &alice, &500u64);
+    report.record(&env, "rewards.credit.existing_balance");
+
+    assert_eq!(rewards.balance(&alice), 1_500);
+    report.record(&env, "rewards.balance");
+
+    rewards.claim(&alice, &400u64);
+    report.record(&env, "rewards.claim");
+
+    assert_eq!(rewards.total_claimed(), 400);
+    report.record(&env, "rewards.total_claimed");
+
+    let mut recipients = SdkVec::new(&env);
+    for _ in 0..BATCH_SIZE {
+        recipients.push_back((Address::generate(&env), 10u64));
+    }
+    rewards.batch_credit(&admin, &recipients);
+    report.record(&env, "rewards.batch_credit.10");
+
+    report
+}
+
+#[test]
+fn gas_regression_against_baseline() {
+    let report = run_benchmarks();
+    let path = baseline_path();
+
+    // Bootstrap: with no committed baseline yet, record one so it can be reviewed and committed.
+    if update_requested() || !path.exists() {
+        std::fs::write(&path, render_baseline(&report))
+            .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
+        print_report(&report, &BTreeMap::new());
+        println!(
+            "gas baseline written: {} (commit this file)",
+            path.display()
+        );
+        return;
+    }
+
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|e| panic!("failed to read gas baseline {}: {e}", path.display()));
+    let baseline = parse_baseline(&text);
+    print_report(&report, &baseline);
+
+    let tolerance = tolerance_pct();
+    let failures = find_regressions(&report, &baseline, tolerance);
+    assert!(
+        failures.is_empty(),
+        "Soroban gas regression detected (tolerance {tolerance}%):\n  {}\n\
+         If the increase is intentional, refresh the baseline with \
+         GAS_BASELINE_UPDATE=1 and justify it in the PR.",
+        failures.join("\n  ")
+    );
+}
+
+/// Metering must be deterministic, otherwise the baseline comparison is meaningless.
+#[test]
+fn gas_measurements_are_deterministic() {
+    let first = run_benchmarks();
+    let second = run_benchmarks();
+    assert_eq!(first.samples, second.samples);
+}
+
+#[test]
+fn baseline_roundtrips_through_parser() {
+    let report = run_benchmarks();
+    let parsed = parse_baseline(&render_baseline(&report));
+    assert_eq!(parsed.len(), report.samples.len());
+    for (op, s) in &report.samples {
+        assert_eq!(parsed.get(*op), Some(s));
+    }
+    assert!(find_regressions(&report, &parsed, 0).is_empty());
+}
+
+#[test]
+fn regression_detection_flags_growth_beyond_tolerance() {
+    let report = Report {
+        samples: vec![(
+            "op",
+            GasSample {
+                cpu_instructions: 1_100,
+                mem_bytes: 2_000,
+                read_entries: 2,
+                write_entries: 1,
+            },
+        )],
+    };
+    let mut baseline = BTreeMap::new();
+    baseline.insert(
+        "op".to_string(),
+        GasSample {
+            cpu_instructions: 1_000,
+            mem_bytes: 2_000,
+            read_entries: 2,
+            write_entries: 1,
+        },
+    );
+
+    // +10% cpu is within a 10% tolerance but not within 5%.
+    assert!(find_regressions(&report, &baseline, 10).is_empty());
+    let failures = find_regressions(&report, &baseline, 5);
+    assert_eq!(failures.len(), 1);
+    assert!(failures[0].starts_with("op.cpu_instructions"));
+
+    // Any extra ledger write is a regression regardless of tolerance.
+    baseline.get_mut("op").unwrap().write_entries = 0;
+    assert!(find_regressions(&report, &baseline, 100)
+        .iter()
+        .any(|f| f.starts_with("op.write_entries")));
+
+    // Stale and missing operations are both reported.
+    baseline.insert("removed".to_string(), baseline["op"]);
+    baseline.remove("op");
+    let failures = find_regressions(&report, &baseline, 100);
+    assert!(failures.iter().any(|f| f.starts_with("op: missing")));
+    assert!(failures
+        .iter()
+        .any(|f| f.starts_with("removed: in baseline")));
+}
+
+#[test]
+#[should_panic(expected = "expected `op cpu mem reads writes`")]
+fn malformed_baseline_is_rejected() {
+    parse_baseline("rewards.claim 100 200\n");
+}

@@ -1,0 +1,17 @@
+# Pinned toolchain for reproducible WASM builds (issue #775).
+#
+# contracts-ci.yml previously used `dtolnay/rust-toolchain@stable`, a
+# floating channel — two CI runs on different days can silently pick up
+# different rustc releases, which is incompatible with "anyone can rebuild
+# from a tag and get the published hash." Pinning an exact version here
+# makes every `cargo build` in this repo (CI or local) use the same
+# compiler, which `scripts/reproducible-build.sh` depends on to produce a
+# stable hash.
+#
+# Bump deliberately, not automatically: raising this version changes every
+# contract's build hash, so it should be a reviewed, intentional change tied
+# to a new release tag — not something that drifts on its own the way
+# `@stable` did.
+[toolchain]
+channel = "1.87.0"
+targets = ["wasm32v1-none"]

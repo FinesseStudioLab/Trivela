@@ -98,3 +98,53 @@ test('api key repository rotate inherits the original rate tier', async () => {
   const rotated = repository.rotate(created.key.id);
   assert.equal(rotated.key.rateTier, 'pro');
 });
+
+// ── Monthly usage tracking (#759) ────────────────────────────────────────────
+
+test('api key repository getMonthlyUsage starts at 0 for a fresh key', async () => {
+  const repository = await setupRepository();
+  const created = repository.create({ label: 'usage-fresh' });
+  assert.equal(repository.getMonthlyUsage(created.key.id), 0);
+});
+
+test('api key repository incrementMonthlyUsage increments and returns the running total', async () => {
+  const repository = await setupRepository();
+  const created = repository.create({ label: 'usage-inc' });
+
+  assert.equal(repository.incrementMonthlyUsage(created.key.id), 1);
+  assert.equal(repository.incrementMonthlyUsage(created.key.id), 2);
+  assert.equal(repository.incrementMonthlyUsage(created.key.id), 3);
+  assert.equal(repository.getMonthlyUsage(created.key.id), 3);
+});
+
+test('api key repository tracks usage independently per key', async () => {
+  const repository = await setupRepository();
+  const keyA = repository.create({ label: 'usage-a' });
+  const keyB = repository.create({ label: 'usage-b' });
+
+  repository.incrementMonthlyUsage(keyA.key.id);
+  repository.incrementMonthlyUsage(keyA.key.id);
+  repository.incrementMonthlyUsage(keyB.key.id);
+
+  assert.equal(repository.getMonthlyUsage(keyA.key.id), 2);
+  assert.equal(repository.getMonthlyUsage(keyB.key.id), 1);
+});
+
+test('api key repository tracks usage independently per calendar month (UTC)', async () => {
+  const repository = await setupRepository();
+  const created = repository.create({ label: 'usage-monthly' });
+
+  const january = new Date(Date.UTC(2026, 0, 15));
+  const february = new Date(Date.UTC(2026, 1, 1));
+
+  repository.incrementMonthlyUsage(created.key.id, january);
+  repository.incrementMonthlyUsage(created.key.id, january);
+  assert.equal(repository.getMonthlyUsage(created.key.id, january), 2);
+
+  // A new UTC month starts its own bucket at 0, not carrying January's count.
+  assert.equal(repository.getMonthlyUsage(created.key.id, february), 0);
+  repository.incrementMonthlyUsage(created.key.id, february);
+  assert.equal(repository.getMonthlyUsage(created.key.id, february), 1);
+  // January's count is untouched by February's activity.
+  assert.equal(repository.getMonthlyUsage(created.key.id, january), 2);
+});

@@ -1,0 +1,191 @@
+name: Reproducible WASM Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  reproducible-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        build-run: [1, 2]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust toolchain (pinned)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.75.0
+          targets: wasm32-unknown-unknown
+      
+      - name: Install Soroban CLI (pinned version)
+        run: |
+          cargo install --locked --version 21.0.0 soroban-cli
+      
+      - name: Build WASM with deterministic flags
+        run: |
+          cd contracts/campaign
+          cargo clean
+          RUSTFLAGS="-C link-arg=-s -C opt-level=z -C lto=fat -C embed-bitcode=yes" \
+          cargo build --target wasm32-unknown-unknown --release --locked
+          
+          # Optimize with soroban
+          soroban contract optimize \
+            --wasm target/wasm32-unknown-unknown/release/trivela_campaign.wasm \
+            --wasm-out campaign-optimized.wasm
+      
+      - name: Compute hash
+        run: |
+          cd contracts/campaign
+          sha256sum campaign-optimized.wasm > campaign-wasm-${{ matrix.build-run }}.sha256
+          echo "Build ${{ matrix.build-run }} hash:"
+          cat campaign-wasm-${{ matrix.build-run }}.sha256
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-build-${{ matrix.build-run }}
+          path: |
+            contracts/campaign/campaign-optimized.wasm
+            contracts/campaign/campaign-wasm-${{ matrix.build-run }}.sha256
+  
+  verify-reproducibility:
+    needs: reproducible-build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Download build 1
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-build-1
+          path: build1
+      
+      - name: Download build 2
+        uses: actions/download-artifact@v4
+        with:
+          name: wasm-build-2
+          path: build2
+      
+      - name: Compare hashes
+        run: |
+          echo "Build 1 hash:"
+          cat build1/campaign-wasm-1.sha256
+          echo "Build 2 hash:"
+          cat build2/campaign-wasm-2.sha256
+          
+          HASH1=$(cut -d' ' -f1 build1/campaign-wasm-1.sha256)
+          HASH2=$(cut -d' ' -f1 build2/campaign-wasm-2.sha256)
+          
+          if [ "$HASH1" = "$HASH2" ]; then
+            echo "✅ Builds are reproducible! Hash: $HASH1"
+          else
+            echo "❌ Builds differ!"
+            echo "Build 1: $HASH1"
+            echo "Build 2: $HASH2"
+            exit 1
+          fi
+      
+      - name: Generate provenance attestation
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          HASH=$(cut -d' ' -f1 build1/campaign-wasm-1.sha256)
+          TAG=${GITHUB_REF#refs/tags/}
+          
+          cat > provenance.json <<EOF
+          {
+            "version": "1.0",
+            "type": "https://trivela.io/provenance/wasm/v1",
+            "subject": {
+              "name": "trivela_campaign.wasm",
+              "digest": {
+                "sha256": "$HASH"
+              }
+            },
+            "predicateType": "https://slsa.dev/provenance/v1.0",
+            "predicate": {
+              "buildDefinition": {
+                "buildType": "https://github.com/FinesseStudioLab/Trivela/reproducible-wasm-build/v1",
+                "externalParameters": {
+                  "repository": "${{ github.repository }}",
+                  "ref": "$TAG",
+                  "commit": "${{ github.sha }}"
+                },
+                "internalParameters": {
+                  "rustToolchain": "1.75.0",
+                  "sorobanCli": "21.0.0",
+                  "target": "wasm32-unknown-unknown",
+                  "rustflags": "-C link-arg=-s -C opt-level=z -C lto=fat -C embed-bitcode=yes"
+                }
+              },
+              "runDetails": {
+                "builder": {
+                  "id": "https://github.com/actions/runner"
+                },
+                "metadata": {
+                  "invocationId": "${{ github.run_id }}",
+                  "startedOn": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                }
+              }
+            }
+          }
+          EOF
+          
+          echo "Generated provenance attestation:"
+          cat provenance.json
+      
+      - name: Upload provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-provenance
+          path: provenance.json
+      
+      - name: Create release with provenance
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build1/campaign-optimized.wasm
+            build1/campaign-wasm-1.sha256
+            provenance.json
+          body: |
+            ## Reproducible WASM Build
+            
+            **SHA256:** `$(cut -d' ' -f1 build1/campaign-wasm-1.sha256)`
+            
+            This WASM binary is reproducibly built with:
+            - Rust toolchain: 1.75.0
+            - Soroban CLI: 21.0.0
+            - Target: wasm32-unknown-unknown
+            
+            To verify:
+            ```bash
+            # Clone repo at this tag
+            git clone --branch ${{ github.ref_name }} https://github.com/${{ github.repository }}
+            cd Trivela/contracts/campaign
+            
+            # Install toolchain
+            rustup toolchain install 1.75.0
+            rustup target add wasm32-unknown-unknown --toolchain 1.75.0
+            cargo install --locked --version 21.0.0 soroban-cli
+            
+            # Build
+            cargo clean
+            RUSTFLAGS="-C link-arg=-s -C opt-level=z -C lto=fat -C embed-bitcode=yes" \
+            cargo +1.75.0 build --target wasm32-unknown-unknown --release --locked
+            soroban contract optimize \
+              --wasm target/wasm32-unknown-unknown/release/trivela_campaign.wasm \
+              --wasm-out campaign-optimized.wasm
+            
+            # Compare hash
+            sha256sum campaign-optimized.wasm
+            ```
+            
+            See `provenance.json` for full SLSA provenance attestation.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

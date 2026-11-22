@@ -1,6 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { RECOVERY_ACTION, RECOVERY_ACTION_META } from '../lib/errorMapping';
 import { useTransactionRecovery } from '../hooks/useTransactionRecovery';
+import { useTransactionStatus } from '../hooks/useTransactionStatus';
+import { playSuccessChime } from '../lib/successChime';
 import './TransactionStatus.css';
 
 const VARIANT_ICON = { success: '✓', pending: '⏳', error: '✕' };
@@ -36,8 +38,47 @@ export default function TransactionStatus({
   onRetry,
   onSwitchWallet,
   onTopUp,
+  pollOnPending = false,
+  onTerminal,
 }) {
+  const [internalVariant, setInternalVariant] = useState(variant);
+  const [internalStatus, setInternalStatus] = useState(status);
   const [copied, setCopied] = useState(false);
+  const chimedHashRef = useRef(null);
+
+  useEffect(() => {
+    setInternalVariant(variant);
+  }, [variant]);
+
+  useEffect(() => {
+    setInternalStatus(status);
+  }, [status]);
+
+  useTransactionStatus({
+    hash,
+    enabled: Boolean(pollOnPending && hash && internalVariant === 'pending'),
+    onTerminal: (terminalStatus) => {
+      if (['confirmed', 'success', 'SUCCESS'].includes(terminalStatus)) {
+        setInternalVariant('success');
+        setInternalStatus('Transaction confirmed');
+      } else if (['failed', 'error', 'FAILED'].includes(terminalStatus)) {
+        setInternalVariant('error');
+        setInternalStatus('Transaction failed');
+      }
+      onTerminal?.(terminalStatus);
+    },
+  });
+
+  const activeVariant = internalVariant;
+  const activeStatus = internalStatus;
+
+  // Optional audio cue (#1234) when a transaction turns green. Plays once per
+  // hash and only if the user opted in from Notification settings.
+  useEffect(() => {
+    if (activeVariant !== 'success' || !hash || chimedHashRef.current === hash) return;
+    chimedHashRef.current = hash;
+    playSuccessChime();
+  }, [activeVariant, hash]);
 
   const { handlers, getExplorerUrl, getReportUrl } = useTransactionRecovery({
     onRetry,
@@ -49,8 +90,8 @@ export default function TransactionStatus({
 
   const shortenedHash = hash ? `${hash.substring(0, 8)}...${hash.substring(hash.length - 8)}` : '';
   const explorerUrl = hash ? getExplorerUrl(hash) : null;
-  const label = status ?? VARIANT_DEFAULT_LABEL[variant] ?? VARIANT_DEFAULT_LABEL.success;
-  const isError = variant === 'error';
+  const label = activeStatus ?? VARIANT_DEFAULT_LABEL[activeVariant] ?? VARIANT_DEFAULT_LABEL.success;
+  const isError = activeVariant === 'error';
 
   // Recovery actions to render, sourced from the structured mapped error.
   const recoveryActions =
@@ -68,17 +109,17 @@ export default function TransactionStatus({
 
   // Backward compatible: with no hash the card only renders for non-success
   // (pending/error) lifecycle states.
-  if (!hash && variant === 'success') return null;
+  if (!hash && activeVariant === 'success') return null;
 
   return (
     <div
-      className={`tx-status tx-status--${variant}`}
+      className={`tx-status tx-status--${activeVariant}`}
       role={isError ? 'alert' : 'status'}
       aria-live={isError ? 'assertive' : 'polite'}
     >
       <div className="tx-status-header">
         <span className="tx-status-icon" aria-hidden="true">
-          {VARIANT_ICON[variant] ?? VARIANT_ICON.success}
+          {VARIANT_ICON[activeVariant] ?? VARIANT_ICON.success}
         </span>
         <span className="tx-status-label">{label}</span>
       </div>

@@ -1,0 +1,224 @@
+name: Image Signing & SBOM Generation
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-sign-sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+        with:
+          cosign-release: 'v2.2.2'
+
+      - name: Install syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@v0.15.8
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build and push image
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+      - name: Generate SBOM with syft
+        if: github.event_name != 'pull_request'
+        run: |
+          syft ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }} \
+            -o cyclonedx-json=sbom.json \
+            -o spdx-json=sbom-spdx.json
+          
+          echo "Generated SBOM files:"
+          ls -lh sbom*.json
+
+      - name: Sign container image with cosign
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          IMAGE_DIGEST="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          
+          # Sign the image (keyless signing with OIDC)
+          cosign sign --yes "${IMAGE_DIGEST}"
+          
+          # Attach SBOM attestation
+          cosign attest --yes --type cyclonedx \
+            --predicate sbom.json \
+            "${IMAGE_DIGEST}"
+          
+          echo "✅ Image signed and SBOM attached"
+          echo "Image: ${IMAGE_DIGEST}"
+
+      - name: Verify signature
+        if: github.event_name != 'pull_request'
+        env:
+          COSIGN_EXPERIMENTAL: "true"
+        run: |
+          IMAGE_DIGEST="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          
+          # Verify signature
+          cosign verify "${IMAGE_DIGEST}" \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+          
+          # Verify attestation
+          cosign verify-attestation "${IMAGE_DIGEST}" \
+            --type cyclonedx \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+          
+          echo "✅ Signature and attestation verified"
+
+      - name: Upload SBOM artifacts
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ github.sha }}
+          path: |
+            sbom.json
+            sbom-spdx.json
+          retention-days: 90
+
+      - name: Create verification documentation
+        if: github.event_name != 'pull_request'
+        run: |
+          cat > IMAGE_VERIFICATION.md <<'EOF'
+          # Image Verification Guide
+          
+          ## Verifying Signed Container Images
+          
+          All container images published from this repository are signed using cosign with keyless signing.
+          
+          ### Prerequisites
+          
+          ```bash
+          # Install cosign
+          brew install cosign  # macOS
+          # or
+          curl -O -L "https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64"
+          sudo mv cosign-linux-amd64 /usr/local/bin/cosign
+          sudo chmod +x /usr/local/bin/cosign
+          ```
+          
+          ### Verify Image Signature
+          
+          ```bash
+          export IMAGE="ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}"
+          
+          cosign verify "${IMAGE}" \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+          ```
+          
+          ### Verify SBOM Attestation
+          
+          ```bash
+          cosign verify-attestation "${IMAGE}" \
+            --type cyclonedx \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
+            | jq -r '.payload' | base64 -d | jq .
+          ```
+          
+          ### Download SBOM
+          
+          ```bash
+          # Download from GitHub artifacts or extract from attestation
+          cosign download attestation "${IMAGE}" | jq -r '.payload' | base64 -d | jq '.predicate' > sbom.json
+          ```
+          
+          ## What Gets Signed
+          
+          - Container image digest (immutable reference)
+          - SBOM (Software Bill of Materials) in CycloneDX and SPDX formats
+          - Build provenance (who built it, when, from which commit)
+          
+          ## Security Properties
+          
+          - **Keyless signing**: No long-lived keys to manage or leak
+          - **OIDC-based**: Identity tied to GitHub Actions workflow
+          - **Transparency log**: All signatures recorded in Sigstore's Rekor transparency log
+          - **Immutable**: Signed by digest, not tag (tags can be moved)
+          
+          ## Troubleshooting
+          
+          **Error: "no matching signatures"**
+          - Ensure you're using the digest (@sha256:...), not a tag
+          - Check the certificate identity matches the repository
+          
+          **Error: "OIDC issuer mismatch"**
+          - Verify the issuer URL exactly matches GitHub Actions
+          
+          For more help, see: https://docs.sigstore.dev/cosign/verify/
+          EOF
+          
+          echo "Created IMAGE_VERIFICATION.md"
+
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<'EOF'
+          ## 🔐 Image Signing & SBOM Generation Complete
+          
+          **Image:** `ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }}`
+          
+          ### ✅ What was done:
+          - Image built and pushed to GitHub Container Registry
+          - Image signed with cosign (keyless)
+          - SBOM generated in CycloneDX and SPDX formats
+          - SBOM attached as attestation
+          - Signature and attestation verified
+          
+          ### 📦 Artifacts:
+          - **SBOM (CycloneDX):** `sbom.json`
+          - **SBOM (SPDX):** `sbom-spdx.json`
+          - **Verification Guide:** `IMAGE_VERIFICATION.md`
+          
+          ### 🔍 Verify locally:
+          ```bash
+          cosign verify ghcr.io/${{ github.repository }}@${{ steps.build.outputs.digest }} \
+            --certificate-identity-regexp="https://github.com/${{ github.repository }}" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com"
+          ```
+          EOF

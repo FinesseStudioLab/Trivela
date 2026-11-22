@@ -84,4 +84,42 @@ describe('CampaignFilters', () => {
     fireEvent.change(sortSelect, { target: { value: 'reward_desc' } });
     expect(onSortKeyChange).toHaveBeenCalledWith('reward_desc');
   });
+
+  it('supports full keyboard navigation (arrow keys, Enter, Escape) and ARIA attributes', () => {
+    const onSortKeyChange = vi.fn();
+
+    render(
+      <CampaignFilters
+        query=""
+        activeOnly={false}
+        sortKey="newest"
+        onSortKeyChange={onSortKeyChange}
+      />,
+    );
+
+    const trigger = screen.getByRole('combobox');
+    expect(trigger).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    // ArrowDown opens dropdown and highlights first option
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('listbox')).toBeInTheDocument();
+
+    // ArrowDown moves down to second option ("oldest")
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+
+    // Enter selects the option
+    fireEvent.keyDown(trigger, { key: 'Enter' });
+    expect(onSortKeyChange).toHaveBeenCalledWith('oldest');
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    // Space opens the dropdown
+    fireEvent.keyDown(trigger, { key: ' ' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+    // Escape closes without selecting
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  });
 });

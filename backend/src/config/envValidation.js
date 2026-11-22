@@ -111,6 +111,14 @@ export function validateBackendEnv(env = process.env) {
     errors.push('DB_PATH must be a string path');
   }
 
+  if (env.JWT_SECRET && typeof env.JWT_SECRET !== 'string') {
+    errors.push('JWT_SECRET must be a string');
+  }
+
+  if (env.LOKI_ENDPOINT && typeof env.LOKI_ENDPOINT !== 'string') {
+    errors.push('LOKI_ENDPOINT must be a valid URL');
+  }
+
   if (errors.length > 0) {
     const message = [
       'Invalid environment configuration:',

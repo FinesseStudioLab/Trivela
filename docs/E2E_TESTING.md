@@ -242,6 +242,23 @@ jobs:
           retention-days: 7
 ```
 
+### Production Build E2E (#1487)
+
+E2E tests now include `frontend/e2e/` specs alongside `frontend/tests/e2e/` and run against
+`vite preview` (the production build), catching bugs that only appear in the optimized bundle.
+
+The `e2e-prod-build` job in `.github/workflows/frontend-ci.yml` builds the frontend, starts
+`vite preview`, and runs Playwright against the production output. This job is required and
+blocks merges to `main`.
+
+To run locally against the production build:
+
+```bash
+cd frontend
+npm run build
+npx playwright test --project=chromium
+```
+
 ## Debugging Tests
 
 ### View Test Report

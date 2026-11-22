@@ -14,7 +14,7 @@ contributors.
 
 ---
 
-## � Table of Contents.
+## � Table of Contents
 
 - [�🚀 Live Deployment](#live-deployment)
 - [📖 Overview](#overview)
@@ -107,6 +107,20 @@ Trivela/
 ---
 
 ## 🔧 Architecture
+
+```mermaid
+flowchart TB
+    U[User Wallet / Browser] --> F[Frontend<br/>React + Vite]
+    F -->|REST /api/v1| B[Backend<br/>Express API]
+    F -->|Soroban RPC| R[(Soroban RPC)]
+    B -->|Health + config| R
+    R --> C1[Rewards Contract<br/>points · credits · claims]
+    R --> C2[Campaign Contract<br/>registration · attribution]
+    B --> D[(Campaign DB)]
+    B --> I[Event Indexer]
+    R -->|events| I
+    I --> D
+```
 
 For detailed system architecture documentation:
 
@@ -283,6 +297,19 @@ cp backend/.env.example backend/.env
 npm run dev:backend
 ```
 
+API: http://localhost:3001 (health: http://localhost:3001/health, v1 endpoints: http://localhost:3001/api/v1).
+
+#### API Endpoints & Versioning
+
+All API routes are served under the versioned `/api/v1/` prefix:
+- `GET /api/v1/` — API metadata and version information
+- `GET /api/v1/campaigns` — List all campaigns
+- `GET /api/v1/campaigns/:id` — Get campaign details by ID
+- `POST /api/v1/campaigns` — Create a new campaign (requires API key)
+- `PUT /api/v1/campaigns/:id` — Update a campaign (requires API key)
+- `DELETE /api/v1/campaigns/:id` — Delete a campaign (requires API key)
+
+> **Migration Note**: Legacy `/api/*` endpoints remain supported for backward compatibility, but developers are encouraged to use `/api/v1/*` for all new integrations.
 #### Backend Endpoints
 
 | Service    | URL                          |
@@ -489,7 +516,7 @@ We welcome contributions, especially from the Stellar and Drip community.
 | **Open Issues** | [GitHub Issues](https://github.com/FinesseStudioLab/Trivela/issues) |
 | **Governance**  | [GOVERNANCE.md](docs/GOVERNANCE.md)                                 |
 
-> Check the open issues for labeled tasks: backend, frontend, smart-contract, good first issue, etc.
+> Check the open issues for labeled tasks: backend, frontend, smart-contract, good-first issue, etc.
 
 ---
 

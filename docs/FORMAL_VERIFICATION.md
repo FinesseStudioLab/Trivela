@@ -9,6 +9,7 @@ This document describes the formally verified invariants for the Trivela Soroban
 | Contract | Tool     | Invariants                     | Status      |
 | -------- | -------- | ------------------------------ | ----------- |
 | Rewards  | Kani     | 4 arithmetic safety properties | ✅ Verified |
+| Rewards  | Z3 (SMT) | Supply/balance conservation (#1317) | ✅ Proved for credit, batch_credit, claim, admin_transfer |
 | Rewards  | proptest | 7 behavioral invariants        | ✅ Passing  |
 | Campaign | proptest | 7 behavioral invariants        | ✅ Passing  |
 
@@ -57,6 +58,82 @@ input ranges (`base_amount <= MAX/2`, `multiplier_bps <= 100,000`).
 
 **Property**: Balance additions using `checked_add` prevent silent wrapping and correctly propagate
 `Error::Overflow`.
+
+## Reward Accounting Invariant (Z3 / SMT) — #1317
+
+Kani above proves the *arithmetic* is safe. This section proves the *accounting*: the points the
+contract has issued and not yet claimed always equal the points users hold.
+
+> **Invariant (I1, #1021):** `TOTAL_SUPPLY = Σ balance(user)` over all users.
+
+Supporting facts used in the proofs: every balance is at most the sum (`x ≤ B`), the sum fits in a
+`u64` (`B ≤ 2^64 − 1`), and `CLAIMED` only grows.
+
+### Method
+
+Each state-changing operation is modelled as an exact transformation of three quantities —
+`S` (`TOTAL_SUPPLY`), `B` (sum of balances) and the balance `x` of the user it touches — over
+unbounded integers constrained to the `u64` range, including the checked arithmetic that makes an
+operation fail (and therefore write nothing) on overflow. Z3 is asked for a counter-example: a
+pre-state satisfying the invariant, in which the operation succeeds, but the post-state violates it.
+`unsat` means no such state exists, so the operation preserves the invariant (inductive step). The
+base case is `initialize`. Together these prove the invariant holds in every reachable state of the
+modelled operations.
+
+Models live in `contracts/rewards/formal/` (SMT-LIB 2, one property per file; the first line declares
+the expected result) and are checked by `scripts/verify-reward-invariants.sh`.
+
+| Model | Operation | Expected | Meaning |
+| ----- | --------- | -------- | ------- |
+| `01_credit_preserves_conservation` | `credit` | unsat | Proved: `S = B` is preserved. |
+| `02_claim_preserves_conservation` | `claim` | unsat | Proved, and the `saturating_sub` on supply **never clamps**. |
+| `03_admin_transfer_preserves_conservation` | `admin_transfer` | unsat | Proved: transfers neither create nor destroy points. |
+| `04_batch_credit_preserves_conservation` | `batch_credit` (fixed) | unsat | Proved for the version that also updates the supply. |
+| `05_batch_credit_without_supply_update_violates_conservation` | `batch_credit` (old) | **sat** | Negative control: the old code breaks `S = B`; Z3 returns the counter-example. |
+| `06_claim_cannot_inflate` | `claim` | unsat | A claim never raises a balance or the supply. |
+| `07_total_claimed_saturation` | `CLAIMED` | **sat** | Informational: `saturating_add` can pin `total_claimed` at `u64::MAX` (unreachable in practice). |
+| `08_initial_state_satisfies_invariant` | `initialize` | unsat | Induction base. |
+
+### What it found
+
+The first run of the model showed that `batch_credit` credited every recipient's balance but never
+touched `TOTAL_SUPPLY` (model 05 is satisfiable — for example one batch of two 1-point credits on an
+empty contract leaves `S = 0`, `B = 2`). The consequences were a wrong `total_supply()`, and a later
+`claim` silently clamping the supply at zero (`saturating_sub`) instead of reducing it. `batch_credit`
+now adds the batch total to `TOTAL_SUPPLY` (checked, and before any write so an overflow stays
+atomic). While fixing it, a second defect showed up: a recipient listed twice in one batch had only
+the *last* amount credited (each entry was staged from the stored balance), which would have made the
+supply and the balances disagree again. Duplicates now accumulate. Regression tests:
+`test_batch_credit_updates_total_supply`, `test_batch_credit_duplicate_recipient_is_credited_in_full`,
+`test_batch_credit_is_atomic_when_total_supply_would_overflow` and
+`test_total_supply_equals_sum_of_balances_across_mixed_operations` in `contracts/rewards/src/test.rs`.
+
+### Scope and limits
+
+- **Modelled:** `credit` (and therefore `credit_for_campaign` / `credit_with_distribution`, which
+  call it), `batch_credit`, `claim`, `admin_transfer`.
+- **Not modelled:** the other balance-changing paths (vesting, staking, redemption, referral and
+  airdrop payouts, burn proposals). They should be added as further models; each one needs the same
+  `S`/`B` bookkeeping argument.
+- The models are hand-written abstractions of the Rust code, not extracted from it, so they must be
+  updated when those functions change. The Rust regression tests and the proptest/Kani checks cover
+  the implementation itself.
+- The proofs assume operations run one at a time and fail atomically, which Soroban guarantees per
+  invocation.
+- The K Framework was not used; Z3 was enough for these linear-arithmetic properties.
+
+### Running
+
+```bash
+brew install z3            # or: sudo apt-get install z3
+./scripts/verify-reward-invariants.sh                # all models
+./scripts/verify-reward-invariants.sh 04_*.smt2      # one model
+z3 contracts/rewards/formal/05_batch_credit_without_supply_update_violates_conservation.smt2   # see the counter-example
+```
+
+The script fails if any model's result differs from its `; expect:` line, so a proof that stops
+holding **and** a negative control that stops finding its counter-example are both caught. CI runs it
+in the `contracts` job of `.github/workflows/contracts-ci.yml`.
 
 ## proptest Behavioral Invariants
 
@@ -121,6 +198,7 @@ The `contracts-ci.yml` workflow includes:
 2. **Kani verification**: Runs on PRs (optional, continue-on-error)
 3. **Negative tests**: Validates harness correctness
 4. **Coverage gate**: ≥60% line coverage for Rust contracts
+5. **Z3 reward invariants**: `scripts/verify-reward-invariants.sh` (#1317)
 
 ## References
 

@@ -95,10 +95,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let mut total_credited = 0u64;
         let mut total_claimed = 0u64;
@@ -161,10 +162,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_max_credit_per_call(&admin, &limit);
 
         let result = client.try_credit(&creditor, &user, &amount);
@@ -193,10 +195,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_credit_rate_limit(&admin, &max_calls, &window_ledgers);
 
         let mut successful_calls = 0u32;
@@ -235,10 +238,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
         client.set_campaign_multiplier(&admin, &campaign_id, &multiplier_bps);
 
         let initial_balance = client.balance(&user);
@@ -275,12 +279,13 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
+        env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         // First credit some balance while unpaused
-        env.mock_all_auths();
         client.credit(&creditor, &user, &1000u64);
 
         // Now pause the contract
@@ -316,6 +321,7 @@ proptest! {
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let end_ledger = start_ledger.saturating_add(duration);
         let now = start_ledger.saturating_add(time_offset);
@@ -361,10 +367,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         // Try to credit a very large amount first
         let result1 = client.try_credit(&creditor, &user, &amount1);
@@ -401,10 +408,11 @@ proptest! {
         use alloc::vec::Vec;
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let users: Vec<Address> = (0..num_users).map(|_| Address::generate(&env)).collect();
 
@@ -466,10 +474,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         client.credit(&creditor, &user, &credit_amount);
         let balance_before = client.balance(&user);
@@ -506,10 +515,11 @@ proptest! {
         use alloc::vec::Vec as StdVec;
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let users: StdVec<Address> = (0..n_users).map(|_| Address::generate(&env)).collect();
         let balances_before: StdVec<u64> = users.iter().map(|u| client.balance(u)).collect();
@@ -566,10 +576,11 @@ proptest! {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
         let user = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
 
         client.initialize(&admin, &symbol_short!("TEST"), &symbol_short!("TST"));
         env.mock_all_auths();
+        client.set_max_credit_per_call(&admin, &0);
 
         let mut total_expected_credits = 0u64;
         let mut total_expected_claims = 0u64;
@@ -708,7 +719,7 @@ proptest! {
     ) {
         let (env, _contract_id, client) = setup_fuzz();
         let admin = Address::generate(&env);
-        let creditor = Address::generate(&env);
+        let creditor = admin.clone();
         let user = Address::generate(&env);
         env.mock_all_auths();
         client.initialize(&admin, &symbol_short!("REF"), &symbol_short!("REF"));

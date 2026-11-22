@@ -1,0 +1,56 @@
+name: TLS Certificate Expiry Check
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/check-ssl-expiry.mjs'
+      - '.github/workflows/tls-cert-check.yml'
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  tls-expiry:
+    name: Check TLS certificate expiry
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check certificate expiry (30-day alert window)
+        env:
+          SSL_CHECK_DOMAINS: ${{ vars.SSL_CHECK_DOMAINS }}
+          SSL_EXPIRY_WARN_DAYS: '30'
+          SSL_CHECK_SUMMARY: tls-cert-report.md
+        run: node scripts/check-ssl-expiry.mjs
+
+      - name: Publish report to job summary
+        if: always()
+        run: |
+          if [ -f tls-cert-report.md ]; then
+            cat tls-cert-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Alert maintainers on expiring certificates
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TITLE="TLS certificates expiring within 30 days"
+          EXISTING=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "TLS certificates expiring" --json number --jq '.[0].number')
+          if [ -n "$EXISTING" ]; then
+            gh issue comment "$EXISTING" --repo "$GITHUB_REPOSITORY" --body-file tls-cert-report.md
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --label security --body-file tls-cert-report.md
+          fi

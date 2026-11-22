@@ -18,6 +18,53 @@ function saveBlocklistFile(path, terms) {
   writeFileSync(path, JSON.stringify({ terms }, null, 2) + '\n', 'utf8');
 }
 
+const URL_PATTERN = /\b(?:https?:\/\/|www\.)\S+/gi;
+const SHORTENER_PATTERN = /\b(?:bit\.ly|tinyurl\.com|t\.co|goo\.gl|is\.gd|cutt\.ly|rb\.gy)\//i;
+const PHISHING_PATTERNS = [
+  /\b(?:seed|recovery|secret)\s+(?:phrase|words)\b/i,
+  /\bprivate\s+key\b/i,
+  /\b(?:send|share|enter|give)\b[^.]{0,40}\b(?:secret key|seed phrase|private key|password)\b/i,
+  /\bverify\s+your\s+wallet\b/i,
+  /\bwallet\s+(?:has been\s+)?(?:suspended|compromised|locked)\b/i,
+];
+const MAX_LINKS = 3;
+const REPEATED_CHAR_RUN = /(.)\1{9,}/u;
+const MIN_SHOUTING_LETTERS = 20;
+
+/**
+ * Built-in spam/phishing heuristics (#469) that run on top of the blocklist
+ * for the `local` provider, so obvious abuse is caught with no external
+ * service. Intentionally conservative: each rule needs a strong signal.
+ * @param {string} text
+ * @returns {string[]} categories hit ('spam' | 'phishing')
+ */
+export function detectSpamSignals(text) {
+  const categories = new Set();
+
+  const links = text.match(URL_PATTERN) ?? [];
+  if (links.length > MAX_LINKS || SHORTENER_PATTERN.test(text)) {
+    categories.add('spam');
+  }
+
+  if (REPEATED_CHAR_RUN.test(text)) {
+    categories.add('spam');
+  }
+
+  const letters = text.replace(/[^A-Za-z]/g, '');
+  if (letters.length >= MIN_SHOUTING_LETTERS) {
+    const upper = letters.replace(/[^A-Z]/g, '').length;
+    if (upper / letters.length > 0.8) {
+      categories.add('spam');
+    }
+  }
+
+  if (PHISHING_PATTERNS.some((pattern) => pattern.test(text))) {
+    categories.add('phishing');
+  }
+
+  return [...categories];
+}
+
 async function checkOpenAI(input, fetchImpl, apiKey) {
   try {
     const response = await fetchImpl('https://api.openai.com/v1/moderations', {
@@ -90,8 +137,10 @@ export function createModerationService({
 
     if (provider === 'local') {
       const lower = combined.toLowerCase();
-      const hit = currentTerms.some((term) => lower.includes(term));
-      return { flagged: hit, categories: hit ? ['spam'] : [] };
+      const blocklistHit = currentTerms.some((term) => lower.includes(term));
+      const categories = new Set(detectSpamSignals(combined));
+      if (blocklistHit) categories.add('spam');
+      return { flagged: categories.size > 0, categories: [...categories] };
     }
 
     if (provider === 'openai') {

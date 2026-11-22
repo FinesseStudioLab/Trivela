@@ -24,10 +24,13 @@ import { createSqliteFeatureFlagRepository } from './sqliteFeatureFlagRepository
 import { createSqliteIdempotencyRepository } from './sqliteIdempotencyRepository.js';
 import { createSqliteNotificationRepository } from './sqliteNotificationRepository.js';
 import { createSqliteNotificationPreferencesRepository } from './sqliteNotificationPreferencesRepository.js';
+import { createSqliteSessionTokenRepository } from './sqliteSessionTokenRepository.js';
+import { createSqliteCampaignRewardNotificationRepository } from './sqliteCampaignRewardNotificationRepository.js';
 
 import { runPgMigrations } from './pg/migrate.js';
 import { createPgCampaignRepository } from './pg/pgCampaignRepository.js';
 import { createPgAuditLogRepository } from './pg/pgAuditLogRepository.js';
+import { instrumentDatabase } from '../db/slowQueryLog.js';
 
 /**
  * Build the DAL.
@@ -55,6 +58,9 @@ export async function createDal({
 } = {}) {
   const db = new Database(dbPath);
   await runMigrations(db);
+  instrumentDatabase(db, {
+    thresholdMs: Number(process.env.DB_SLOW_QUERY_MS ?? 200),
+  });
 
   const categories = allowedCategories ?? parseCategoriesConfig(process.env.TRIVELA_CATEGORIES);
 
@@ -100,6 +106,8 @@ export async function createDal({
     idempotency: createSqliteIdempotencyRepository({ db }),
     notifications: createSqliteNotificationRepository({ db }),
     notificationPreferences: createSqliteNotificationPreferencesRepository({ db }),
+    sessionTokens: createSqliteSessionTokenRepository({ db }),
+    campaignRewardNotifications: createSqliteCampaignRewardNotificationRepository({ db }),
     db,
     pgPool,
   };

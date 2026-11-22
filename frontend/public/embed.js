@@ -53,9 +53,11 @@
 
   var PARTNER_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
   var COLOR_PATTERN = /^#(?:[0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/;
+  var WIDGET_TYPES = { card: 1, leaderboard: 1, progress: 1 };
+  var LIMIT_PATTERN = /^\d{1,2}$/;
 
   // Default iframe dimensions per size preset.
-  var SIZE_HEIGHTS = { sm: '260px', md: '320px', lg: '380px' };
+  var SIZE_HEIGHTS = { sm: '260px', md: '320px', lg: '380px', leaderboard: '480px' };
 
   /**
    * Validate and sanitise a partner ID.
@@ -84,11 +86,13 @@
    *
    * @param {Object} config
    * @param {string}  config.campaign     Campaign ID (required)
+   * @param {string}  [config.widget]     'card' | 'leaderboard' | 'progress'
    * @param {string}  [config.partner]    Partner/referrer ID
    * @param {string}  [config.theme]      'dark' | 'light'
-   * @param {string}  [config.size]       'sm' | 'md' | 'lg'
+   * @param {string}  [config.size]       'sm' | 'md' | 'lg' | 'leaderboard'
    * @param {string}  [config.org]        Partner org display name
    * @param {string}  [config.color]      Button hex colour override
+   * @param {number}  [config.limit]      Leaderboard row limit (1-50)
    * @param {string}  [config.origin]     Override Trivela origin (testing only)
    */
   function TrivelaWidget(config) {
@@ -169,8 +173,21 @@
     if (cfg.size && SIZE_HEIGHTS[cfg.size]) params.set('size', cfg.size);
     if (cfg.org) params.set('org', String(cfg.org).slice(0, 48));
 
+    var widget = WIDGET_TYPES[cfg.widget] ? cfg.widget : 'card';
+    if (widget === 'leaderboard') {
+      var limit = parseInt(cfg.limit, 10);
+      if (limit >= 1 && limit <= 50) params.set('limit', String(limit));
+    }
+
     var qs = params.toString();
-    return origin + '/embed/campaign/' + encodeURIComponent(cfg.campaign) + (qs ? '?' + qs : '');
+    return (
+      origin +
+      '/embed/v1/' +
+      widget +
+      '/' +
+      encodeURIComponent(cfg.campaign) +
+      (qs ? '?' + qs : '')
+    );
   };
 
   /**
@@ -185,7 +202,7 @@
 
     var cfg = this._config;
     var origin = cfg.origin || TRIVELA_ORIGIN;
-    var size = cfg.size || 'md';
+    var size = cfg.size || (cfg.widget === 'leaderboard' ? 'leaderboard' : 'md');
     var height = SIZE_HEIGHTS[size] || SIZE_HEIGHTS.md;
 
     var iframe = document.createElement('iframe');
@@ -263,11 +280,13 @@
 
       var widget = new TrivelaWidget({
         campaign: campaign,
+        widget: script.getAttribute('data-widget') || 'card',
         partner: script.getAttribute('data-partner') || '',
         theme: script.getAttribute('data-theme') || '',
-        size: script.getAttribute('data-size') || 'md',
+        size: script.getAttribute('data-size') || '',
         org: script.getAttribute('data-org') || '',
         color: script.getAttribute('data-color') || '',
+        limit: script.getAttribute('data-limit') || '',
       });
 
       // Insert a container div immediately after the script tag.

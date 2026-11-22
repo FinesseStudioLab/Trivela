@@ -316,7 +316,7 @@ Each implementation requires:
 
 1. Run database migrations if needed
 2. Update environment variables
-3. Deploy backend changes
+3. Deploy backend changes.
 4. Deploy contract changes (with migration plan for #329)
 
 ## Documentation

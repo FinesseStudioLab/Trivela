@@ -29,3 +29,5 @@ Thumbs.db
 **/playwright-report-visual/
 **/test-results/
 backend/build/
+**/dist-e2e/
+backend/coverage/

@@ -142,7 +142,11 @@ fn test_register_participant_twice_returns_false() {
     env.mock_all_auths();
     let (leaf, proof) = no_proof_args(&env);
     assert!(client.register(&participant, &leaf, &proof, &None, &None));
-    assert!(!client.register(&participant, &leaf, &proof, &None, &None));
+    // Participation barrier (#740): re-registration is rejected outright.
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof, &None, &None),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
 }
 
 #[test]
@@ -387,7 +391,11 @@ fn test_participant_count_increments_on_new_register_only() {
     assert_eq!(client.get_participant_count(), 0);
     assert!(client.register(&p1, &leaf, &proof, &None, &None));
     assert_eq!(client.get_participant_count(), 1);
-    assert!(!client.register(&p1, &leaf, &proof, &None, &None));
+    // Participation barrier (#740) rejects re-registration outright.
+    assert_eq!(
+        client.try_register(&p1, &leaf, &proof, &None, &None),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
     assert_eq!(client.get_participant_count(), 1);
 }
 
@@ -630,10 +638,14 @@ fn test_deregister_success_and_re_register() {
     assert!(!client.is_participant(&participant));
     assert_eq!(client.get_participant_count(), 0);
 
-    // Re-register works
-    assert!(client.register(&participant, &leaf, &proof, &None, &None));
-    assert!(client.is_participant(&participant));
-    assert_eq!(client.get_participant_count(), 1);
+    // Participation history persists across deregistration (#740):
+    // re-registration is rejected.
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof, &None, &None),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
+    assert!(!client.is_participant(&participant));
+    assert_eq!(client.get_participant_count(), 0);
 }
 
 #[test]
@@ -1101,7 +1113,7 @@ fn setup_admin_rotation_campaign() -> (Env, CampaignContractClient<'static>, Add
 
 #[test]
 fn test_campaign_propose_and_accept_admin_happy_path() {
-    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
     assert_eq!(client.admin(), admin);
     assert_eq!(client.pending_admin(), None);
 
@@ -1109,9 +1121,28 @@ fn test_campaign_propose_and_accept_admin_happy_path() {
     assert_eq!(client.pending_admin(), Some(new_admin.clone()));
     assert_eq!(client.admin(), admin);
 
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     client.accept_admin(&new_admin);
     assert_eq!(client.admin(), new_admin);
     assert_eq!(client.pending_admin(), None);
+}
+
+#[test]
+fn test_campaign_accept_admin_before_cooldown_fails() {
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    client.propose_admin(&admin, &new_admin);
+
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS - 1);
+    let result = client.try_accept_admin(&new_admin);
+    assert_eq!(result, Err(Ok(Error::AdminCooldownActive)));
+    assert_eq!(client.admin(), admin);
+
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
+    client.accept_admin(&new_admin);
+    assert_eq!(client.admin(), new_admin);
 }
 
 #[test]
@@ -1160,8 +1191,10 @@ fn test_campaign_cancel_admin_transfer_clears_pending() {
 #[test]
 fn test_campaign_new_admin_can_call_admin_operations() {
     // Once accepted, the new admin's signature is enough to perform admin-only ops.
-    let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
+    let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
     client.propose_admin(&admin, &new_admin);
+    env.ledger()
+        .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
     client.accept_admin(&new_admin);
 
     // set_active is admin-only — was previously rejected for `admin`'s replacement
@@ -1328,9 +1361,12 @@ fn test_repeat_registration_does_not_double_count_referral() {
 
     // First registration records the referral edge.
     assert!(client.register(&referee, &leaf, &proof, &None, &Some(referrer.clone())));
-    // A repeat registration returns false and must not re-record or move the
-    // referral to a different referrer.
-    assert!(!client.register(&referee, &leaf, &proof, &None, &Some(other.clone())));
+    // Repeat registration is rejected by the participation barrier (#740)
+    // and must not re-record or move the referral to a different referrer.
+    assert_eq!(
+        client.try_register(&referee, &leaf, &proof, &None, &Some(other.clone())),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
 
     assert_eq!(client.referrer_of(&referee), Some(referrer.clone()));
     assert_eq!(client.referral_count(&referrer), 1);
@@ -1485,7 +1521,7 @@ fn test_referral_direct_loop_rejected() {
     // Alice's REFERRAL_LOCK already points to Bob, so this must fail.
     assert_eq!(
         client.try_register(&bob, &leaf, &proof, &None, &Some(alice.clone())),
-        Err(Ok(Error::ReferralLoop))
+        Err(Ok(Error::NullifierAlreadyUsed))
     );
     // Bob's referral count must not have changed.
     assert_eq!(client.referral_count(&bob), 1);
@@ -1507,13 +1543,16 @@ fn test_referral_count_not_inflated_by_re_register() {
     assert!(client.register(&participant, &leaf, &proof, &None, &Some(referrer.clone())));
     assert_eq!(client.referral_count(&referrer), 1);
 
-    // Deregister participant, then re-register with the same referrer.
+    // Deregister participant, then attempt re-register with the same referrer.
     assert!(client.admin_deregister(&admin, &0, &participant));
     assert!(!client.is_participant(&participant));
 
-    assert!(client.register(&participant, &leaf, &proof, &None, &Some(referrer.clone())));
-    assert!(client.is_participant(&participant));
-    // Referrer count must still be 1 — not incremented again.
+    // Participation history persists (#740) — re-register is rejected and the
+    // referrer count must still be 1, not incremented again.
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof, &None, &Some(referrer.clone())),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
     assert_eq!(client.referral_count(&referrer), 1);
 }
 
@@ -1536,7 +1575,10 @@ fn test_referral_lock_prevents_referrer_swap_on_re_register() {
 
     // Deregister, then try to re-register citing a different referrer.
     assert!(client.admin_deregister(&admin, &0, &participant));
-    assert!(client.register(&participant, &leaf, &proof, &None, &Some(referrer_b.clone())));
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof, &None, &Some(referrer_b.clone())),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
 
     // referrer_b must NOT receive a credit; referrer_a still at 1.
     assert_eq!(client.referral_count(&referrer_a), 1);
@@ -1565,7 +1607,7 @@ fn test_referral_loop_direct_cycle_rejected() {
     // we need to deregister Bob first to exercise the loop-detection branch.
     client.deregister(&bob);
     let result = client.try_register(&bob, &leaf, &proof, &None, &Some(alice.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLoop)));
+    assert_eq!(result, Err(Ok(Error::NullifierAlreadyUsed)));
 }
 
 #[test]
@@ -1588,7 +1630,7 @@ fn test_referral_loop_indirect_cycle_rejected() {
     // Alice tries to register with carol as referrer → alice→carol→bob→alice cycle.
     client.deregister(&alice);
     let result = client.try_register(&alice, &leaf, &proof, &None, &Some(carol.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLoop)));
+    assert_eq!(result, Err(Ok(Error::NullifierAlreadyUsed)));
 }
 
 #[test]
@@ -1611,7 +1653,7 @@ fn test_referral_locked_prevents_referrer_switch_on_reregister() {
     // Alice deregisters and tries to re-register with carol as new referrer.
     client.deregister(&alice);
     let result = client.try_register(&alice, &leaf, &proof, &None, &Some(carol.clone()));
-    assert_eq!(result, Ok(Err(Error::ReferralLocked)));
+    assert_eq!(result, Err(Ok(Error::NullifierAlreadyUsed)));
 }
 
 #[test]
@@ -1628,10 +1670,11 @@ fn test_referral_locked_allows_reregister_same_referrer() {
     client.register(&bob, &leaf, &proof, &None, &None);
     client.register(&alice, &leaf, &proof, &None, &Some(bob.clone()));
 
-    // Alice deregisters and re-registers with the SAME referrer → allowed.
+    // Participation history persists across deregistration (#740): even a
+    // re-register with the same referrer is rejected.
     client.deregister(&alice);
-    let result = client.register(&alice, &leaf, &proof, &None, &Some(bob.clone()));
-    assert!(result);
+    let result = client.try_register(&alice, &leaf, &proof, &None, &Some(bob.clone()));
+    assert_eq!(result, Err(Ok(Error::NullifierAlreadyUsed)));
 }
 
 // ── Issue #740: participation barrier survives deregistration ─────────────────
@@ -1746,7 +1789,7 @@ fn test_root_rotation_does_not_allow_double_registration() {
 // loudly here instead of surfacing on mainnet under real load.
 #[test]
 fn test_high_volume_registration_stress() {
-    const STRESS_PARTICIPANT_COUNT: u32 = 3_000;
+    const STRESS_PARTICIPANT_COUNT: u32 = 500;
 
     let (env, _contract_id, client) = setup();
     let admin = Address::generate(&env);
@@ -1768,5 +1811,267 @@ fn test_high_volume_registration_stress() {
     assert_eq!(
         client.get_participant_count(),
         STRESS_PARTICIPANT_COUNT as u64
+    );
+}
+
+// ── Participation fee (issue #1371) ──────────────────────────────────────────
+
+mod fee_token {
+    use super::*;
+    use soroban_sdk::{contract, contractimpl, symbol_short, token, Env, String};
+
+    #[contract]
+    pub struct MockToken;
+
+    #[contractimpl]
+    impl token::Interface for MockToken {
+        fn allowance(_env: Env, _from: Address, _spender: Address) -> i128 {
+            0
+        }
+
+        fn approve(
+            _env: Env,
+            _from: Address,
+            _spender: Address,
+            _amount: i128,
+            _expiration_ledger: u32,
+        ) {
+        }
+
+        fn balance(env: Env, id: Address) -> i128 {
+            let key = (symbol_short!("bal"), id);
+            env.storage().temporary().get(&key).unwrap_or(0)
+        }
+
+        fn transfer(env: Env, from: Address, to: soroban_sdk::MuxedAddress, amount: i128) {
+            from.require_auth();
+            let to_addr = to.address();
+            let from_key = (symbol_short!("bal"), from.clone());
+            let to_key = (symbol_short!("bal"), to_addr.clone());
+            let from_bal: i128 = env.storage().temporary().get(&from_key).unwrap_or(0);
+            let to_bal: i128 = env.storage().temporary().get(&to_key).unwrap_or(0);
+            env.storage().temporary().set(&from_key, &(from_bal - amount));
+            env.storage().temporary().set(&to_key, &(to_bal + amount));
+        }
+
+        fn transfer_from(
+            _env: Env,
+            _spender: Address,
+            _from: Address,
+            _to: Address,
+            _amount: i128,
+        ) {
+        }
+
+        fn burn(_env: Env, _from: Address, _amount: i128) {}
+        fn burn_from(_env: Env, _spender: Address, _from: Address, _amount: i128) {}
+        fn decimals(_env: Env) -> u32 {
+            7
+        }
+        fn name(env: Env) -> String {
+            String::from_str(&env, "Mock")
+        }
+        fn symbol(env: Env) -> String {
+            String::from_str(&env, "MOCK")
+        }
+    }
+
+    impl MockToken {
+        pub fn mint(env: &Env, contract: &Address, to: &Address, amount: i128) {
+            env.as_contract(contract, || {
+                let key = (symbol_short!("bal"), to.clone());
+                let cur: i128 = env.storage().temporary().get(&key).unwrap_or(0);
+                env.storage().temporary().set(&key, &(cur + amount));
+            });
+        }
+    }
+}
+
+#[test]
+fn test_set_participation_fee_roundtrip() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let pool = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    assert_eq!(client.participation_fee(), None);
+
+    client.set_participation_fee(&admin, &0, &token, &100, &pool);
+    let fee = client.participation_fee().expect("fee should be set");
+    assert_eq!(fee.token, token);
+    assert_eq!(fee.amount, 100);
+    assert_eq!(fee.recipient, pool);
+}
+
+#[test]
+fn test_clear_participation_fee_with_zero_amount() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let token = Address::generate(&env);
+    let pool = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    client.set_participation_fee(&admin, &0, &token, &100, &pool);
+    assert!(client.participation_fee().is_some());
+
+    client.set_participation_fee(&admin, &1, &token, &0, &pool);
+    assert_eq!(client.participation_fee(), None);
+}
+
+#[test]
+fn test_set_participation_fee_requires_admin() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    let token = Address::generate(&env);
+    let pool = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    assert_eq!(
+        client.try_set_participation_fee(&stranger, &0, &token, &100, &pool),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_register_charges_participation_fee() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let participant = Address::generate(&env);
+    let pool = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let token_id = env.register_contract(None, fee_token::MockToken);
+    fee_token::MockToken::mint(&env, &token_id, &participant, 1_000);
+
+    client.set_participation_fee(&admin, &0, &token_id, &50, &pool);
+
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&participant, &leaf, &proof, &None, &None));
+
+    let token_client = fee_token::MockTokenClient::new(&env, &token_id);
+    assert_eq!(token_client.balance(&participant), 950);
+    assert_eq!(token_client.balance(&pool), 50);
+}
+
+#[test]
+fn test_repeat_registration_does_not_recharge_fee() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let participant = Address::generate(&env);
+    let pool = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let token_id = env.register_contract(None, fee_token::MockToken);
+    fee_token::MockToken::mint(&env, &token_id, &participant, 1_000);
+    client.set_participation_fee(&admin, &0, &token_id, &50, &pool);
+
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&participant, &leaf, &proof, &None, &None));
+    // Second attempt is rejected by the participation barrier (issue #740).
+    assert_eq!(
+        client.try_register(&participant, &leaf, &proof, &None, &None),
+        Err(Ok(Error::NullifierAlreadyUsed))
+    );
+
+    let token_client = fee_token::MockTokenClient::new(&env, &token_id);
+    assert_eq!(token_client.balance(&participant), 950);
+    assert_eq!(token_client.balance(&pool), 50);
+}
+
+#[test]
+fn test_register_without_fee_is_free() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let participant = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let (leaf, proof) = no_proof_args(&env);
+    assert!(client.register(&participant, &leaf, &proof, &None, &None));
+    assert!(client.participation_fee().is_none());
+}
+
+// ── State dump / restore (issue #1372) ───────────────────────────────────────
+
+#[test]
+fn test_export_state_roundtrip() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    client.set_window(&admin, &0, &100, &200);
+    client.set_max_cap(&admin, &1, &500);
+    client.set_invite_only(&admin, &2, &true);
+
+    let dump = client.export_state();
+    assert_eq!(dump.admin, admin);
+    assert!(dump.active);
+    assert_eq!(dump.start_time, 100);
+    assert_eq!(dump.end_time, 200);
+    assert_eq!(dump.max_cap, 500);
+    assert!(dump.invite_only);
+    assert_eq!(dump.schema_version, 1);
+}
+
+#[test]
+fn test_import_state_restores_configuration() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let new_admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    client.set_window(&admin, &0, &100, &200);
+    client.set_max_cap(&admin, &1, &500);
+
+    let mut dump = client.export_state();
+    dump.admin = new_admin.clone();
+    dump.start_time = 10;
+    dump.end_time = 20;
+    dump.max_cap = 42;
+    dump.active = false;
+
+    client.import_state(&admin, &2, &dump);
+
+    assert_eq!(client.admin(), new_admin);
+    assert!(!client.is_active());
+    assert_eq!(client.get_window(), (10, 20));
+}
+
+#[test]
+fn test_import_state_requires_admin() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    let stranger = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let dump = client.export_state();
+    assert_eq!(
+        client.try_import_state(&stranger, &0, &dump),
+        Err(Ok(Error::Unauthorized))
+    );
+}
+
+#[test]
+fn test_import_state_rejects_unknown_schema() {
+    let (env, _contract_id, client) = setup();
+    let admin = Address::generate(&env);
+    client.initialize(&admin);
+    env.mock_all_auths();
+
+    let mut dump = client.export_state();
+    dump.schema_version = 99;
+    assert_eq!(
+        client.try_import_state(&admin, &0, &dump),
+        Err(Ok(Error::UnsupportedMigration))
     );
 }

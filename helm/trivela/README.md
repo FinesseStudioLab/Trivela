@@ -39,6 +39,7 @@ All configurable values are in [values.yaml](values.yaml). Key overrides:
 | `backend.image.repository`                   | `trivela-backend`     | Backend image                |
 | `backend.image.tag`                          | `latest`              | Backend image tag            |
 | `frontend.replicaCount`                      | `2`                   | Initial frontend pod count   |
+| `redis.enabled`                              | `false`               | Deploy Redis and set `REDIS_URL` on the backend |
 | `ingress.host`                               | `trivela.example.com` | Public hostname              |
 | `ingress.tls.enabled`                        | `true`                | Enable TLS via cert-manager  |
 | `autoscaling.minReplicas`                    | `2`                   | HPA minimum replicas         |

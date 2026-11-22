@@ -99,19 +99,18 @@ function RewardCard({ reward }: { reward: RewardConfig }) {
   );
 }
 
-function StatGrid({ campaign }: { campaign: Campaign }) {
-  const now = new Date();
-  const start = new Date(campaign.startsAt);
-  const end = campaign.endsAt ? new Date(campaign.endsAt) : null;
+function StatGrid({ campaign }: { campaign?: Campaign }) {
+  const start = campaign?.startsAt ? new Date(campaign.startsAt) : new Date();
+  const end = campaign?.endsAt ? new Date(campaign.endsAt) : null;
 
   return (
     <section className="stat-grid" aria-label="Campaign statistics">
       <div className="stat-card">
-        <span className="stat-value">{campaign.questionCount}</span>
+        <span className="stat-value">{campaign?.questionCount ?? 0}</span>
         <span className="stat-label">Questions</span>
       </div>
       <div className="stat-card">
-        <span className="stat-value">{campaign.participantCount.toLocaleString()}</span>
+        <span className="stat-value">{(campaign?.participantCount ?? 0).toLocaleString()}</span>
         <span className="stat-label">Participants</span>
       </div>
       <div className="stat-card">
