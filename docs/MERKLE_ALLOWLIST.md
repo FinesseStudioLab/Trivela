@@ -140,3 +140,74 @@ the previous root no longer validate. Use this to add late entries to the allowl
 
 Already-registered participants keep their registration — the root check only runs on `register`.
 There's no need to back-fill them.
+
+## Incremental root updates (#1579)
+
+Adding or removing a single address still requires regenerating the whole tree, because the root is
+a commitment to every leaf. However the CLI now supports an **incremental mode** that handles this
+for you without maintaining a separate address CSV: it reads the previous `proofs.json` as its
+address source, applies your additions and/or removals, then writes a fresh `proofs.json` with a
+new root.
+
+### Adding addresses
+
+```bash
+# new-addresses.csv contains only the addresses to add
+npm run merkle:generate -- \
+  --input  proofs.json     \
+  --add    new-addresses.csv \
+  --output proofs-v2.json
+```
+
+The existing addresses (from `proofs.json`) plus the new ones form the updated tree.
+
+### Removing addresses
+
+```bash
+# removed.csv contains only the addresses to drop
+npm run merkle:generate -- \
+  --input  proofs.json   \
+  --remove removed.csv   \
+  --output proofs-v2.json
+```
+
+### Adding and removing in one pass
+
+```bash
+npm run merkle:generate -- \
+  --input  proofs.json   \
+  --add    new.csv       \
+  --remove removed.csv   \
+  --output proofs-v2.json
+```
+
+After either operation the CLI runs the same self-test as a full build: every proof in the output is
+verified against the new root before the file is written.
+
+### Recommended batching workflow
+
+To minimise on-chain transactions when managing a large allowlist, **batch your changes** before
+pushing a new root:
+
+1. **Collect** all additions and removals for the period (e.g., a week).
+2. **Run the incremental update** once to produce `proofs-vN.json`.
+3. **Call `set_merkle_root`** once with the new root.
+4. **Distribute** updated proofs only to affected participants:
+   - Addresses that were _added_ receive their new `(leaf, proof)` pair.
+   - Addresses that were _removed_ are invalidated; no action needed.
+   - Addresses that were neither added nor removed get **new proofs** (siblings may have changed
+     because the tree structure changed) — redistribute their new proofs so they can still register.
+
+> **Why do unchanged addresses get new proofs?**  Every tree insertion or deletion reshuffles the
+> leaf layer (leaves stay sorted and de-duplicated), which may change sibling hashes along the path
+> to the root for unaffected leaves. The root is new, so old proofs are invalidated regardless of
+> whether a given leaf was touched. Always redistribute the full `proofs.json` to all participants
+> after a root rotation, or at minimum re-send proofs to any participant who has not yet called
+> `register`.
+
+### Keeping a canonical address list
+
+The incremental mode is designed so you never need to maintain a separate "master" CSV. The
+`proofs.json` file is the authoritative source: its keys are the full address set at the time of
+the last root update. Treat it as your version-controlled address registry and commit it alongside
+your contract configuration.
