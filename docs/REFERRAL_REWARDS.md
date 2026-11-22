@@ -4,6 +4,10 @@ Part of the **Viral growth engine** epic
 ([#656](https://github.com/FinesseStudioLab/Trivela/issues/656)). This document covers the
 **on-chain referral reward** slice — the `#603` "referral economy" portion of the epic.
 
+> **Step-by-step sequence diagrams** — including the happy path, edge cases (referrer inactive,
+> referee never claims), and invariant-violation handling — are in
+> [**FLOWS.md § 6 Referral Claim Sub-flow**](FLOWS.md#6-referral-claim-sub-flow).
+
 ## Scope
 
 | Epic task                                                 | Status in this PR                                                              |

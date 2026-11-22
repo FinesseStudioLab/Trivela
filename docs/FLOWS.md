@@ -165,3 +165,86 @@ sequenceDiagram
     FE-->>Admin: "Limit updated"
     note over RC: Future credit(amount > max) → Err(CreditLimitExceeded)
 ```
+
+---
+
+## 6. Referral Claim Sub-flow
+
+A referred user completes a qualifying action (claims rewards). The backend then pays the referral
+bonus to the referrer via the rewards contract. See
+[REFERRAL_REWARDS.md](REFERRAL_REWARDS.md) for the full reward-engine design and anti-abuse
+invariants.
+
+### Happy path
+
+```mermaid
+sequenceDiagram
+    actor Referee as Referee Wallet
+    actor Referrer as Referrer Wallet
+    participant FE as Frontend (React)
+    participant BE as Backend (admin)
+    participant RPC as Soroban RPC
+    participant RC as Rewards Contract
+    participant IX as Event Indexer
+
+    Referee->>FE: Click "Claim rewards"
+    FE->>RPC: simulateTransaction (rewards.claim)
+    RPC-->>FE: Fee estimate
+    FE->>Referee: Sign transaction prompt
+    Referee-->>FE: Signed XDR
+    FE->>RPC: sendTransaction (signed XDR)
+    RPC->>RC: claim(referee, amount)
+    RC->>RC: Deduct balance, emit "claim" event
+    RC-->>RPC: Ok(new_balance)
+    RPC-->>FE: txHash + status
+    FE-->>Referee: "Claimed!"
+
+    note over BE: Indexer picks up "claim" event
+    IX->>BE: claim event for referee
+
+    BE->>BE: Look up referrer = campaign.referrer_of(referee)
+    BE->>BE: Compute qualifying_amount from claim event
+    BE->>RPC: simulateTransaction (rewards.pay_referral_bonus)
+    RPC-->>BE: Fee estimate
+    BE->>RPC: sendTransaction (admin-signed XDR)
+    RPC->>RC: pay_referral_bonus(admin, referrer, referee, qualifying_amount)
+    RC->>RC: Enforce anti-abuse invariants (self, circular, replay, cap, zero)
+    RC->>RC: bonus = qualifying_amount * rate_bps / 10_000
+    RC->>RC: Increment referrer balance
+    RC->>RC: Emit "credit" + "ref_bonus" events
+    RC-->>RPC: Ok(bonus)
+    RPC-->>BE: txHash + status
+    BE-->>IX: ref_bonus event → write referral_bonus_events row
+    note over Referrer: Referrer can now claim their bonus via flow 2
+```
+
+### Edge cases
+
+#### Referrer wallet disconnected / inactive at bonus time
+
+The referrer does not need to be online or connected. `pay_referral_bonus` credits the referrer's
+**on-chain balance** directly; the referrer can call `claim` at any point in the future to withdraw
+it. The bonus is not lost if the referrer is inactive.
+
+#### Referred user never claims
+
+The referral bonus is triggered by the referee's **qualifying action** (a successful `claim` on the
+rewards contract). If the referee never claims, the backend never calls `pay_referral_bonus` and
+the referrer receives no bonus. There is no timeout or expiry that auto-pays; the bonus is strictly
+contingent on the referee completing the action.
+
+#### Referral invariant violations
+
+If the backend attempts `pay_referral_bonus` and an on-chain invariant is violated, the contract
+returns an error and **no state is written** (all-or-nothing). The possible errors are:
+
+| Scenario | Contract error |
+|----------|---------------|
+| Referee has already triggered a bonus for this referrer | `ReferralAlreadyRewarded` |
+| Referrer and referee are the same address | `SelfReferral` |
+| Circular referral (A referred B; B tries to bonus A) | `CircularReferral` |
+| Referrer has hit their cumulative cap | `ReferralCapExceeded` |
+| Computed bonus rounds down to zero | `ZeroReferralBonus` |
+| Referral rate not configured | `ReferralNotConfigured` |
+
+In all error cases the referee's claim still succeeds; only the referrer bonus is withheld.
