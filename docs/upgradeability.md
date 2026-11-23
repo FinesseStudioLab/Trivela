@@ -119,19 +119,67 @@ stellar contract invoke --id <CONTRACT_ID> --source <admin> --network testnet --
   - unsupported version rejection
   - unauthorized caller rejection
 
-## Future: upgradeability
+## Production Upgrade Strategy & Governance Architecture
 
-Today, direct admin upgrades are enough for a small contributor project. As Trivela grows, we can
-move to a stricter deployer pattern so contract IDs remain stable while upgrade authority is easier
-to rotate and audit.
+For mainnet operations, upgrades must follow a strict, multi-layer verification and authorization process to prevent unauthorized code replacement, accidental state invalidation, or rug-pull risks.
 
-- **Deployer/Proxy admin contract**: route upgrades through a dedicated deployer contract (or a
-  governance-controlled admin account) instead of a long-lived individual key.
-- **Two-step rollout**: install new Wasm, run `upgrade`, then run `migrate` with explicit target
-  versions and smoke checks between each step.
-- **Migration ledgering**: persist migration checkpoints/events so off-chain monitors can verify
-  exactly which schema version is live.
-- **Rollback readiness**: keep previous Wasm hashes and migration runbooks ready to redeploy quickly
-  if a release introduces regressions.
+### 1. Upgrade Authority Model (Who Can Trigger Upgrades)
 
-# Document changes you will make
+- **Testnet vs. Mainnet Distinction**:
+  - On **testnet**, direct admin execution (`stellar contract invoke ... upgrade`) is permitted for operational agility.
+  - On **mainnet**, single-signature private key upgrades are **strictly prohibited**.
+- **Multi-Signature Admin & Role Separation**:
+  - The contract admin MUST be a multi-signature account (e.g. 3-of-5 threshold) managed by distinct core contributors or an on-chain DAO governance executor.
+  - **Proposer vs. Executor Separation**:
+    - **Proposer**: Submits an upgrade proposal containing the target contract ID, the compiled Wasm bytecode hash (`new_wasm_hash`), and the intended `schema_version`.
+    - **Verifier**: Core review team and external security auditors verify the bytecode hash matches audited source code.
+    - **Executor**: Time-locked multisig account executes the upgrade transaction once the review delay has elapsed.
+
+### 2. Time-Lock Delay Mechanism
+
+Upgrades introduce architectural changes and must grant users and liquidity providers sufficient advance notice.
+
+- **Mandatory Delay Window**:
+  - Mainnet upgrades require a minimum time-lock delay of **48 hours (172,800 seconds)** from on-chain proposal announcement to invocation.
+  - Emergency security patches (critical zero-day vulnerability fixes) require a minimum **12-hour delay** with a supermajority sign-off (e.g. 4-of-5 multisig signers).
+- **Public Audit Window**:
+  - During the time-lock delay, off-chain monitoring services and users can observe the queued Wasm hash on Stellar Expert / indexer.
+  - If users disagree with logic changes, the delay affords sufficient time to withdraw rewards, settle active campaigns, or deregister participants before code takes effect.
+
+### 3. Wasm Bytecode Verification & Reproducibility (How to Verify the New Wasm)
+
+Before any upgrade transaction is approved, the candidate Wasm bytecode must be independently verified by reviewers using reproducible build toolchains:
+
+1. **Deterministic Build in Container**:
+   Build contracts inside pinned official Stellar build environments:
+   ```bash
+   # Build contract deterministically using pinned cargo & Soroban SDK
+   stellar contract build --package trivela-campaign-contract
+   ```
+2. **Compute SHA-256 Hash of Bytecode**:
+   ```bash
+   sha256sum target/wasm32-unknown-unknown/release/trivela_campaign_contract.wasm
+   # Outputs: <64-hex SHA-256 hash>
+   ```
+3. **Verify Installed Bytecode On-Chain**:
+   Before calling `upgrade`, verify that the installed Wasm hash matches the locally compiled hash:
+   ```bash
+   # Retrieve bytecode directly from the network
+   stellar contract inspect --wasm-hash <NEW_WASM_HASH> --network mainnet
+   ```
+4. **Pre-Upgrade Invariant Verification**:
+   - Run formal verification harnesses (`contracts/rewards/formal` and `cargo kani`) against the new Wasm.
+   - Run storage simulation against a fork of current mainnet contract state (`stellar contract invoke ... --simulate`) to verify that all existing storage entries remain valid and readable.
+
+### 4. Two-Step Rollout & Emergency Rollback Protocol
+
+1. **Step 1: Code Upgrade (`upgrade`)**:
+   Invokes `env.deployer().update_current_contract_wasm(new_wasm_hash)`. This updates execution bytecode without altering stored state.
+2. **Step 2: Schema Migration (`migrate`)**:
+   Executes version-gated migration logic. If migration encounters invalid records or unsupported version jumps, it fails closed with `Error::UnsupportedMigration` and leaves storage intact.
+3. **Emergency Rollback Procedure**:
+   - The previous approved Wasm hash (`PREVIOUS_WASM_HASH`) is retained in operational runbooks.
+   - If unexpected runtime anomalies or indexer synchronization issues occur post-upgrade:
+     1. Admin immediately triggers `set_active(admin, false)` to pause sensitive campaign operations.
+     2. Admin invokes `upgrade --new_wasm_hash <PREVIOUS_WASM_HASH>` to revert bytecode.
+     3. Historical backward-compatible storage keys ensure the previous code can resume operations without data corruption.

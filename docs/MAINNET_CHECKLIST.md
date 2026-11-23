@@ -15,7 +15,7 @@ All items must have an approver entry before the launch gate is opened.
 
 | Item | Evidence | Approver | Approval date |
 | ---- | -------- | -------- | ------------- |
-| `upgrade()` entrypoint implemented and tested | [#278] | — | — |
+| `upgrade()` entrypoint implemented and tested | [#278], [upgradeability.md](./upgradeability.md) | — | — |
 | TTL values set for mainnet timing | [#279] | — | — |
 | Participant storage migrated to persistent storage | [#280] | — | — |
 | 2-step admin transfer implemented | [#281] | — | — |

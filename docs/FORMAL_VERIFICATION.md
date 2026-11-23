@@ -206,3 +206,4 @@ The `contracts-ci.yml` workflow includes:
 - [proptest: Property-based testing](https://altsysrq.github.io/proptest-book/)
 - [Soroban contract security](https://soroban.stellar.org/docs)
 - Issue #535: Formal verification of contract invariants
+- [Contract Upgradeability & Storage Migration Strategy](./upgradeability.md)
