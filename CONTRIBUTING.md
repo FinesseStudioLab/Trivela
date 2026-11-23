@@ -80,6 +80,19 @@ See the main [README](README.md) for full setup.
 - **JS/TS**: Consistent formatting (e.g. project style); no unnecessary dependencies.
 - **Commits**: Clear, present-tense messages (e.g. “Add GET /api/campaigns filter by active”).
 
+### Frontend Test Coverage Standards
+
+Frontend unit and component tests are powered by [Vitest](https://vitest.dev/) and enforced via strict minimum coverage thresholds in `frontend/vitest.config.js`:
+- **Branches**: 60%
+- **Functions**: 70%
+- **Lines**: 70%
+- **Statements**: 70%
+
+**Threshold Rationale:**
+- **Prevent silent regressions**: Without enforced threshold gates, unit coverage degrades over time as features are added without test parity.
+- **Critical business logic protection**: Ensures complex UI states, custom hooks, and utility branches maintain automated regression safety.
+- **CI Gate**: CI runs `npm run test:coverage --workspace=frontend` and automatically fails pull requests if coverage drops below the required minimums. Contributors modifying or introducing frontend logic must supply unit tests meeting or exceeding these thresholds.
+
 ## Questions
 
 Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in
