@@ -67,3 +67,5 @@ All items must have an approver entry before the launch gate is opened.
 - [OPERATIONS_RUNBOOK.md](./OPERATIONS_RUNBOOK.md) - Deploy, verify, monitor, rollback procedures
 - [Mainnet Sign-off issue template](.github/ISSUE_TEMPLATE/mainnet_signoff.yml)
 - Issues: #278, #279, #280, #281, #282, #283, #284, #286, #288, #289, #290, #292
+
+- Upgrade authority and Wasm verification: see [upgradeability.md](upgradeability.md).

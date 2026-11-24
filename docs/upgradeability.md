@@ -119,6 +119,27 @@ stellar contract invoke --id <CONTRACT_ID> --source <admin> --network testnet --
   - unsupported version rejection
   - unauthorized caller rejection
 
+## Who can upgrade and how to verify the new Wasm
+
+**Who can trigger an upgrade.** `campaign::upgrade(admin, nonce, new_wasm_hash)` requires the
+contract admin's authorization and the admin's current nonce (`require_admin_with_nonce`), so a
+signed upgrade cannot be replayed. No other account can call it. The campaign contract applies the
+new Wasm immediately: there is no on-chain delay between the call and the new code running. Any
+time-lock today is operational (an announced window and a multisig admin), not enforced by the
+contract.
+
+**Verifying the new Wasm before an upgrade.**
+
+1. Build the release Wasm from the tagged commit and compute its hash:
+   `sha256sum target/wasm32-unknown-unknown/release/<contract>.wasm`.
+2. Upload it (`stellar contract upload`) and confirm the returned hash equals the one you
+   computed. Reviewers should reproduce the build independently and compare hashes.
+3. Pass exactly that hash as `new_wasm_hash` to `upgrade`.
+4. After the call, read `schema_version()` and run `migrate(admin, target_version)` only if the
+   storage layout changed.
+
+See also the [mainnet checklist](MAINNET_CHECKLIST.md) and [formal verification](FORMAL_VERIFICATION.md).
+
 ## Future: upgradeability
 
 Today, direct admin upgrades are enough for a small contributor project. As Trivela grows, we can
