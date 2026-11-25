@@ -1,5 +1,11 @@
 # Development Guide
 
+> **Architecture reference:** For a full system map including the event indexer component, trust
+> boundaries, and end-to-end data flows see
+> [ARCHITECTURE_OVERVIEW.md](ARCHITECTURE_OVERVIEW.md). The
+> [Event Indexer section](ARCHITECTURE_OVERVIEW.md#event-indexer) covers the SSE/poll loop,
+> reorg safety, cursor persistence, and configuration variables.
+
 ## Running Without Contracts
 
 Both frontend and backend can run without deployed contracts. This allows development and testing

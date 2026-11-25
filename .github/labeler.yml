@@ -1,0 +1,56 @@
+# .github/labeler.yml
+# Path-based label rules for actions/labeler@v5.
+# A PR is labelled when any changed file matches the listed globs.
+
+"area: frontend":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "frontend/**"
+      - "packages/frontend-utils/**"
+
+"area: backend":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "backend/**"
+      - "src/**"
+      - "packages/backend-utils/**"
+
+"area: smart-contract":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "contracts/**"
+      - "packages/contracts/**"
+
+"area: documentation":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "docs/**"
+      - "*.md"
+      - "**/*.md"
+
+"area: sdk":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "sdk/**"
+      - "packages/sdk/**"
+
+"area: ci":
+  - changed-files:
+    - any-glob-to-any-file:
+      - ".github/**"
+
+"area: infrastructure":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "helm/**"
+      - "k8s/**"
+      - "monitoring/**"
+      - "nginx/**"
+      - "compose*.yml"
+      - "compose*.yaml"
+
+"area: load-testing":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "load-tests/**"
+      - "scripts/load-*.sh"

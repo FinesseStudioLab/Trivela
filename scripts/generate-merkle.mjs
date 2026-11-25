@@ -30,14 +30,34 @@ import { resolve } from 'node:path';
 import { StrKey, xdr } from '@stellar/stellar-sdk';
 
 function parseArgs(argv) {
-  const opts = { input: null, output: null };
+  const opts = { input: null, output: null, add: null, remove: null };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--input' || arg === '-i') opts.input = argv[++i];
     else if (arg === '--output' || arg === '-o') opts.output = argv[++i];
+    else if (arg === '--add') opts.add = argv[++i];
+    else if (arg === '--remove') opts.remove = argv[++i];
     else if (arg === '--help' || arg === '-h') opts.help = true;
   }
   return opts;
+}
+
+/**
+ * Incrementally update an existing allowlist document by adding and/or
+ * removing addresses, then returning a freshly-generated document over
+ * the resulting address set.
+ *
+ * @param {object} existing  - Previously emitted { root, proofs, ... } doc.
+ * @param {string[]} toAdd   - New G-addresses to include.
+ * @param {string[]} toRemove - G-addresses to exclude from the new tree.
+ * @returns {object} A new allowlist document with a new root and updated proofs.
+ */
+export function updateAllowlist(existing, toAdd = [], toRemove = []) {
+  const removeSet = new Set(toRemove);
+  const kept = Object.keys(existing.proofs).filter((a) => !removeSet.has(a));
+  const merged = [...new Set([...kept, ...toAdd])]; // dedup
+  if (merged.length === 0) throw new Error('resulting address set is empty');
+  return generateAllowlist(merged);
 }
 
 /**
@@ -184,17 +204,41 @@ export function generateAllowlist(addresses) {
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  if (opts.help || !opts.input || !opts.output) {
-    process.stdout.write(`Usage: generate-merkle.mjs --input <file> --output <file>\n`);
+  const isIncremental = opts.add || opts.remove;
+  if (opts.help || (!opts.input && !isIncremental) || !opts.output) {
+    process.stdout.write(
+      `Usage:\n` +
+      `  generate-merkle.mjs --input <file> --output <file>\n` +
+      `  generate-merkle.mjs --input <existing.json> --add <new.csv> --output <file>\n` +
+      `  generate-merkle.mjs --input <existing.json> --remove <remove.csv> --output <file>\n` +
+      `\n` +
+      `  --input   CSV/newline address list (full build) or existing proofs JSON (incremental)\n` +
+      `  --output  Destination proofs JSON\n` +
+      `  --add     CSV/newline list of addresses to add (incremental mode)\n` +
+      `  --remove  CSV/newline list of addresses to remove (incremental mode)\n`,
+    );
     process.exit(opts.help ? 0 : 1);
   }
-  const raw = readFileSync(resolve(opts.input), 'utf8');
-  const addresses = parseAddressFile(raw);
-  if (addresses.length === 0) {
-    process.stderr.write('input file has no addresses\n');
-    process.exit(2);
+
+  let doc;
+  if (isIncremental) {
+    if (!opts.input) {
+      process.stderr.write('--add/--remove require --input pointing to an existing proofs JSON\n');
+      process.exit(1);
+    }
+    const existing = JSON.parse(readFileSync(resolve(opts.input), 'utf8'));
+    const toAdd = opts.add ? parseAddressFile(readFileSync(resolve(opts.add), 'utf8')) : [];
+    const toRemove = opts.remove ? parseAddressFile(readFileSync(resolve(opts.remove), 'utf8')) : [];
+    doc = updateAllowlist(existing, toAdd, toRemove);
+  } else {
+    const raw = readFileSync(resolve(opts.input), 'utf8');
+    const addresses = parseAddressFile(raw);
+    if (addresses.length === 0) {
+      process.stderr.write('input file has no addresses\n');
+      process.exit(2);
+    }
+    doc = generateAllowlist(addresses);
   }
-  const doc = generateAllowlist(addresses);
   // Sanity self-test: every emitted proof must verify against the
   // emitted root. Catches off-by-one bugs in proofForLeaf before the
   // file is published.

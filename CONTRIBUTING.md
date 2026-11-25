@@ -16,8 +16,41 @@ Thank you for considering contributing to Trivela. This project is part of the
    - `area: backend` – Node/Express API
    - `area: frontend` – React/Vite UI
    - `area: smart-contract` – Soroban (Rust) contracts
+   - `area: documentation` – Markdown files and `docs/`
+   - `area: sdk` – SDK packages under `sdk/` and `packages/sdk/`
+   - `area: ci` – GitHub Actions workflows under `.github/`
+   - `area: infrastructure` – Helm, k8s, monitoring, nginx, compose files
+   - `area: load-testing` – Load-test scripts under `load-tests/`
    - `good first issue` – Great for first-time contributors
    - `difficulty: easy` / `difficulty: medium` / `difficulty: hard`
+
+## Automatic PR Labelling
+
+`area:*` labels are applied automatically when a PR is opened or updated.  The labeller
+workflow (`.github/workflows/labeler.yml`) uses
+[actions/labeler@v5](https://github.com/actions/labeler) with path-based rules defined in
+`.github/labeler.yml`.
+
+**How it works:**
+
+- The workflow triggers on `pull_request_target` (opened, synchronize, reopened).
+- Any changed file is matched against the globs in `.github/labeler.yml`.
+- Matching labels are added; `sync-labels: false` means existing labels are never removed.
+
+**Adding or adjusting rules:**
+
+Edit `.github/labeler.yml`.  Each entry maps a label name to one or more
+`changed-files › any-glob-to-any-file` patterns.  Glob syntax follows
+[minimatch](https://github.com/isaacs/minimatch).  Example — to label PRs that touch the CLI:
+
+```yaml
+"area: cli":
+  - changed-files:
+    - any-glob-to-any-file:
+      - "cli/**"
+```
+
+Open a PR with the updated `labeler.yml`; the new rule takes effect for all subsequent PRs.
 
 2. **Comment** – Comment on the issue to say you’re working on it (and avoid duplicate work).
 
@@ -52,9 +85,16 @@ See the main [README](README.md) for full setup.
 Open a [Discussion](https://github.com/FinesseStudioLab/Trivela/discussions) or tag maintainers in
 an issue.
 
-## Governance
+## Proposing significant changes (RFCs)
 
-For information about proposing major changes, RFCs, and decision-making processes, see
-[GOVERNANCE.md](docs/GOVERNANCE.md).
+Significant changes — new contract interfaces, breaking API changes, and major
+architectural decisions — go through the RFC process before implementation begins.
+
+1. Read the [RFC guide](docs/rfcs/README.md) to understand the lifecycle and
+   when an RFC is required.
+2. Copy [docs/rfcs/0000-template.md](docs/rfcs/0000-template.md), fill it in,
+   and open a pull request.
+
+For governance and decision-making processes, see [GOVERNANCE.md](docs/GOVERNANCE.md).
 
 Thank you for helping make Trivela better for the Stellar ecosystem.

@@ -1,0 +1,74 @@
+name: Mainnet Sign-off
+description: Record approval of a single MAINNET_CHECKLIST.md item before launch.
+title: "mainnet sign-off: <item name>"
+labels:
+  - mainnet
+  - sign-off
+assignees: []
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which section of the checklist does this item belong to?
+      options:
+        - Smart Contracts
+        - Backend
+        - Frontend
+        - Infrastructure
+    validations:
+      required: true
+
+  - type: input
+    id: item
+    attributes:
+      label: Checklist item
+      description: Paste the exact checklist item text from MAINNET_CHECKLIST.md.
+      placeholder: "`upgrade()` entrypoint implemented and tested"
+    validations:
+      required: true
+
+  - type: input
+    id: approver
+    attributes:
+      label: Approver GitHub handle
+      description: Your GitHub @handle.
+      placeholder: "@yourhandle"
+    validations:
+      required: true
+
+  - type: input
+    id: approval_date
+    attributes:
+      label: Approval date
+      description: Date of approval (YYYY-MM-DD).
+      placeholder: "2026-01-15"
+    validations:
+      required: true
+
+  - type: input
+    id: evidence
+    attributes:
+      label: Evidence link
+      description: PR, audit report, deployment transaction, or other artifact that proves this item is complete.
+      placeholder: "https://github.com/FinesseStudioLab/Trivela/pull/NNN"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Any caveats, conditions, or follow-ups to record alongside this sign-off.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: >
+            I have personally verified the evidence above and confirm that this checklist item is
+            complete and ready for mainnet.
+          required: true

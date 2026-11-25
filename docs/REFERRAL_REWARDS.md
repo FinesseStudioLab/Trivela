@@ -4,6 +4,10 @@ Part of the **Viral growth engine** epic
 ([#656](https://github.com/FinesseStudioLab/Trivela/issues/656)). This document covers the
 **on-chain referral reward** slice — the `#603` "referral economy" portion of the epic.
 
+> **Step-by-step sequence diagrams** — including the happy path, edge cases (referrer inactive,
+> referee never claims), and invariant-violation handling — are in
+> [**FLOWS.md § 6 Referral Claim Sub-flow**](FLOWS.md#6-referral-claim-sub-flow).
+
 ## Scope
 
 | Epic task                                                 | Status in this PR                                                              |
@@ -60,6 +64,30 @@ backend (admin) ── pay_referral_bonus(referrer, referee, qualifying_amount) 
 
 `bonus = qualifying_amount * rate_bps / 10_000` (floor division). All arithmetic is checked (`u128`
 intermediate) and overflow returns `Error::Overflow`.
+
+## Worked examples
+
+The table below shows exact outputs for representative inputs.  All values are in the contract's
+native integer unit (stroops / credits — no decimal shifting).
+
+| `qualifying_amount` | `rate_bps` | Calculation                          | `bonus` |
+| ------------------: | ---------: | ------------------------------------ | ------: |
+| 1 000 000           | 500        | 1 000 000 × 500 / 10 000            | 50 000  |
+| 1 000 000           | 1 000      | 1 000 000 × 1 000 / 10 000          | 100 000 |
+| 500 000             | 250        | 500 000 × 250 / 10 000              | 12 500  |
+| 1 000 000           | 10 000     | 1 000 000 × 10 000 / 10 000         | 1 000 000 |
+| 1 000 000           | 100 000    | 1 000 000 × 100 000 / 10 000        | 10 000 000 |
+| 99                  | 500        | 99 × 500 / 10 000 = 4.95 → floor    | 4       |
+| 19                  | 500        | 19 × 500 / 10 000 = 0.95 → floor    | 0 → `ZeroReferralBonus` |
+
+**Key observations**
+
+- `rate_bps = 10_000` → 100 % bonus (referrer receives the full qualifying amount).
+- `rate_bps = 100_000` → 1 000 % bonus (the maximum allowed).
+- Floor division means very small `qualifying_amount` values may produce a zero bonus and be
+  rejected with `ZeroReferralBonus` even with a non-zero rate.
+
+> These examples are verified by the CI script at `scripts/verify_referral_examples.py`.
 
 ## Anti-abuse invariants (enforced on-chain)
 
