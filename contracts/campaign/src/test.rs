@@ -36,6 +36,10 @@ fn setup() -> (Env, Address, CampaignContractClient<'static>) {
     (env, contract_id, client)
 }
 
+fn empty_signatures(env: &Env) -> Vec<(Address, BytesN<64>)> {
+    Vec::new(env)
+}
+
 /// Empty proof + dummy leaf – used when no Merkle root is configured.
 fn no_proof_args(env: &Env) -> (BytesN<32>, Vec<BytesN<32>>) {
     (BytesN::from_array(env, &[0u8; 32]), Vec::new(env))
@@ -161,7 +165,7 @@ fn test_set_active_only_by_admin() {
     // Non-admin cannot toggle active flag and the flag stays unchanged.
     assert!(client.is_active());
     assert_eq!(
-        client.try_set_active(&other, &0, &false),
+        client.try_set_active(&other, &0, &false, &empty_signatures(&env)),
         Err(Ok(Error::Unauthorized))
     );
     assert!(client.is_active());
@@ -169,7 +173,7 @@ fn test_set_active_only_by_admin() {
     assert_eq!(client.admin_nonce(), 0);
 
     // Admin succeeds and flips the flag.
-    client.set_active(&admin, &0, &false);
+    client.set_active(&admin, &0, &false, &empty_signatures(&env));
     assert!(!client.is_active());
 }
 
@@ -181,7 +185,7 @@ fn test_register_when_inactive() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_active(&admin, &0, &false);
+    client.set_active(&admin, &0, &false, &empty_signatures(&env));
 
     let (leaf, proof) = no_proof_args(&env);
     assert_eq!(
@@ -193,7 +197,7 @@ fn test_register_when_inactive() {
     assert_eq!(client.get_participant_count(), 0);
 
     // Re-activating allows the same participant to register normally.
-    client.set_active(&admin, &1, &true);
+    client.set_active(&admin, &1, &true, &empty_signatures(&env));
     assert!(client.register(&participant, &leaf, &proof, &None, &None));
     assert!(client.is_participant(&participant));
     assert_eq!(client.get_participant_count(), 1);
@@ -229,7 +233,7 @@ fn test_capacity_reached() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_max_cap(&admin, &0, &1);
+    client.set_max_cap(&admin, &0, &1, &empty_signatures(&env));
 
     let p1 = Address::generate(&env);
     let p2 = Address::generate(&env);
@@ -432,7 +436,7 @@ fn test_set_window_rejects_start_after_end() {
     env.mock_all_auths();
     let nonce_before = client.admin_nonce();
     assert_eq!(
-        client.try_set_window(&admin, &nonce_before, &500, &100),
+        client.try_set_window(&admin, &nonce_before, &500, &100, &empty_signatures(&env)),
         Err(Ok(Error::InvalidWindow))
     );
 
@@ -444,7 +448,7 @@ fn test_set_window_rejects_start_after_end() {
     assert_eq!(client.admin_nonce(), nonce_before);
 
     // Same nonce now succeeds with a valid window.
-    client.set_window(&admin, &nonce_before, &100, &500);
+    client.set_window(&admin, &nonce_before, &100, &500, &empty_signatures(&env));
     assert_eq!(client.get_window(), (100, 500));
     assert_eq!(client.admin_nonce(), nonce_before + 1);
 }
@@ -506,7 +510,7 @@ fn test_set_window_emits_event() {
     client.initialize(&admin);
 
     env.mock_all_auths();
-    client.set_window(&admin, &0, &100, &200);
+    client.set_window(&admin, &0, &100, &200, &empty_signatures(&env));
 
     assert_eq!(
         env.events().all(),
@@ -589,13 +593,13 @@ fn test_admin_nonce_replay_protection() {
     env.mock_all_auths();
 
     assert_eq!(client.admin_nonce(), 0);
-    client.set_active(&admin, &0, &false);
+    client.set_active(&admin, &0, &false, &empty_signatures(&env));
     assert_eq!(client.admin_nonce(), 1);
 
-    let replay = client.try_set_active(&admin, &0, &true);
+    let replay = client.try_set_active(&admin, &0, &true, &empty_signatures(&env));
     assert_eq!(replay, Err(Ok(Error::InvalidAdminNonce)));
 
-    client.set_active(&admin, &1, &true);
+    client.set_active(&admin, &1, &true, &empty_signatures(&env));
     assert_eq!(client.admin_nonce(), 2);
 }
 
@@ -666,7 +670,7 @@ fn test_admin_deregister() {
     // Admin deregister.
     // `env.events().all()` reflects events from the most recent invocation,
     // so we assert it right after `admin_deregister` (before any further client calls).
-    assert!(client.admin_deregister(&admin, &0, &participant));
+    assert!(client.admin_deregister(&admin, &0, &participant, &empty_signatures(&env)));
     let deregister_event = Symbol::new(&env, "deregister");
     assert_eq!(
         env.events().all(),
@@ -688,7 +692,7 @@ fn test_admin_deregister() {
     assert_eq!(client.get_participant_count(), 0);
 
     // Call admin deregister again for same participant (should return false and not panic)
-    assert!(!client.admin_deregister(&admin, &1, &participant));
+    assert!(!client.admin_deregister(&admin, &1, &participant, &empty_signatures(&env)));
     assert_eq!(client.get_participant_count(), 0);
 }
 
@@ -706,7 +710,7 @@ fn test_deregister_liveness_checks() {
     client.register(&participant, &leaf, &proof, &None, &None);
 
     // Case 1: end_time != u64::MAX and now > end_time
-    client.set_window(&admin, &0, &100, &200);
+    client.set_window(&admin, &0, &100, &200, &empty_signatures(&env));
     env.ledger().with_mut(|li| li.timestamp = 250);
     assert_eq!(
         client.try_deregister(&participant),
@@ -714,8 +718,8 @@ fn test_deregister_liveness_checks() {
     );
 
     // Reset window to u64::MAX but campaign inactive
-    client.set_window(&admin, &1, &100, &u64::MAX);
-    client.set_active(&admin, &2, &false);
+    client.set_window(&admin, &1, &100, &u64::MAX, &empty_signatures(&env));
+    client.set_active(&admin, &2, &false, &empty_signatures(&env));
     env.ledger().with_mut(|li| li.timestamp = 250);
     assert_eq!(
         client.try_deregister(&participant),
@@ -723,7 +727,7 @@ fn test_deregister_liveness_checks() {
     );
 
     // Admin deregister bypasses all these checks
-    assert!(client.admin_deregister(&admin, &3, &participant));
+    assert!(client.admin_deregister(&admin, &3, &participant, &empty_signatures(&env)));
     assert!(!client.is_participant(&participant));
 }
 
@@ -827,7 +831,7 @@ fn test_register_without_code_in_invite_only_mode_fails() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_invite_only(&admin, &0, &true);
+    client.set_invite_only(&admin, &0, &true, &empty_signatures(&env));
     assert!(client.is_invite_only());
 
     let (leaf, proof) = no_proof_args(&env);
@@ -870,11 +874,11 @@ fn test_register_with_valid_code_succeeds_then_second_use_fails() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_invite_only(&admin, &0, &true);
+    client.set_invite_only(&admin, &0, &true, &empty_signatures(&env));
 
     let code = Bytes::from_slice(&env, b"my-invite-code");
     let hash: BytesN<32> = env.crypto().sha256(&code).into();
-    client.issue_invite(&admin, &1, &hash);
+    client.issue_invite(&admin, &1, &hash, &empty_signatures(&env));
     assert!(!client.invite_used(&hash));
 
     let (leaf, proof) = no_proof_args(&env);
@@ -898,11 +902,11 @@ fn test_revoke_invite_removes_it() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_invite_only(&admin, &0, &true);
+    client.set_invite_only(&admin, &0, &true, &empty_signatures(&env));
     let code = Bytes::from_slice(&env, b"revoke-me");
     let hash: BytesN<32> = env.crypto().sha256(&code).into();
-    client.issue_invite(&admin, &1, &hash);
-    client.revoke_invite(&admin, &2, &hash);
+    client.issue_invite(&admin, &1, &hash, &empty_signatures(&env));
+    client.revoke_invite(&admin, &2, &hash, &empty_signatures(&env));
 
     let (leaf, proof) = no_proof_args(&env);
     assert_eq!(
@@ -1117,13 +1121,13 @@ fn test_campaign_propose_and_accept_admin_happy_path() {
     assert_eq!(client.admin(), admin);
     assert_eq!(client.pending_admin(), None);
 
-    client.propose_admin(&admin, &new_admin);
+    client.propose_admin(&admin, &new_admin, &0, &empty_signatures(&env));
     assert_eq!(client.pending_admin(), Some(new_admin.clone()));
     assert_eq!(client.admin(), admin);
 
     env.ledger()
         .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
-    client.accept_admin(&new_admin);
+    client.accept_admin(&new_admin, &0, &empty_signatures(&env));
     assert_eq!(client.admin(), new_admin);
     assert_eq!(client.pending_admin(), None);
 }
@@ -1131,7 +1135,7 @@ fn test_campaign_propose_and_accept_admin_happy_path() {
 #[test]
 fn test_campaign_accept_admin_before_cooldown_fails() {
     let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
-    client.propose_admin(&admin, &new_admin);
+    client.propose_admin(&admin, &new_admin, &0, &empty_signatures(&env));
 
     env.ledger()
         .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS - 1);
@@ -1141,14 +1145,14 @@ fn test_campaign_accept_admin_before_cooldown_fails() {
 
     env.ledger()
         .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
-    client.accept_admin(&new_admin);
+    client.accept_admin(&new_admin, &0, &empty_signatures(&env));
     assert_eq!(client.admin(), new_admin);
 }
 
 #[test]
 fn test_campaign_propose_without_accept_keeps_old_admin() {
     let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
-    client.propose_admin(&admin, &new_admin);
+    client.propose_admin(&admin, &new_admin, &0, &empty_signatures(&env));
     assert_eq!(client.admin(), admin);
     assert_eq!(client.pending_admin(), Some(new_admin));
 }
@@ -1157,7 +1161,7 @@ fn test_campaign_propose_without_accept_keeps_old_admin() {
 fn test_campaign_non_admin_cannot_propose() {
     let (env, client, _admin, new_admin) = setup_admin_rotation_campaign();
     let imposter = Address::generate(&env);
-    let result = client.try_propose_admin(&imposter, &new_admin);
+    let result = client.try_propose_admin(&imposter, &new_admin, &0, &empty_signatures(&env));
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -1181,8 +1185,8 @@ fn test_campaign_accept_without_proposal_fails() {
 #[test]
 fn test_campaign_cancel_admin_transfer_clears_pending() {
     let (_env, client, admin, new_admin) = setup_admin_rotation_campaign();
-    client.propose_admin(&admin, &new_admin);
-    client.cancel_admin_transfer(&admin);
+    client.propose_admin(&admin, &new_admin, &0, &empty_signatures(&env));
+    client.cancel_admin_transfer(&admin, &1, &empty_signatures(&env));
     assert_eq!(client.pending_admin(), None);
     let result = client.try_accept_admin(&new_admin);
     assert_eq!(result, Err(Ok(Error::NoPendingAdmin)));
@@ -1192,20 +1196,20 @@ fn test_campaign_cancel_admin_transfer_clears_pending() {
 fn test_campaign_new_admin_can_call_admin_operations() {
     // Once accepted, the new admin's signature is enough to perform admin-only ops.
     let (env, client, admin, new_admin) = setup_admin_rotation_campaign();
-    client.propose_admin(&admin, &new_admin);
+    client.propose_admin(&admin, &new_admin, &0, &empty_signatures(&env));
     env.ledger()
         .with_mut(|li| li.timestamp = ADMIN_ROTATION_COOLDOWN_SECS);
-    client.accept_admin(&new_admin);
+    client.accept_admin(&new_admin, &1, &empty_signatures(&env));
 
     // set_active is admin-only — was previously rejected for `admin`'s replacement
     // until the rotation completed.
     let nonce = client.admin_nonce();
-    client.set_active(&new_admin, &nonce, &true);
+    client.set_active(&new_admin, &nonce, &true, &empty_signatures(&env));
     assert!(client.is_active());
 
     // Old admin can no longer perform admin-only ops.
     let nonce = client.admin_nonce();
-    let result = client.try_set_active(&admin, &nonce, &false);
+    let result = client.try_set_active(&admin, &nonce, &false, &empty_signatures(&env));
     assert_eq!(result, Err(Ok(Error::Unauthorized)));
 }
 
@@ -1452,16 +1456,16 @@ fn test_set_activity_log_size_validates_range() {
     env.mock_all_auths();
 
     // Min boundary (10) - should succeed
-    client.set_activity_log_size(&admin, &0, &10);
+    client.set_activity_log_size(&admin, &0, &10, &empty_signatures(&env));
 
     // Max boundary (200) - should succeed
-    client.set_activity_log_size(&admin, &1, &200);
+    client.set_activity_log_size(&admin, &1, &200, &empty_signatures(&env));
 
     // Below min (9) - should fail
-    assert!(client.try_set_activity_log_size(&admin, &2, &9).is_err());
+    assert!(client.try_set_activity_log_size(&admin, &2, &9, &empty_signatures(&env)).is_err());
 
     // Above max (201) - should fail
-    assert!(client.try_set_activity_log_size(&admin, &3, &201).is_err());
+    assert!(client.try_set_activity_log_size(&admin, &3, &201, &empty_signatures(&env)).is_err());
 }
 
 #[test]
@@ -1483,7 +1487,7 @@ fn test_set_activity_log_size_trims_existing_log() {
     assert_eq!(log.len(), 20);
 
     // Reduce size to 10 - should trim oldest 10 entries
-    client.set_activity_log_size(&admin, &0, &10);
+    client.set_activity_log_size(&admin, &0, &10, &empty_signatures(&env));
 
     let trimmed_log = client.activity_log();
     assert_eq!(trimmed_log.len(), 10);
@@ -1741,7 +1745,7 @@ fn test_clear_participation_allows_re_registration() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_active(&admin, &0, &true);
+    client.set_active(&admin, &0, &true, &empty_signatures(&env));
     let (leaf, proof) = no_proof_args(&env);
     let participant = Address::generate(&env);
 
@@ -1749,7 +1753,7 @@ fn test_clear_participation_allows_re_registration() {
     client.deregister(&participant);
 
     // Admin explicitly clears participation history
-    client.clear_participation(&admin, &1, &participant);
+    client.clear_participation(&admin, &1, &participant, &empty_signatures(&env));
     assert!(!client.has_participated(&participant));
 
     // Now re-registration succeeds
@@ -1898,7 +1902,7 @@ fn test_set_participation_fee_roundtrip() {
 
     assert_eq!(client.participation_fee(), None);
 
-    client.set_participation_fee(&admin, &0, &token, &100, &pool);
+    client.set_participation_fee(&admin, &0, &token, &100, &pool, &empty_signatures(&env));
     let fee = client.participation_fee().expect("fee should be set");
     assert_eq!(fee.token, token);
     assert_eq!(fee.amount, 100);
@@ -1914,10 +1918,10 @@ fn test_clear_participation_fee_with_zero_amount() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_participation_fee(&admin, &0, &token, &100, &pool);
+    client.set_participation_fee(&admin, &0, &token, &100, &pool, &empty_signatures(&env));
     assert!(client.participation_fee().is_some());
 
-    client.set_participation_fee(&admin, &1, &token, &0, &pool);
+    client.set_participation_fee(&admin, &1, &token, &0, &pool, &empty_signatures(&env));
     assert_eq!(client.participation_fee(), None);
 }
 
@@ -1932,32 +1936,30 @@ fn test_set_participation_fee_requires_admin() {
     env.mock_all_auths();
 
     assert_eq!(
-        client.try_set_participation_fee(&stranger, &0, &token, &100, &pool),
+        client.try_set_participation_fee(&stranger, &0, &token, &100, &pool, &empty_signatures(&env)),
         Err(Ok(Error::Unauthorized))
     );
-}
+}    #[test]
+    fn test_register_charges_participation_fee() {
+        let (env, _contract_id, client) = setup();
+        let admin = Address::generate(&env);
+        let participant = Address::generate(&env);
+        let pool = Address::generate(&env);
+        client.initialize(&admin);
+        env.mock_all_auths();
 
-#[test]
-fn test_register_charges_participation_fee() {
-    let (env, _contract_id, client) = setup();
-    let admin = Address::generate(&env);
-    let participant = Address::generate(&env);
-    let pool = Address::generate(&env);
-    client.initialize(&admin);
-    env.mock_all_auths();
+        let token_id = env.register_contract(None, fee_token::MockToken);
+        fee_token::MockToken::mint(&env, &token_id, &participant, 1_000);
 
-    let token_id = env.register_contract(None, fee_token::MockToken);
-    fee_token::MockToken::mint(&env, &token_id, &participant, 1_000);
+        client.set_participation_fee(&admin, &0, &token_id, &50, &pool, &empty_signatures(&env));
 
-    client.set_participation_fee(&admin, &0, &token_id, &50, &pool);
+        let (leaf, proof) = no_proof_args(&env);
+        assert!(client.register(&participant, &leaf, &proof, &None, &None));
 
-    let (leaf, proof) = no_proof_args(&env);
-    assert!(client.register(&participant, &leaf, &proof, &None, &None));
-
-    let token_client = fee_token::MockTokenClient::new(&env, &token_id);
-    assert_eq!(token_client.balance(&participant), 950);
-    assert_eq!(token_client.balance(&pool), 50);
-}
+        let token_client = fee_token::MockTokenClient::new(&env, &token_id);
+        assert_eq!(token_client.balance(&participant), 950);
+        assert_eq!(token_client.balance(&pool), 50);
+    }
 
 #[test]
 fn test_repeat_registration_does_not_recharge_fee() {
@@ -2007,9 +2009,9 @@ fn test_export_state_roundtrip() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_window(&admin, &0, &100, &200);
-    client.set_max_cap(&admin, &1, &500);
-    client.set_invite_only(&admin, &2, &true);
+    client.set_window(&admin, &0, &100, &200, &empty_signatures(&env));
+    client.set_max_cap(&admin, &1, &500, &empty_signatures(&env));
+    client.set_invite_only(&admin, &2, &true, &empty_signatures(&env));
 
     let dump = client.export_state();
     assert_eq!(dump.admin, admin);
@@ -2029,8 +2031,8 @@ fn test_import_state_restores_configuration() {
     client.initialize(&admin);
     env.mock_all_auths();
 
-    client.set_window(&admin, &0, &100, &200);
-    client.set_max_cap(&admin, &1, &500);
+    client.set_window(&admin, &0, &100, &200, &empty_signatures(&env));
+    client.set_max_cap(&admin, &1, &500, &empty_signatures(&env));
 
     let mut dump = client.export_state();
     dump.admin = new_admin.clone();
@@ -2039,7 +2041,7 @@ fn test_import_state_restores_configuration() {
     dump.max_cap = 42;
     dump.active = false;
 
-    client.import_state(&admin, &2, &dump);
+    client.import_state(&admin, &2, &dump, &empty_signatures(&env));
 
     assert_eq!(client.admin(), new_admin);
     assert!(!client.is_active());
@@ -2056,7 +2058,7 @@ fn test_import_state_requires_admin() {
 
     let dump = client.export_state();
     assert_eq!(
-        client.try_import_state(&stranger, &0, &dump),
+        client.try_import_state(&stranger, &0, &dump, &empty_signatures(&env)),
         Err(Ok(Error::Unauthorized))
     );
 }
